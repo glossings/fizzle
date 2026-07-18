@@ -24,6 +24,8 @@ export class Engine {
     this.clock = new THREE.Clock();
     this.time = 0;        // sketch time; frozen while paused so resume doesn't jump
     this.paused = false;
+    this.frames = 0;      // total frames rendered, for the fps readout
+    this.quality = 1;
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
 
@@ -45,7 +47,14 @@ export class Engine {
     this.camera.updateProjectionMatrix();
   }
 
+  setQuality(scale) {
+    this.quality = scale;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * scale);
+    this.resize();
+  }
+
   tick() {
+    this.frames++;
     const now = this.clock.getElapsedTime();
     const dt = now - (this._lastT ?? now);
     this._lastT = now;

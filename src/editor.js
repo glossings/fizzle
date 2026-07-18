@@ -1,13 +1,14 @@
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
-import { javascript } from '@codemirror/lang-javascript';
+import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
+import { apiCompletions, apiHover } from './docs.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
-//   ctrl+enter  run    ·  ctrl+.  pause/play  ·  ctrl+h  hide/show editor
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange }) {
+//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show editor · ctrl+b sidebar
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar }) {
   const toggleEditor = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden')) view.focus();
@@ -19,6 +20,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Shift-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
       { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
       { key: 'Ctrl-h', run: () => { toggleEditor(); return true; } },
+      { key: 'Ctrl-b', run: () => { onToggleSidebar?.(); return true; } },
     ])
   );
 
@@ -29,6 +31,8 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       keys,
       basicSetup,
       javascript(),
+      javascriptLanguage.data.of({ autocomplete: apiCompletions }),
+      apiHover,
       oneDark,
       EditorView.lineWrapping,
       colorPicker(onLiveChange),
@@ -42,6 +46,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }
     else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
     else if (e.key === 'h') { e.preventDefault(); toggleEditor(); }
+    else if (e.key === 'b') { e.preventDefault(); onToggleSidebar?.(); }
   });
 
   view.focus();

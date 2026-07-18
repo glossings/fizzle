@@ -1,0 +1,228 @@
+// Sidebar: global settings + sketch palette. User sketches are .js files in
+// sketches/user/ (via the dev-server API in vite.config.js) so the folder can
+// be git-versioned; when no server API is available (e.g. a static build)
+// they fall back to localStorage. Examples are bundled read-only.
+
+const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
+const EXAMPLES = Object.fromEntries(
+  Object.entries(exampleFiles).map(([p, code]) => [p.split('/').pop().replace(/\.js$/, ''), code])
+);
+
+const LS_SKETCHES = 'td-user-sketches';
+const LS_LAST = 'td-last-sketch';
+const LS_SETTINGS = 'td-settings';
+const NEW_TEMPLATE = `// new sketch — ctrl+enter to run\n\nbg('#07070c')\nambient(0.2)\ndirectional({ intensity: 1.4 }).pos(4, 6, 3).out()\n\nsphere({ radius: 1, res: 96 })\n  .noise({ amp: 0.3, freq: 2, octaves: 4, speed: 0.4 })\n  .material({ color: '#8899ff', roughness: 0.35 })\n  .out()\n`;
+
+// --- storage (disk API with localStorage fallback) -------------------------
+
+let onDisk = true;
+const lsAll = () => { try { return JSON.parse(localStorage.getItem(LS_SKETCHES)) ?? {}; } catch { return {}; } };
+const lsWrite = (all) => localStorage.setItem(LS_SKETCHES, JSON.stringify(all));
+
+async function listUser() {
+  try {
+    const r = await fetch('/api/sketches');
+    if (!r.ok) throw new Error();
+    onDisk = true;
+    return (await r.json()).user;
+  } catch {
+    onDisk = false;
+    return Object.keys(lsAll()).sort();
+  }
+}
+async function loadUser(name) {
+  if (onDisk) {
+    const r = await fetch(`/api/sketches/user/${encodeURIComponent(name)}`);
+    if (r.ok) return r.text();
+  }
+  return lsAll()[name];
+}
+async function saveUser(name, code) {
+  if (onDisk) {
+    const r = await fetch(`/api/sketches/user/${encodeURIComponent(name)}`, { method: 'PUT', body: code });
+    if (r.ok) return;
+  }
+  const all = lsAll();
+  all[name] = code;
+  lsWrite(all);
+}
+async function deleteUser(name) {
+  if (onDisk) {
+    const r = await fetch(`/api/sketches/user/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (r.ok) return;
+  }
+  const all = lsAll();
+  delete all[name];
+  lsWrite(all);
+}
+
+// --- sidebar ---------------------------------------------------------------
+
+export async function initSidebar({ engine, getCode, setCode, run }) {
+  const settings = Object.assign(
+    { quality: 1, fontSize: 15, liveColor: true, open: true },
+    JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
+  );
+  const persist = () => localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
+
+  const el = document.createElement('div');
+  el.id = 'sidebar';
+  el.innerHTML = `
+    <h1>td-livecode</h1>
+    <section>
+      <h2>settings</h2>
+      <label>quality
+        <select id="sb-quality">
+          <option value="0.5">low (0.5×)</option>
+          <option value="0.75">med (0.75×)</option>
+          <option value="1">high (1×)</option>
+        </select>
+      </label>
+      <label>font size <input id="sb-font" type="number" min="10" max="24" step="1"></label>
+      <label><input id="sb-live" type="checkbox"> live color updates</label>
+      <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
+    </section>
+    <section>
+      <h2>sketch <span id="sb-current"></span></h2>
+      <div class="sb-btns">
+        <button id="sb-save">save</button>
+        <button id="sb-saveas">save as…</button>
+        <button id="sb-new">new</button>
+      </div>
+      <h2>your sketches</h2>
+      <ul id="sb-user"><li class="sb-empty">none yet — save one!</li></ul>
+      <h2>examples</h2>
+      <ul id="sb-examples"></ul>
+    </section>`;
+  document.body.appendChild(el);
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.id = 'sb-toggle';
+  toggleBtn.title = 'settings & sketches (ctrl+b)';
+  toggleBtn.textContent = '☰';
+  document.body.appendChild(toggleBtn);
+
+  const $ = (id) => el.querySelector(id);
+  let current = { scope: null, name: 'untitled' };
+
+  const setOpen = (open) => {
+    settings.open = open;
+    el.classList.toggle('hidden', !open);
+    persist();
+  };
+  const toggle = () => setOpen(el.classList.contains('hidden'));
+  toggleBtn.addEventListener('click', toggle);
+  setOpen(settings.open);
+
+  const setCurrent = (scope, name) => {
+    current = { scope, name };
+    $('#sb-current').textContent = scope === 'examples' ? `${name} (example)` : name;
+    localStorage.setItem(LS_LAST, JSON.stringify(current));
+  };
+
+  // --- settings wiring ---
+  const applySettings = () => {
+    engine.setQuality(settings.quality);
+    document.documentElement.style.setProperty('--editor-font', `${settings.fontSize}px`);
+    $('#sb-quality').value = String(settings.quality);
+    $('#sb-font').value = settings.fontSize;
+    $('#sb-live').checked = settings.liveColor;
+  };
+  $('#sb-quality').addEventListener('change', (e) => { settings.quality = Number(e.target.value); applySettings(); persist(); });
+  $('#sb-font').addEventListener('change', (e) => { settings.fontSize = Number(e.target.value); applySettings(); persist(); });
+  $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
+  applySettings();
+
+  let lastFrames = 0;
+  setInterval(() => {
+    $('#sb-fps').textContent = engine.frames - lastFrames;
+    lastFrames = engine.frames;
+  }, 1000);
+
+  // --- sketch list wiring ---
+  async function refreshList() {
+    const names = await listUser();
+    $('#sb-store').textContent = onDisk ? '· disk: sketches/user/' : '· localStorage';
+    const ul = $('#sb-user');
+    ul.innerHTML = names.length ? '' : '<li class="sb-empty">none yet — save one!</li>';
+    for (const name of names) {
+      const li = document.createElement('li');
+      const a = document.createElement('span');
+      a.textContent = name;
+      a.addEventListener('click', async () => {
+        const code = await loadUser(name);
+        if (code == null) return refreshList();
+        setCode(code);
+        setCurrent('user', name);
+        run(code);
+      });
+      const del = document.createElement('button');
+      del.textContent = '✕';
+      del.title = `delete ${name}`;
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete sketch "${name}"?`)) return;
+        await deleteUser(name);
+        if (current.scope === 'user' && current.name === name) setCurrent(null, name);
+        refreshList();
+      });
+      li.append(a, del);
+      ul.appendChild(li);
+    }
+  }
+
+  const exUl = $('#sb-examples');
+  for (const name of Object.keys(EXAMPLES).sort()) {
+    const li = document.createElement('li');
+    const a = document.createElement('span');
+    a.textContent = name;
+    a.addEventListener('click', () => {
+      setCode(EXAMPLES[name]);
+      setCurrent('examples', name);
+      run(EXAMPLES[name]);
+    });
+    li.appendChild(a);
+    exUl.appendChild(li);
+  }
+
+  async function saveAs(defaultName) {
+    const name = prompt('sketch name:', defaultName)?.trim();
+    if (!name) return;
+    if (!/^[\w][\w -]{0,60}$/.test(name)) return alert('letters, numbers, spaces, - and _ only');
+    await saveUser(name, getCode());
+    setCurrent('user', name);
+    refreshList();
+  }
+  $('#sb-save').addEventListener('click', async () => {
+    if (current.scope === 'user') {
+      await saveUser(current.name, getCode());
+      refreshList();
+    } else {
+      saveAs(current.name);
+    }
+  });
+  $('#sb-saveas').addEventListener('click', () => saveAs(current.name));
+  $('#sb-new').addEventListener('click', () => {
+    setCode(NEW_TEMPLATE);
+    setCurrent(null, 'untitled');
+    run(NEW_TEMPLATE);
+  });
+
+  await refreshList();
+
+  // --- restore last sketch ---
+  let initialCode = null;
+  try {
+    const last = JSON.parse(localStorage.getItem(LS_LAST) ?? 'null');
+    if (last?.scope === 'user') {
+      initialCode = (await loadUser(last.name)) ?? null;
+      if (initialCode != null) setCurrent('user', last.name);
+    } else if (last?.scope === 'examples' && EXAMPLES[last.name]) {
+      initialCode = EXAMPLES[last.name];
+      setCurrent('examples', last.name);
+    }
+  } catch { /* fall through to default sketch */ }
+  if (initialCode == null) setCurrent('examples', 'glow-blobs');
+
+  return { initialCode, toggle, settings };
+}

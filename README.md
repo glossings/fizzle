@@ -9,7 +9,19 @@ npm install
 npm run dev   # then open http://localhost:5173
 ```
 
-**Keys:** `ctrl + enter` run the sketch · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · drag to orbit, scroll to zoom.
+**Keys:** `ctrl + enter` run the sketch · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · `ctrl + b` toggle the sidebar · `ctrl + hover` a command for docs · drag to orbit, scroll to zoom.
+
+**Editor smarts:** autocomplete knows the whole API (globals at the top level,
+chain methods after a `.`), each completion carries its signature and a doc
+line, and holding `ctrl` while hovering any API name pops the same docs.
+
+**Sidebar** (`ctrl + b` or the ☰ button): render quality, editor font size,
+live-color-update toggle, fps — plus the sketch palette. User sketches are
+saved as plain `.js` files in `sketches/user/` via the dev server, so the
+folder can be committed to git like any other source; bundled read-only
+examples live in `sketches/examples/`. (Without the dev server — e.g. a static
+build — user sketches fall back to localStorage.) The last opened sketch is
+restored on reload.
 
 **Colors:** every `#rgb`/`#rrggbb` in the code gets a swatch — click it (or the
 hex itself, or just type `#`) to open the native color picker (wheel,
@@ -140,6 +152,10 @@ scene()
 - [src/api.js](src/api.js) — the chainable operator API
 - [src/tops.js](src/tops.js) — TOP shader passes, graph evaluation, feedback
 - [src/noise.js](src/noise.js) — GLSL simplex fbm + shader injection
-- [src/editor.js](src/editor.js) — CodeMirror overlay, keybindings
+- [src/editor.js](src/editor.js) — CodeMirror overlay, keybindings, completions
+- [src/docs.js](src/docs.js) — API docs table → autocomplete + ctrl+hover tooltips
 - [src/colorpicker.js](src/colorpicker.js) — inline hex swatches + native picker
-- [src/main.js](src/main.js) — wiring + the default sketch
+- [src/sidebar.js](src/sidebar.js) — settings + sketch palette
+- [src/main.js](src/main.js) — wiring
+- [vite.config.js](vite.config.js) — dev-server API for `sketches/user/`
+- [sketches/examples/](sketches/examples/) — bundled example sketches
