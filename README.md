@@ -9,7 +9,12 @@ npm install
 npm run dev   # then open http://localhost:5173
 ```
 
-**Keys:** `ctrl/cmd + enter` run the sketch · `ctrl/cmd + .` toggle the editor · drag to orbit, scroll to zoom.
+**Keys:** `ctrl + enter` run the sketch · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · drag to orbit, scroll to zoom.
+
+**Colors:** every `#rgb`/`#rrggbb` in the code gets a swatch — click it (or the
+hex itself, or just type `#`) to open the native color picker (wheel,
+eyedropper, RGB sliders). Picks write back into the code and re-render live
+while you drag.
 
 ## The pipeline
 

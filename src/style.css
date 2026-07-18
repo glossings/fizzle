@@ -47,6 +47,18 @@ html, body {
 .cm-editor .cm-cursor { border-left-color: #fff; }
 .cm-editor .cm-selectionBackground { background: rgba(90, 120, 255, 0.35) !important; }
 
+.cm-color-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  margin: 0 5px 0 1px;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.cm-color-swatch:hover { border-color: #fff; }
+
 #status {
   position: fixed;
   left: 0;

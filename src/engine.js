@@ -21,6 +21,8 @@ export class Engine {
     this.controls.enableDamping = true;
 
     this.clock = new THREE.Clock();
+    this.time = 0;        // sketch time; frozen while paused so resume doesn't jump
+    this.paused = false;
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
 
@@ -38,14 +40,23 @@ export class Engine {
   }
 
   tick() {
-    const t = this.clock.getElapsedTime();
-    const dt = t - (this._lastT ?? t);
-    this._lastT = t;
-    for (const fn of this.updaters) {
-      try { fn(t, dt); } catch (e) { /* keep rendering even if one updater throws */ }
+    const now = this.clock.getElapsedTime();
+    const dt = now - (this._lastT ?? now);
+    this._lastT = now;
+    if (!this.paused) {
+      this.time += dt;
+      for (const fn of this.updaters) {
+        try { fn(this.time, dt); } catch (e) { /* keep rendering even if one updater throws */ }
+      }
     }
+    // camera stays interactive while paused
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  togglePause() {
+    this.paused = !this.paused;
+    return this.paused;
   }
 
   add(object3d, updater) {
@@ -79,6 +90,10 @@ export class Engine {
     const values = names.map((n) => api[n]);
     try {
       new Function(...names, `"use strict";\n${code}`)(...values);
+      // settle the new patch at current sketch time (matters when paused)
+      for (const fn of this.updaters) {
+        try { fn(this.time, 0); } catch (e) { /* surfaced on next frame if persistent */ }
+      }
       return null;
     } catch (err) {
       this.clearPatch();

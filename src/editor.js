@@ -3,28 +3,45 @@ import { keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { colorPicker } from './colorpicker.js';
 
-export function makeEditor(parent, initialCode, onRun) {
-  const runKeys = Prec.highest(
+// Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
+//   ctrl+enter  run    ·  ctrl+.  pause/play  ·  ctrl+h  hide/show editor
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange }) {
+  const toggleEditor = () => {
+    parent.classList.toggle('hidden');
+    if (!parent.classList.contains('hidden')) view.focus();
+  };
+
+  const keys = Prec.highest(
     keymap.of([
-      { key: 'Mod-Enter', run: (view) => { onRun(view.state.doc.toString()); return true; } },
-      { key: 'Shift-Enter', run: (view) => { onRun(view.state.doc.toString()); return true; } },
+      { key: 'Ctrl-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
+      { key: 'Shift-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
+      { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
+      { key: 'Ctrl-h', run: () => { toggleEditor(); return true; } },
     ])
   );
 
   const view = new EditorView({
     doc: initialCode,
     parent,
-    extensions: [runKeys, basicSetup, javascript(), oneDark, EditorView.lineWrapping],
+    extensions: [
+      keys,
+      basicSetup,
+      javascript(),
+      oneDark,
+      EditorView.lineWrapping,
+      colorPicker(onLiveChange),
+    ],
   });
 
-  // handled at the window level so it works whether the editor or canvas has focus
+  // same bindings when the canvas has focus; skip anything the editor already
+  // handled (its keymap calls preventDefault before this bubbles up)
   window.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === '.') {
-      e.preventDefault();
-      parent.classList.toggle('hidden');
-      if (!parent.classList.contains('hidden')) view.focus();
-    }
+    if (!e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }
+    else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
+    else if (e.key === 'h') { e.preventDefault(); toggleEditor(); }
   });
 
   view.focus();

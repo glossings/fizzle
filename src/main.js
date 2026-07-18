@@ -2,8 +2,9 @@ import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor } from './editor.js';
 
-const DEFAULT_SKETCH = `// td-livecode — ctrl/cmd+enter to run, ctrl/cmd+. to hide code
+const DEFAULT_SKETCH = `// td-livecode — ctrl+enter run · ctrl+. pause · ctrl+h hide code
 // every numeric param also takes a function of time: t => ...
+// click any color swatch (or type #) for a color picker
 
 bg('#07070c')
 fog('#07070c', 8, 40)
@@ -60,5 +61,25 @@ function run(code) {
   }
 }
 
-makeEditor(document.getElementById('editor'), DEFAULT_SKETCH, run);
+function togglePause() {
+  if (engine.togglePause()) {
+    status.textContent = '⏸ paused — ctrl+. to resume';
+    status.className = 'show ok';
+  } else {
+    status.className = '';
+  }
+}
+
+// dragging the color wheel fires rapidly; rebuild the patch at most ~8x/sec
+let liveTimer;
+function liveRun(code) {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => run(code), 120);
+}
+
+makeEditor(document.getElementById('editor'), DEFAULT_SKETCH, {
+  onRun: run,
+  onTogglePause: togglePause,
+  onLiveChange: liveRun,
+});
 run(DEFAULT_SKETCH);
