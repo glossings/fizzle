@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
 import { TopOp } from './tops.js';
@@ -11,6 +12,59 @@ const FONTS = {
   regular: fontLoader.parse(helvetikerRegular),
   bold: fontLoader.parse(helvetikerBold),
 };
+
+// 3D text fonts, beyond the bundled helvetiker pair. `font` may be:
+//  - a parsed three.js Font (escape hatch)
+//  - a URL to .typeface.json, .ttf or .otf (parsed at runtime, no conversion)
+//  - an installed font's name — Chrome's Local Font Access API, behind a
+//    permission prompt; needs a user gesture, so it may fail on the auto-run
+//    at page load and succeed on the next ctrl+enter
+// Loads are async: the mesh builds with helvetiker and swaps when ready.
+// Cache persists across re-runs so the swap happens once.
+const fontCache = new Map();
+
+async function loadFontSpec(spec, weight) {
+  if (/\.json(\?|$)/i.test(spec)) {
+    return fontLoader.parse(await (await fetch(spec)).json());
+  }
+  if (/\.(ttf|otf)(\?|$)/i.test(spec)) {
+    return fontLoader.parse(new TTFLoader().parse(await (await fetch(spec)).arrayBuffer()));
+  }
+  if (!navigator.queryLocalFonts) {
+    throw new Error(`"${spec}": local font access needs Chrome/Edge — use a .ttf/.otf URL instead`);
+  }
+  const fonts = await navigator.queryLocalFonts();
+  const name = spec.toLowerCase();
+  const matches = fonts.filter(
+    (f) => f.family.toLowerCase() === name || f.fullName.toLowerCase() === name || f.postscriptName.toLowerCase() === name
+  );
+  if (!matches.length) throw new Error(`font "${spec}" not found among installed fonts`);
+  const style = new RegExp(weight === 'bold' ? 'bold' : 'regular|normal|book|roman', 'i');
+  const pick = matches.find((f) => style.test(f.style)) ?? matches[0];
+  return fontLoader.parse(new TTFLoader().parse(await (await pick.blob()).arrayBuffer()));
+}
+
+function resolveFont(o) {
+  const fallback = o.weight === 'bold' ? FONTS.bold : FONTS.regular;
+  const spec = o.font;
+  if (!spec) return { font: fallback, pending: null };
+  if (typeof spec === 'object' && spec.isFont) return { font: spec, pending: null };
+  const key = `${String(spec).toLowerCase()}|${o.weight ?? ''}`;
+  let cached = fontCache.get(key);
+  if (cached?.isFont) return { font: cached, pending: null };
+  if (!cached) {
+    cached = loadFontSpec(String(spec), o.weight).then((f) => {
+      fontCache.set(key, f);
+      return f;
+    });
+    cached.catch((err) => {
+      fontCache.delete(key);
+      console.warn(`td-livecode: ${err.message}`);
+    });
+    fontCache.set(key, cached);
+  }
+  return { font: fallback, pending: cached };
+}
 
 // Chainable operator API, synth-flavored:
 //
@@ -29,7 +83,7 @@ const FONTS = {
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
 
-function buildGeometry(type, o = {}) {
+function buildGeometry(type, o = {}, font3d = null) {
   switch (type) {
     case 'sphere':
       return new THREE.SphereGeometry(o.radius ?? 1, o.res ?? 64, Math.ceil((o.res ?? 64) / 2));
@@ -50,7 +104,7 @@ function buildGeometry(type, o = {}) {
     case 'text3d': {
       const bevel = o.bevel ?? 0.02;
       const g = new TextGeometry(String(resolve(o.text ?? 'text', 0)), {
-        font: o.font ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
+        font: font3d ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
         size: o.size ?? 1,
         depth: o.depth ?? 0.25,
         curveSegments: o.res ?? 8,
@@ -110,7 +164,13 @@ class GeoOp {
   color(c) { this._material.color = c; return this; }
 
   out() {
-    const geometry = buildGeometry(this.type, this.opts);
+    let pendingFont = null;
+    if (this.type === 'text3d') {
+      const resolved = resolveFont(this.opts);
+      this._font = resolved.font;
+      pendingFont = resolved.pending;
+    }
+    const geometry = buildGeometry(this.type, this.opts, this._font);
     const m = this._material;
     const material = new THREE.MeshStandardMaterial({
       color: new THREE.Color(m.color ?? '#8899ff'),
@@ -152,13 +212,22 @@ class GeoOp {
     // text3d with a fn for content rebuilds its geometry when the string
     // changes (e.g. a clock) — not every frame
     let lastText = this.type === 'text3d' ? String(resolve(this.opts.text ?? 'text', 0)) : null;
+    const rebuildText = (s) => {
+      mesh.geometry.dispose();
+      mesh.geometry = buildGeometry('text3d', { ...this.opts, text: s }, this._font);
+    };
+    // async font arrived: swap the geometry in place (unless the patch was
+    // cleared in the meantime)
+    pendingFont?.then((f) => {
+      this._font = f;
+      if (mesh.parent) rebuildText(lastText);
+    }).catch(() => { /* already warned in resolveFont */ });
     const updater = (t) => {
       if (lastText !== null && typeof this.opts.text === 'function') {
         const s = String(this.opts.text(t));
         if (s !== lastText) {
           lastText = s;
-          mesh.geometry.dispose();
-          mesh.geometry = buildGeometry('text3d', { ...this.opts, text: s });
+          rebuildText(s);
         }
       }
       mesh.position.set(...resolve3(this._pos, t));

@@ -27,8 +27,8 @@ export const GLOBALS = {
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'TOP generator: two-color gradient.'],
   circle: ['circle({ radius, soft, center, color, bg })', 'TOP generator: soft-edged disc.'],
   noise: ['noise({ freq, octaves, lacunarity, gain, speed, a, b })', 'TOP generator: animated fbm simplex noise. (On a geometry chain, .noise() displaces vertices instead.)'],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align })", 'TOP generator: canvas-rendered text (any CSS font; \\n for multiline). Content can be a fn of t; comp over a scene with add/screen.'],
-  text3d: ["text3d('hi', { size, depth, bevel, res, weight, center })", '3D extruded text geometry (helvetiker regular/bold). Chains like any geometry op; fn-of-t content rebuilds when the string changes.'],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align })", 'TOP generator: canvas-rendered text (any CSS font name or a .ttf/.otf/.woff URL; \\n for multiline). Content can be a fn of t; comp over a scene with add/screen.'],
+  text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", '3D extruded text. font: a .ttf/.otf/.typeface.json URL, or an installed font name (Chrome, permission prompt); default helvetiker regular/bold. Renders in helvetiker until an async font arrives.'],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],

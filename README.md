@@ -13,7 +13,8 @@ npm run dev   # then open http://localhost:5173
 
 **Editor smarts:** autocomplete knows the whole API (globals at the top level,
 chain methods after a `.`), each completion carries its signature and a doc
-line, and holding `ctrl` while hovering any API name pops the same docs.
+line — accept with `Tab` (`Enter` inserts a newline as usual). Holding `ctrl`
+while hovering any API name pops the same docs.
 
 **Sidebar** (`ctrl + b` or the ☰ button): render quality, editor font size,
 live-color-update toggle, fps — plus the sketch palette. User sketches are
@@ -60,7 +61,15 @@ static values.
 | `torusKnot` | `radius: 1, tube: 0.3, res: 64, p: 2, q: 3` |
 | `cylinder` | `radiusTop/Bottom: 0.5, height: 1.5, res: 48` |
 | `icosa` | `radius: 1, detail: 8` |
-| `text3d('hi', …)` | `size: 1, depth: 0.25, bevel: 0.02, res: 8, weight: 'regular'\|'bold', center: true` |
+| `text3d('hi', …)` | `size: 1, depth: 0.25, bevel: 0.02, res: 8, font, weight: 'regular'\|'bold', center: true` |
+
+`text3d`'s `font` accepts a URL to a `.ttf`/`.otf`/`.typeface.json` file (put
+files in `public/fonts/` and use `font: '/fonts/name.ttf'`), or — in
+Chrome/Edge, behind a one-time permission prompt — the name of any installed
+font (`font: 'Futura'`; needs a user gesture, so it may kick in on the next
+ctrl+enter rather than page load). Async fonts render as helvetiker until
+they arrive, then swap in; loads are cached across re-runs. The 2D `text()`
+TOP takes any CSS font name directly, or the same file URLs.
 
 `res` matters for `.noise()` — displacement is per-vertex, so more resolution
 means finer detail. (`text3d` faces are sparsely triangulated, so `.noise()`

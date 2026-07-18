@@ -1,6 +1,8 @@
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
+import { acceptCompletion, completionStatus, closeCompletion } from '@codemirror/autocomplete';
+import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/commands';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
@@ -21,6 +23,18 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
       { key: 'Ctrl-h', run: () => { toggleEditor(); return true; } },
       { key: 'Ctrl-b', run: () => { onToggleSidebar?.(); return true; } },
+      // completions accept with Tab, not Enter; Enter just newlines through
+      // an open popup. Tab indents when no popup is showing.
+      { key: 'Tab', run: acceptCompletion },
+      { key: 'Tab', run: indentMore, shift: indentLess },
+      {
+        key: 'Enter',
+        run: (v) => {
+          if (completionStatus(v.state) !== 'active') return false;
+          closeCompletion(v);
+          return insertNewlineAndIndent(v);
+        },
+      },
     ])
   );
 

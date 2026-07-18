@@ -73,4 +73,11 @@ function sketchApi() {
 
 export default defineConfig({
   plugins: [sketchApi()],
+  resolve: {
+    alias: {
+      // three's TTFLoader imports opentype from a CDN; serve the local copy
+      // instead so the app works offline
+      'https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/+esm': 'opentype.js',
+    },
+  },
 });

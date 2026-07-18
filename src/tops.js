@@ -473,6 +473,23 @@ function runPass(ctx, material, tex0, tex1, target, setup) {
   ctx.quad.render(ctx.renderer, material, target);
 }
 
+// Font files for the 2D text generator: a .ttf/.otf/.woff/.woff2 URL is
+// registered as a FontFace once; the text node redraws when it finishes
+// loading (canvas falls back to the default face until then).
+const cssFontCache = new Map();
+function cssFont(spec) {
+  if (!/\.(ttf|otf|woff2?)(\?|$)/i.test(spec)) return { family: spec, loaded: true };
+  let entry = cssFontCache.get(spec);
+  if (!entry) {
+    entry = { family: `td-font-${cssFontCache.size}`, loaded: false };
+    cssFontCache.set(spec, entry);
+    new FontFace(entry.family, `url("${spec}")`).load()
+      .then((f) => { document.fonts.add(f); entry.loaded = true; })
+      .catch((e) => console.warn(`td-livecode: font ${spec}: ${e.message ?? e}`));
+  }
+  return entry;
+}
+
 // Structural identity for tile-variant dedupe: the fn builds a fresh chain per
 // cell, so node identity can't be compared — kind + params (fns by source) +
 // input signatures can. Cached on the node; chains are immutable so it's safe.
@@ -606,8 +623,9 @@ export class TopOp {
     }
     if (this.kind === 'feedback') return (this._outTex = ctx.feedbackTex);
 
-    // text generator: drawn on a 2D canvas (any CSS font), re-rendered only
-    // when the resolved content/params change — so fn-of-t content is cheap
+    // text generator: drawn on a 2D canvas (any CSS font, or a font file by
+    // URL), re-rendered only when the resolved content/params change — so
+    // fn-of-t content is cheap
     if (this.kind === 'textGen') {
       const p = this.params;
       const str = String(resolve(p.text ?? '', ctx.t));
@@ -616,10 +634,12 @@ export class TopOp {
       const bg = String(resolve(p.bg ?? '#000000', ctx.t));
       const pos = p.pos ?? [0.5, 0.5];
       const px = resolve(pos[0], ctx.t), py = resolve(pos[1], ctx.t);
-      const font = p.font ?? 'ui-monospace, Menlo, monospace';
+      const ff = cssFont(String(p.font ?? 'ui-monospace, Menlo, monospace'));
+      const font = ff.family;
       const weight = p.weight ?? 700;
       const align = p.align ?? 'center';
-      const sig = [str, size, color, bg, px, py, font, weight, align, ctx.w, ctx.h].join('\x1f');
+      // ff.loaded flips when a URL font finishes loading, forcing a redraw
+      const sig = [str, size, color, bg, px, py, font, ff.loaded, weight, align, ctx.w, ctx.h].join('\x1f');
       if (sig !== this._textSig) {
         this._textSig = sig;
         if (!this._canvas) {
