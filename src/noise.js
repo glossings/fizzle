@@ -2,16 +2,9 @@
 // onBeforeCompile, so displaced geometry stays lit correctly (normals are
 // recomputed by sampling two tangent-offset neighbors on the GPU).
 
-export const NOISE_GLSL = /* glsl */ `
-uniform float uTime;
-uniform float uAmp;
-uniform float uFreq;
-uniform float uOctaves;
-uniform float uLacunarity;
-uniform float uGain;
-uniform float uSpeed;
-
-// Ashima / stegu 3D simplex noise
+// Ashima / stegu 3D simplex noise — pure functions, shared with the TOP
+// noise generator in tops.js
+export const SNOISE_GLSL = /* glsl */ `
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
@@ -59,6 +52,16 @@ float snoise(vec3 v) {
   m = m * m;
   return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
+`;
+
+export const NOISE_GLSL = SNOISE_GLSL + /* glsl */ `
+uniform float uTime;
+uniform float uAmp;
+uniform float uFreq;
+uniform float uOctaves;
+uniform float uLacunarity;
+uniform float uGain;
+uniform float uSpeed;
 
 float fbm(vec3 p) {
   float sum = 0.0;

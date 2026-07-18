@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyNoise } from './noise.js';
+import { TopOp } from './tops.js';
 
 // Chainable operator API, synth-flavored:
 //
@@ -200,14 +201,36 @@ export function makeApi(engine) {
       return new LightOp(engine, new THREE.HemisphereLight(o.sky ?? 0x8899ff, o.ground ?? 0x332211, o.intensity ?? 0.6));
     },
 
+    // static args: place the camera, orbit controls stay live.
+    // any function arg: the sketch drives the camera and orbiting is disabled
+    // until the next re-run without a programmed camera.
     camera(x = 0, y = 2, z = 8, target = [0, 0, 0]) {
-      engine.camera.position.set(x, y, z);
-      engine.controls.target.set(...target);
+      const dynamic = [x, y, z, ...target].some((v) => typeof v === 'function');
+      if (!dynamic) {
+        engine.camera.position.set(x, y, z);
+        engine.controls.target.set(...target);
+        return;
+      }
+      engine.cameraProgrammed = true;
+      engine.controls.enabled = false;
+      engine.updaters.push((t) => {
+        engine.camera.position.set(resolve(x, t), resolve(y, t), resolve(z, t));
+        const tg = resolve3(target, t);
+        engine.controls.target.set(...tg);
+        engine.camera.lookAt(...tg);
+      });
     },
     bg(color) { engine.scene.background = new THREE.Color(color); },
     fog(color = 0x0a0a0f, near = 5, far = 30) {
       engine.scene.fog = new THREE.Fog(color, near, far);
     },
+
+    // TOPs — texture operators (see tops.js). Chains render only with .out()
+    scene: () => new TopOp(engine, 'scene'),
+    feedback: () => new TopOp(engine, 'feedback'),
+    ramp: (o) => new TopOp(engine, 'ramp', o ?? {}),
+    circle: (o) => new TopOp(engine, 'circle', o ?? {}),
+    noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),
 
     // escape hatches
     THREE,

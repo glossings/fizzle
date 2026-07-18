@@ -81,6 +81,54 @@ bg('#07070c')
 fog('#07070c', 8, 40)        // color, near, far
 ```
 
+`camera()` with static numbers places the camera and leaves orbit controls
+live. If **any** argument is a function of time, the sketch drives the camera
+and orbiting is disabled until you re-run without it:
+
+```js
+camera(t => Math.sin(t * 0.2) * 9, 3, t => Math.cos(t * 0.2) * 9)
+```
+
+## TOPs — texture operators
+
+The rendered scene is also a texture. TOP chains are shader passes over
+textures, evaluated as a graph each frame; end a chain with `.out()` to make
+it the display output (with no TOP `.out()`, the scene renders directly).
+
+```js
+scene()
+  .kaleido(6)
+  .comp(feedback().transform({ scale: 1.01, rotate: 0.003 }), 'over', 0.88)
+  .bloom({ threshold: 0.6 })
+  .out()
+```
+
+**Sources**
+
+- `scene()` — the lit 3D render.
+- `feedback()` — last frame's final output (a feedback bus; survives
+  re-runs, frozen while paused). Comp it back in for trails and video feedback.
+- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
+- `circle({ radius, soft, center, color, bg })`
+- `noise({ freq, octaves, lacunarity, gain, speed, a, b })` — animated fbm.
+
+**Filters** (chain on any TOP; every numeric param takes `t => ...`)
+
+- `.mirror({ axis: 'x'|'y'|'both', flip })` · `.kaleido(sides, { rotate })`
+- `.transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror' })`
+- `.brightness(v)` `.contrast(v)` `.saturation(v)` `.gamma(v)` — or combined: `.levels({...})`
+- `.posterize(steps)` — quantize value · `.pixellate(x, y?)` — quantize position
+- `.threshold(level, { soft })` · `.invert()` · `.blur(radius)`
+- `.edge({ strength, spread })` · `.slope({...})` · `.normalMap({...})` — one
+  Sobel pass, three encodings: edge magnitude, centered gradient (RG), or
+  tangent-space normal.
+- `.displace(mapTop, amount)` — offset UVs by a map's RG · `.remap(mapTop)` —
+  absolute UV lookup from the map.
+- `.comp(layer, mode, opacity)` — composite `layer` over the chain. Modes:
+  `over add sub mult screen overlay hardLight softLight darken lighten
+  difference exclusion dodge burn`.
+- `.bloom({ threshold, strength, radius })` — brightpass + half-res gaussian.
+
 ## Escape hatches
 
 - `THREE` — the full three.js namespace is in scope.
@@ -90,6 +138,8 @@ fog('#07070c', 8, 40)        // color, near, far
 
 - [src/engine.js](src/engine.js) — renderer, scene/patch lifecycle, frame loop, sketch eval
 - [src/api.js](src/api.js) — the chainable operator API
+- [src/tops.js](src/tops.js) — TOP shader passes, graph evaluation, feedback
 - [src/noise.js](src/noise.js) — GLSL simplex fbm + shader injection
-- [src/editor.js](src/editor.js) — CodeMirror overlay and keybindings
+- [src/editor.js](src/editor.js) — CodeMirror overlay, keybindings
+- [src/colorpicker.js](src/colorpicker.js) — inline hex swatches + native picker
 - [src/main.js](src/main.js) — wiring + the default sketch

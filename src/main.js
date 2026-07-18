@@ -43,6 +43,18 @@ plane({ width: 60, height: 60, res: 160 })
   .noise({ amp: 1.2, freq: 0.12, octaves: 5, speed: 0.05 })
   .material({ color: '#1a2036', roughness: 0.9, flatShading: true })
   .out()
+
+// TOPs: post-process the rendered scene as a texture
+scene()
+  .bloom({ threshold: 0.55, strength: 1.1, radius: 1.2 })
+  .out()
+
+// more to try — replace the chain above:
+// scene().kaleido(6).comp(feedback().transform({ scale: 1.01, rotate: 0.003 }), 'over', 0.88).bloom().out()
+// scene().pixellate(140).posterize(5).out()
+// scene().edge({ strength: 3 }).comp(scene(), 'add', 0.9).out()
+// scene().displace(noise({ freq: 3, speed: 0.5 }), 0.08).bloom().out()
+// camera(t => Math.sin(t * 0.2) * 9, 3, t => Math.cos(t * 0.2) * 9)
 `;
 
 const engine = new Engine(document.getElementById('gl'));

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { renderTops } from './tops.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -26,6 +27,11 @@ export class Engine {
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
 
+    this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
+    this.topNodes = [];             // TOP graph nodes from the current sketch
+    this.topOutput = null;          // TOP chain marked with .out(), if any
+    this._topState = {};            // persistent RTs/quad (feedback survives re-runs)
+
     window.addEventListener('resize', () => this.resize());
     this.resize();
 
@@ -49,9 +55,14 @@ export class Engine {
         try { fn(this.time, dt); } catch (e) { /* keep rendering even if one updater throws */ }
       }
     }
-    // camera stays interactive while paused
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    // camera stays interactive while paused (unless the sketch drives it)
+    if (!this.cameraProgrammed) this.controls.update();
+    if (this.topOutput) {
+      renderTops(this);
+    } else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   togglePause() {
@@ -80,6 +91,13 @@ export class Engine {
     this.updaters = [];
     this.scene.fog = null;
     this.scene.background = new THREE.Color(0x0a0a0f);
+
+    for (const node of this.topNodes) node.dispose();
+    this.topNodes = [];
+    this.topOutput = null;
+
+    this.cameraProgrammed = false;
+    this.controls.enabled = true;
   }
 
   // Evaluate sketch code with the livecoding API in scope. Returns an error
