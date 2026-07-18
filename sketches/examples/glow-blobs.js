@@ -46,7 +46,7 @@ scene()
   .out()
 
 // more to try — replace the chain above:
-// scene().kaleido(6).comp(feedback().transform({ scale: 1.01, rotate: 0.003 }), 'over', 0.88).bloom().out()
+// scene().kaleido(6).comp(input().transform({ scale: 1.01, rotate: 0.003 }), 'over', 0.88).bloom().out()
 // scene().pixellate(140).posterize(5).out()
 // scene().edge({ strength: 3 }).comp(scene(), 'add', 0.9).out()
 // scene().displace(noise({ freq: 3, speed: 0.5 }), 0.08).bloom().out()

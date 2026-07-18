@@ -3,12 +3,15 @@ import { SNOISE_GLSL } from './noise.js';
 
 // Texture operators. Each op is a fragment-shader
 // pass rendering into its own target; chains form a DAG evaluated once per
-// frame in dependency order. `scene()` is the 3D render, `feedback()` is last
-// frame's final output, `.out()` marks a chain as the display output.
+// frame in dependency order. `scene()` is the 3D render, `.out()` marks a
+// chain as the display output, `input()` is last frame's display output.
+// `.out('name')`/`input('name')` route between chains by name: same-frame
+// when acyclic, last frame's snapshot when the wiring loops — so a named
+// cycle *is* a feedback loop.
 //
 //   scene()
 //     .kaleido(6)
-//     .comp(feedback().transform({ scale: 1.01 }), 'over', 0.9)
+//     .comp(input().transform({ scale: 1.01 }), 'over', 0.9)
 //     .bloom({ threshold: 0.6 })
 //     .out()
 
@@ -607,17 +610,13 @@ export class TopOp {
     return new TopOp(this.engine, 'tile', { nx, ny, map }, variants);
   }
 
-  out() {
-    this.engine.topOutput = this;
-    return this;
-  }
-
-  // .fbend('name') — close a named feedback loop here: this node's output is
-  // snapshotted into the buffer at end of frame, and feedback('name') reads it
-  // back next frame. Passthrough, so the chain continues past the tap.
-  fbend(name) {
-    if (typeof name !== 'string' || !name) throw new Error('fbend: needs a buffer name, e.g. .fbend("trail")');
-    this.engine.topFbEnds.set(name, this);
+  // .out() — make this chain the display output. .out('name') — publish this
+  // point of the chain as a named buffer instead: input('name') reads it, same
+  // frame when the wiring is acyclic, last frame's snapshot when it loops
+  // (which is what makes a cycle a feedback loop). Both are passthrough.
+  out(name) {
+    if (name != null) this.engine.topBuffers.set(String(name), this);
+    else this.engine.topOutput = this;
     return this;
   }
 
@@ -635,16 +634,32 @@ export class TopOp {
   renderNode(ctx) {
     if (this.lastFrame === ctx.frame) return this._outTex;
     this.lastFrame = ctx.frame;
+    // _evaluating marks this node's subtree as in progress, so an input() of a
+    // buffer we're currently producing falls back to last frame's snapshot
+    this._evaluating = true;
+    try {
+      return (this._outTex = this._render(ctx));
+    } finally {
+      this._evaluating = false;
+    }
+  }
 
+  _render(ctx) {
     ensurePassMaterials();
 
     if (this.kind === 'scene') {
       const out = this._rt(ctx);
       runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out);
-      return (this._outTex = out.texture);
+      return out.texture;
     }
-    if (this.kind === 'feedback') {
-      return (this._outTex = this.params.name != null ? ctx.fbTex(this.params.name) : ctx.feedbackTex);
+    if (this.kind === 'in') {
+      const { name } = this.params;
+      if (name == null) return ctx.feedbackTex;   // last frame's display output
+      const producer = this.engine.topBuffers.get(name);
+      // acyclic: pull the producer fresh this frame (plain routing between
+      // chains); cyclic or unpublished: last frame's snapshot (feedback)
+      if (producer && !producer._evaluating) return producer.renderNode(ctx);
+      return ctx.fbTex(name);
     }
 
     // text generator: drawn on a 2D canvas (any CSS font, or a font file by
@@ -686,7 +701,7 @@ export class TopOp {
         lines.forEach((line, i) => g.fillText(line, px * c.width, y0 + i * lineH));
         this._ctex.needsUpdate = true;
       }
-      return (this._outTex = this._ctex);
+      return this._ctex;
     }
 
     const ins = this.inputs.map((n) => n.renderNode(ctx));
@@ -696,7 +711,7 @@ export class TopOp {
       const a = this._rt(ctx, 'auxA'), out = this._rt(ctx);
       runPass(ctx, MAT_BLUR, ins[0], null, a, (u) => u.uDir.value.set(radius, 0));
       runPass(ctx, MAT_BLUR, a.texture, null, out, (u) => u.uDir.value.set(0, radius));
-      return (this._outTex = out.texture);
+      return out.texture;
     }
 
     if (this.kind === 'bloom') {
@@ -707,7 +722,7 @@ export class TopOp {
       runPass(ctx, MAT_BLUR, a.texture, null, b, (u) => u.uDir.value.set(radius, 0));
       runPass(ctx, MAT_BLUR, b.texture, null, a, (u) => u.uDir.value.set(0, radius));
       runPass(ctx, MAT_COMBINE, ins[0], a.texture, out, (u) => { u.uStrength.value = resolve(p.strength ?? 1, ctx.t); });
-      return (this._outTex = out.texture);
+      return out.texture;
     }
 
     if (this.kind === 'tile') {
@@ -731,7 +746,7 @@ export class TopOp {
       ins.forEach((tex, i) => { this.mat.uniforms[`t${i}`].value = tex; });
       const out = this._rt(ctx);
       ctx.quad.render(ctx.renderer, this.mat, out);
-      return (this._outTex = out.texture);
+      return out.texture;
     }
 
     const spec = SPECS[this.kind];
@@ -739,7 +754,7 @@ export class TopOp {
     this.mat ??= makeMaterial(spec);
     const out = this._rt(ctx);
     runPass(ctx, this.mat, ins[0], ins[1], out, (u) => spec.update?.(u, this.params, ctx.t, ctx));
-    return (this._outTex = out.texture);
+    return out.texture;
   }
 
   dispose() {
@@ -775,7 +790,7 @@ export function renderTops(engine) {
     st.feedbackRT = makeRT(size.x, size.y);
   }
 
-  // named feedback buffers (feedback('x') / .fbend('x')); persist across
+  // named buffers (.out('x') / input('x')); persist across
   // re-runs like the unnamed one, created black on first use
   st.fbRTs ??= new Map();
   const fbRT = (name) => {
@@ -809,14 +824,14 @@ export function renderTops(engine) {
   const outTex = engine.topOutput.renderNode(ctx);
   ensurePassMaterials();
   runPass(ctx, MAT_COPY, outTex, null, null);
-  // snapshot for next frame's feedback(); frozen while paused so trails hold
+  // snapshot for next frame's input(); frozen while paused so trails hold
   if (!engine.paused && outTex !== st.feedbackRT.texture) {
     runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
   }
-  // named taps: render each .fbend chain (memoized if it's already on the
-  // display path) and snapshot into its buffer for next frame's feedback(name)
+  // named buffers: render each published chain (memoized if it was already
+  // pulled this frame) and snapshot it for next frame's cyclic input(name)
   if (!engine.paused) {
-    for (const [name, node] of engine.topFbEnds) {
+    for (const [name, node] of engine.topBuffers) {
       const tex = node.renderNode(ctx);
       const rt = fbRT(name);
       if (tex !== rt.texture) runPass(ctx, MAT_COPY, tex, null, rt);

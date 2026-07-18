@@ -127,7 +127,7 @@ it the display output (with no TOP `.out()`, the scene renders directly).
 ```js
 scene()
   .kaleido(6)
-  .comp(feedback().transform({ scale: 1.01, rotate: 0.003 }), 'over', 0.88)
+  .comp(input().transform({ scale: 1.01, rotate: 0.003 }), 'over', 0.88)
   .bloom({ threshold: 0.6 })
   .out()
 ```
@@ -135,24 +135,36 @@ scene()
 **Sources**
 
 - `scene()` — the lit 3D render.
-- `feedback()` — last frame's final output (a feedback bus; survives
-  re-runs, frozen while paused). Comp it back in for trails and video feedback.
-- `feedback('name')` + `.fbend('name')` — a named feedback loop that closes
-  anywhere in the graph, not just at the display output. `.fbend('name')` is a
-  passthrough tap: it snapshots that point of the chain each frame, and
-  `feedback('name')` reads the snapshot back the next frame. Useful when
-  later stages (say, bloom) shouldn't compound into the trail:
+- `input()` — last frame's final output (a feedback bus; survives
+  re-runs, frozen while paused). Comp it back in for trails and video
+  feedback. (`feedback()` still works as a legacy alias.)
+- `.out('name')` + `input('name')` — named buses. `.out('name')` is a
+  passthrough that publishes that point of the chain as a named buffer, and
+  `input('name')` reads it anywhere — including in a completely separate
+  chain, so networks don't have to be a single expression:
+
+  ```js
+  scene().kaleido(6).out('kal')                 // publish (no display)
+  noise({ freq: 3 }).out('warp')
+  input('kal').displace(input('warp'), 0.08).bloom().out()
+  ```
+
+  When the wiring is acyclic (as above) `input` pulls the producer fresh the
+  same frame — it's just a patch cord. When the wiring loops back on itself,
+  `input` reads last frame's snapshot instead, which is exactly what makes a
+  cycle a feedback loop — closable anywhere, e.g. pre-bloom so glow doesn't
+  compound into the trail:
 
   ```js
   scene()
-    .comp(feedback('trail').transform({ scale: 0.97, rotate: 0.01 }), 'add', 0.6)
-    .fbend('trail')          // loop closes here, pre-bloom
+    .comp(input('trail').transform({ scale: 0.97, rotate: 0.01 }), 'add', 0.6)
+    .out('trail')            // loop closes here, pre-bloom
     .bloom({ threshold: 0.5 })
     .out()
   ```
 
-  Multiple named loops coexist; a tapped chain doesn't even need to reach
-  `.out()` — off-screen loops render too.
+  Multiple buses coexist, and published chains render even if they never
+  reach a naked `.out()` (as long as something does).
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
 - `noise({ freq, octaves, lacunarity, gain, speed, a, b })` — animated fbm.

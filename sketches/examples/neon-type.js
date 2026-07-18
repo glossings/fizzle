@@ -20,7 +20,7 @@ text3d(t => `t = ${t.toFixed(0)}`, { size: 0.35, depth: 0.1, bevel: 0.01 })
   .out()
 
 scene()
-  .comp(feedback().transform({ scale: 1.01 }).mul(0.9), 'lighten')
+  .comp(input().transform({ scale: 1.01 }).mul(0.9), 'lighten')
   .bloom({ threshold: 0.55, strength: 1.2 })
   .comp(text('canvas text: any css font\nmultiline too', {
     size: 0.045, pos: [0.5, 0.09], color: '#8890a8', font: 'Georgia, serif', weight: 400,

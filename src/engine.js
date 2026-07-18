@@ -32,7 +32,7 @@ export class Engine {
     this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
     this.topNodes = [];             // TOP graph nodes from the current sketch
     this.topOutput = null;          // TOP chain marked with .out(), if any
-    this.topFbEnds = new Map();     // name -> node tagged .fbend(name)
+    this.topBuffers = new Map();    // name -> node published with .out(name)
     this._topState = {};            // persistent RTs/quad (feedback survives re-runs)
 
     window.addEventListener('resize', () => this.resize());
@@ -105,7 +105,7 @@ export class Engine {
     for (const node of this.topNodes) node.dispose();
     this.topNodes = [];
     this.topOutput = null;
-    this.topFbEnds.clear();
+    this.topBuffers.clear();
 
     this.cameraProgrammed = false;
     this.controls.enabled = true;

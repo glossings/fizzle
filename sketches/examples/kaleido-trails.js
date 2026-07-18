@@ -13,6 +13,6 @@ torusKnot({ radius: 1, tube: 0.28, res: 96 })
 
 scene()
   .kaleido(6, { rotate: t => t * 0.02 })
-  .comp(feedback().transform({ scale: 1.012, rotate: 0.004 }), 'over', 0.85)
+  .comp(input().transform({ scale: 1.012, rotate: 0.004 }), 'over', 0.85)
   .bloom({ threshold: 0.5, strength: 1.2 })
   .out()

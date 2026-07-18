@@ -23,7 +23,8 @@ export const GLOBALS = {
   fog: ['fog(color, near, far)', 'Scene fog.'],
 
   scene: ['scene()', 'TOP source: the lit 3D render as a texture (tone-mapped display space).'],
-  feedback: ['feedback(name?)', "TOP source: last frame's final output. Comp it back in (usually transformed) for trails. With a name, reads the buffer written by .fbend(name) instead."],
+  input: ['input(name?)', "TOP source: with no name, last frame's display output (comp it back in for trails). With a name, the buffer published by .out(name): same frame if the wiring is acyclic, last frame if it loops — a named cycle is a feedback loop."],
+  feedback: ['feedback(name?)', 'Legacy alias of input().'],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'TOP generator: two-color gradient.'],
   circle: ['circle({ radius, soft, center, color, bg })', 'TOP generator: soft-edged disc.'],
   noise: ['noise({ freq, octaves, lacunarity, gain, speed, a, b })', 'TOP generator: animated fbm simplex noise. (On a geometry chain, .noise() displaces vertices instead.)'],
@@ -42,7 +43,7 @@ export const METHODS = {
   instance: ['.instance(count, (i, n, t) => ({ pos, rot, scale }))', 'Render as one InstancedMesh; the layout fn runs every frame so instances animate.'],
   material: ['.material({ color, roughness, metalness, emissive, flatShading, wireframe })', 'PBR material settings.'],
   color: ['.color(c)', 'Shorthand for .material({ color }).'],
-  out: ['.out()', 'Geometry/light: build and add to the scene · TOP: make this chain the display output.'],
+  out: [".out(name?)", "Geometry/light: build and add to the scene · TOP: make this chain the display output. TOP .out('name') publishes this point as a named buffer for input('name') instead (passthrough)."],
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'TOP: reflect one half of the image onto the other.'],
   kaleido: ['.kaleido(sides, { rotate })', 'TOP: polar kaleidoscope fold.'],
@@ -63,7 +64,6 @@ export const METHODS = {
   remap: ['.remap(mapTop)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   displace: ['.displace(mapTop, amount)', "Texture: offset UVs by the map's RG (centered on 0.5). Map can be a fn of the chain so far."],
   comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Modes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn.'],
-  fbend: [".fbend('name')", "Texture: close a named feedback loop here — snapshots this point of the chain each frame; feedback('name') reads it back next frame. Passthrough, chain continues."],
   blur: ['.blur(radius)', 'TOP: separable gaussian blur.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'TOP: brightpass + half-res gaussian glow.'],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe (max 8 distinct). x left→right, y bottom→top, i = y*nx + x.'],
