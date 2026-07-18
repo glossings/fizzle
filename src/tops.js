@@ -606,6 +606,45 @@ export class TopOp {
     }
     if (this.kind === 'feedback') return (this._outTex = ctx.feedbackTex);
 
+    // text generator: drawn on a 2D canvas (any CSS font), re-rendered only
+    // when the resolved content/params change — so fn-of-t content is cheap
+    if (this.kind === 'textGen') {
+      const p = this.params;
+      const str = String(resolve(p.text ?? '', ctx.t));
+      const size = resolve(p.size ?? 0.15, ctx.t);
+      const color = String(resolve(p.color ?? '#ffffff', ctx.t));
+      const bg = String(resolve(p.bg ?? '#000000', ctx.t));
+      const pos = p.pos ?? [0.5, 0.5];
+      const px = resolve(pos[0], ctx.t), py = resolve(pos[1], ctx.t);
+      const font = p.font ?? 'ui-monospace, Menlo, monospace';
+      const weight = p.weight ?? 700;
+      const align = p.align ?? 'center';
+      const sig = [str, size, color, bg, px, py, font, weight, align, ctx.w, ctx.h].join('\x1f');
+      if (sig !== this._textSig) {
+        this._textSig = sig;
+        if (!this._canvas) {
+          this._canvas = document.createElement('canvas');
+          this._ctex = new THREE.CanvasTexture(this._canvas);
+        }
+        const c = this._canvas;
+        c.width = ctx.w;
+        c.height = ctx.h;
+        const g = c.getContext('2d');
+        g.fillStyle = bg;
+        g.fillRect(0, 0, c.width, c.height);
+        g.fillStyle = color;
+        g.font = `${weight} ${Math.round(size * c.height)}px ${font}`;
+        g.textAlign = align;
+        g.textBaseline = 'middle';
+        const lines = str.split('\n');
+        const lineH = size * c.height * 1.2;
+        const y0 = (1 - py) * c.height - ((lines.length - 1) * lineH) / 2;
+        lines.forEach((line, i) => g.fillText(line, px * c.width, y0 + i * lineH));
+        this._ctex.needsUpdate = true;
+      }
+      return (this._outTex = this._ctex);
+    }
+
     const ins = this.inputs.map((n) => n.renderNode(ctx));
 
     if (this.kind === 'blur') {
@@ -662,6 +701,7 @@ export class TopOp {
   dispose() {
     for (const key of ['_tgt_main', '_tgt_auxA', '_tgt_auxB']) this[key]?.dispose();
     this._lut?.dispose();
+    this._ctex?.dispose();
     this.mat?.dispose();
   }
 }

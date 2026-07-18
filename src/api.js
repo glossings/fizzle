@@ -1,6 +1,16 @@
 import * as THREE from 'three';
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
 import { TopOp } from './tops.js';
+import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
+import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
+
+const fontLoader = new FontLoader();
+const FONTS = {
+  regular: fontLoader.parse(helvetikerRegular),
+  bold: fontLoader.parse(helvetikerBold),
+};
 
 // Chainable operator API, synth-flavored:
 //
@@ -37,6 +47,21 @@ function buildGeometry(type, o = {}) {
       return new THREE.CylinderGeometry(o.radiusTop ?? 0.5, o.radiusBottom ?? 0.5, o.height ?? 1.5, o.res ?? 48, o.res ?? 48);
     case 'icosa':
       return new THREE.IcosahedronGeometry(o.radius ?? 1, o.detail ?? 8);
+    case 'text3d': {
+      const bevel = o.bevel ?? 0.02;
+      const g = new TextGeometry(String(resolve(o.text ?? 'text', 0)), {
+        font: o.font ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
+        size: o.size ?? 1,
+        depth: o.depth ?? 0.25,
+        curveSegments: o.res ?? 8,
+        bevelEnabled: bevel > 0,
+        bevelThickness: bevel,
+        bevelSize: bevel * 0.6,
+        bevelSegments: 3,
+      });
+      if (o.center !== false) g.center();
+      return g;
+    }
     default:
       throw new Error(`unknown geometry: ${type}`);
   }
@@ -124,7 +149,18 @@ class GeoOp {
     }
 
     const dummy = new THREE.Object3D();
+    // text3d with a fn for content rebuilds its geometry when the string
+    // changes (e.g. a clock) — not every frame
+    let lastText = this.type === 'text3d' ? String(resolve(this.opts.text ?? 'text', 0)) : null;
     const updater = (t) => {
+      if (lastText !== null && typeof this.opts.text === 'function') {
+        const s = String(this.opts.text(t));
+        if (s !== lastText) {
+          lastText = s;
+          mesh.geometry.dispose();
+          mesh.geometry = buildGeometry('text3d', { ...this.opts, text: s });
+        }
+      }
       mesh.position.set(...resolve3(this._pos, t));
       mesh.rotation.set(...resolve3(this._rot, t));
       mesh.scale.set(...resolve3(this._scale, t));
@@ -187,6 +223,7 @@ export function makeApi(engine) {
     torusKnot: geo('torusKnot'),
     cylinder: geo('cylinder'),
     icosa: geo('icosa'),
+    text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
 
     ambient(intensity = 0.3, color = 0xffffff) {
       engine.add(new THREE.AmbientLight(color, intensity));
@@ -231,6 +268,7 @@ export function makeApi(engine) {
     ramp: (o) => new TopOp(engine, 'ramp', o ?? {}),
     circle: (o) => new TopOp(engine, 'circle', o ?? {}),
     noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),
+    text: (text, o) => new TopOp(engine, 'textGen', { ...o, text }),
 
     // escape hatches
     THREE,

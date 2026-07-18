@@ -60,9 +60,13 @@ static values.
 | `torusKnot` | `radius: 1, tube: 0.3, res: 64, p: 2, q: 3` |
 | `cylinder` | `radiusTop/Bottom: 0.5, height: 1.5, res: 48` |
 | `icosa` | `radius: 1, detail: 8` |
+| `text3d('hi', …)` | `size: 1, depth: 0.25, bevel: 0.02, res: 8, weight: 'regular'\|'bold', center: true` |
 
 `res` matters for `.noise()` — displacement is per-vertex, so more resolution
-means finer detail.
+means finer detail. (`text3d` faces are sparsely triangulated, so `.noise()`
+on it mostly ripples the outline/bevel.) `text3d` content can be a fn of `t`;
+the geometry rebuilds only when the string changes, so clocks/counters are
+cheap.
 
 ## Chain operators
 
@@ -123,6 +127,10 @@ scene()
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
 - `noise({ freq, octaves, lacunarity, gain, speed, a, b })` — animated fbm.
+- `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
+  text; any CSS font, `\n` for multiline, content may be a fn of `t`. It's an
+  opaque image (black bg by default), so overlay with `comp(…, 'add')` /
+  `'screen'`, or `.threshold()` it into a mask.
 
 **Filters** (chain on any TOP; every numeric param takes `t => ...`)
 
