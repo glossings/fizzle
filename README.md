@@ -63,13 +63,17 @@ static values.
 | `icosa` | `radius: 1, detail: 8` |
 | `text3d('hi', …)` | `size: 1, depth: 0.25, bevel: 0.02, res: 8, font, weight: 'regular'\|'bold', center: true` |
 
-`text3d`'s `font` accepts a URL to a `.ttf`/`.otf`/`.typeface.json` file (put
-files in `public/fonts/` and use `font: '/fonts/name.ttf'`), or — in
-Chrome/Edge, behind a one-time permission prompt — the name of any installed
-font (`font: 'Futura'`; needs a user gesture, so it may kick in on the next
-ctrl+enter rather than page load). Async fonts render as helvetiker until
-they arrive, then swap in; loads are cached across re-runs. The 2D `text()`
-TOP takes any CSS font name directly, or the same file URLs.
+`text3d`'s `font` takes a bare font name — resolved against your installed
+fonts first (Chrome/Edge, one-time permission prompt; needs a user gesture, so
+it may kick in on the next ctrl+enter rather than page load), then fetched
+from Google Fonts automatically (`font: 'Orbitron'` just works). Use
+`'google:Name'` to skip the local lookup, or a `.ttf`/`.otf`/`.typeface.json`
+URL to load a specific file. Async fonts render as helvetiker until they
+arrive, then swap in; loads are cached across re-runs. The 2D `text()` TOP
+takes any CSS font name directly (installed fonts work natively), plus the
+same `'google:Name'` and URL forms. The Google Fonts fetch goes through the
+dev server (Google won't serve parseable `.ttf` to browsers), so it needs
+`npm run dev`, not a static build.
 
 `res` matters for `.noise()` — displacement is per-vertex, so more resolution
 means finer detail. (`text3d` faces are sparsely triangulated, so `.noise()`

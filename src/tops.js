@@ -477,13 +477,18 @@ function runPass(ctx, material, tex0, tex1, target, setup) {
 // registered as a FontFace once; the text node redraws when it finishes
 // loading (canvas falls back to the default face until then).
 const cssFontCache = new Map();
-function cssFont(spec) {
-  if (!/\.(ttf|otf|woff2?)(\?|$)/i.test(spec)) return { family: spec, loaded: true };
-  let entry = cssFontCache.get(spec);
+function cssFont(spec, weight = 400) {
+  // bare names hit installed fonts natively via canvas; 'google:Name' fetches
+  // from Google Fonts through the dev-server proxy, URLs load as FontFace
+  const google = /^google:/i.test(spec);
+  if (!google && !/\.(ttf|otf|woff2?)(\?|$)/i.test(spec)) return { family: spec, loaded: true };
+  const url = google ? `/api/gfont/${encodeURIComponent(spec.slice(7))}?weight=${weight}` : spec;
+  const key = google ? `${spec.toLowerCase()}|${weight}` : spec;
+  let entry = cssFontCache.get(key);
   if (!entry) {
     entry = { family: `td-font-${cssFontCache.size}`, loaded: false };
-    cssFontCache.set(spec, entry);
-    new FontFace(entry.family, `url("${spec}")`).load()
+    cssFontCache.set(key, entry);
+    new FontFace(entry.family, `url("${url}")`).load()
       .then((f) => { document.fonts.add(f); entry.loaded = true; })
       .catch((e) => console.warn(`td-livecode: font ${spec}: ${e.message ?? e}`));
   }
@@ -634,7 +639,7 @@ export class TopOp {
       const bg = String(resolve(p.bg ?? '#000000', ctx.t));
       const pos = p.pos ?? [0.5, 0.5];
       const px = resolve(pos[0], ctx.t), py = resolve(pos[1], ctx.t);
-      const ff = cssFont(String(p.font ?? 'ui-monospace, Menlo, monospace'));
+      const ff = cssFont(String(p.font ?? 'ui-monospace, Menlo, monospace'), p.weight ?? 700);
       const font = ff.family;
       const weight = p.weight ?? 700;
       const align = p.align ?? 'center';

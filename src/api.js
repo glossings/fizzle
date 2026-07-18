@@ -16,32 +16,70 @@ const FONTS = {
 // 3D text fonts, beyond the bundled helvetiker pair. `font` may be:
 //  - a parsed three.js Font (escape hatch)
 //  - a URL to .typeface.json, .ttf or .otf (parsed at runtime, no conversion)
-//  - an installed font's name — Chrome's Local Font Access API, behind a
-//    permission prompt; needs a user gesture, so it may fail on the auto-run
-//    at page load and succeed on the next ctrl+enter
+//  - a bare name: tried against installed fonts first (Chrome's Local Font
+//    Access API — permission prompt, needs a user gesture), then fetched from
+//    Google Fonts via the dev-server proxy
+//  - 'google:Name' to skip the local lookup
 // Loads are async: the mesh builds with helvetiker and swaps when ready.
 // Cache persists across re-runs so the swap happens once.
 const fontCache = new Map();
 
-async function loadFontSpec(spec, weight) {
-  if (/\.json(\?|$)/i.test(spec)) {
-    return fontLoader.parse(await (await fetch(spec)).json());
+// The dev server answers requests for missing files with index.html (SPA
+// fallback), so a bad font URL "succeeds" with an HTML body. Catch that and
+// name the real problem.
+async function fetchFontFile(spec, missingHint = 'is the file actually there?') {
+  const res = await fetch(spec);
+  if (!res.ok) throw new Error(`${spec}: HTTP ${res.status} ${await res.text().catch(() => '')}`.trim());
+  const buf = await res.arrayBuffer();
+  const head = new TextDecoder().decode(buf.slice(0, 64)).trimStart().toLowerCase();
+  if (head.startsWith('<!doctype') || head.startsWith('<html')) {
+    throw new Error(`${spec}: the server returned a page, not a font — ${missingHint}`);
   }
-  if (/\.(ttf|otf)(\?|$)/i.test(spec)) {
-    return fontLoader.parse(new TTFLoader().parse(await (await fetch(spec)).arrayBuffer()));
-  }
-  if (!navigator.queryLocalFonts) {
-    throw new Error(`"${spec}": local font access needs Chrome/Edge — use a .ttf/.otf URL instead`);
-  }
+  return buf;
+}
+
+async function loadLocalFont(spec, weight) {
+  if (!navigator.queryLocalFonts) throw new Error('no local font access in this browser');
   const fonts = await navigator.queryLocalFonts();
   const name = spec.toLowerCase();
   const matches = fonts.filter(
     (f) => f.family.toLowerCase() === name || f.fullName.toLowerCase() === name || f.postscriptName.toLowerCase() === name
   );
-  if (!matches.length) throw new Error(`font "${spec}" not found among installed fonts`);
+  if (!matches.length) throw new Error(`not installed`);
   const style = new RegExp(weight === 'bold' ? 'bold' : 'regular|normal|book|roman', 'i');
   const pick = matches.find((f) => style.test(f.style)) ?? matches[0];
   return fontLoader.parse(new TTFLoader().parse(await (await pick.blob()).arrayBuffer()));
+}
+
+async function loadGoogleFont(spec, weight) {
+  const buf = await fetchFontFile(
+    `/api/gfont/${encodeURIComponent(spec)}?weight=${weight === 'bold' ? 700 : 400}`,
+    'the Google Fonts proxy needs the dev server'
+  );
+  return fontLoader.parse(new TTFLoader().parse(buf));
+}
+
+async function loadFontSpec(spec, weight) {
+  if (/\.json(\?|$)/i.test(spec)) {
+    const buf = await fetchFontFile(spec);
+    return fontLoader.parse(JSON.parse(new TextDecoder().decode(buf)));
+  }
+  if (/\.(ttf|otf)(\?|$)/i.test(spec)) {
+    return fontLoader.parse(new TTFLoader().parse(await fetchFontFile(spec)));
+  }
+  if (/^google:/i.test(spec)) return loadGoogleFont(spec.slice(7), weight);
+  // bare name: installed fonts first, then Google Fonts
+  let localErr = null;
+  try {
+    return await loadLocalFont(spec, weight);
+  } catch (e) {
+    localErr = e;
+  }
+  try {
+    return await loadGoogleFont(spec, weight);
+  } catch (gErr) {
+    throw new Error(`font "${spec}": ${localErr.message}, and Google Fonts failed (${gErr.message})`);
+  }
 }
 
 function resolveFont(o) {

@@ -71,8 +71,55 @@ function sketchApi() {
   };
 }
 
+// Google Fonts proxy: GET /api/gfont/:family?weight=700 -> raw .ttf bytes.
+// Needed because Google's css2 endpoint only serves .ttf URLs to non-browser
+// user agents — real browsers get woff2, which opentype.js can't decompress.
+const gfontCache = new Map();
+
+function gfontApi() {
+  return {
+    name: 'gfont-api',
+    configureServer(server) {
+      server.middlewares.use('/api/gfont', async (req, res) => {
+        try {
+          const u = new URL(req.url ?? '/', 'http://local');
+          const family = decodeURIComponent(u.pathname.split('/').filter(Boolean)[0] ?? '');
+          const w = u.searchParams.get('weight') ?? '';
+          const weight = /^[1-9]00$/.test(w) ? w : '400';
+          if (!/^[\w .+-]{1,60}$/.test(family)) {
+            res.statusCode = 400;
+            return res.end('bad family name');
+          }
+          const key = `${family.toLowerCase()}|${weight}`;
+          if (!gfontCache.has(key)) {
+            const css = async (fam) => {
+              const r = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}`, {
+                headers: { 'User-Agent': 'curl/8' },
+              });
+              return r.ok ? r.text() : null;
+            };
+            // exact weight first; fonts missing that weight 400 out, so retry plain
+            const text = (await css(`${family}:wght@${weight}`)) ?? (await css(family));
+            const ttf = text?.match(/url\((https:[^)]+\.ttf)\)/)?.[1];
+            if (!ttf) {
+              res.statusCode = 404;
+              return res.end(`no font "${family}" on Google Fonts`);
+            }
+            gfontCache.set(key, Buffer.from(await (await fetch(ttf)).arrayBuffer()));
+          }
+          res.setHeader('Content-Type', 'font/ttf');
+          res.end(gfontCache.get(key));
+        } catch (e) {
+          res.statusCode = 500;
+          res.end(String(e));
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [sketchApi()],
+  plugins: [sketchApi(), gfontApi()],
   resolve: {
     alias: {
       // three's TTFLoader imports opentype from a CDN; serve the local copy
