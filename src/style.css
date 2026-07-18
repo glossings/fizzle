@@ -1,0 +1,77 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+#gl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#editor {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow-y: auto;
+  pointer-events: none; /* canvas gets drags; the code lines themselves re-enable */
+}
+
+#editor.hidden { display: none; }
+
+.cm-editor {
+  background: transparent !important;
+  font-size: 15px;
+  height: 100%;
+}
+
+.cm-editor .cm-scroller {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  line-height: 1.55;
+  padding: 18px 0 40vh 8px;
+}
+
+.cm-editor .cm-content { pointer-events: auto; width: fit-content; }
+.cm-editor .cm-line {
+  background: rgba(0, 0, 0, 0.65);
+  width: fit-content;
+  padding-right: 10px;
+}
+.cm-editor .cm-gutters { display: none; }
+.cm-editor .cm-activeLine { background: rgba(20, 20, 30, 0.75); }
+.cm-editor .cm-cursor { border-left-color: #fff; }
+.cm-editor .cm-selectionBackground { background: rgba(90, 120, 255, 0.35) !important; }
+
+#status {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #ff7b72;
+  background: rgba(0, 0, 0, 0.8);
+  white-space: pre-wrap;
+  display: none;
+}
+#status.show { display: block; }
+#status.ok { color: #7ee787; }
+
+#hints {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  z-index: 15;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+}
