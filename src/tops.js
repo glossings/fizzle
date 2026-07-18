@@ -13,6 +13,11 @@ import { SNOISE_GLSL } from './noise.js';
 //     .out()
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
+const setVec3 = (target, v, t) => {
+  v = resolve(v, t);
+  if (Array.isArray(v)) target.set(resolve(v[0], t), resolve(v[1], t), resolve(v[2], t));
+  else target.set(v, v, v);
+};
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -171,21 +176,33 @@ const SPECS = {
   },
 
   adjust: {
-    extras: { uBright: 0, uContrast: 1, uSat: 1, uGamma: 1 },
+    extras: { uContrast: 1, uSat: 1, uGamma: 1 },
     frag: `
       void main() {
         vec3 c = texture2D(tex0, vUv).rgb;
-        c += uBright;
         c = (c - 0.5) * uContrast + 0.5;
         c = mix(vec3(dot(c, LUMA)), c, uSat);
         c = pow(max(c, 0.0), vec3(1.0 / max(uGamma, 0.001)));
         gl_FragColor = vec4(c, 1.0);
       }`,
     update(u, p, t) {
-      u.uBright.value = resolve(p.brightness ?? 0, t);
       u.uContrast.value = resolve(p.contrast ?? 1, t);
       u.uSat.value = resolve(p.saturation ?? 1, t);
       u.uGamma.value = resolve(p.gamma ?? 1, t);
+    },
+  },
+
+  // .mul() then .add(): c * mul + add, per channel. The honest primitives
+  // behind "brightness"; scalar or [r,g,b] values, fns of t as usual.
+  math: {
+    extras: { uMul: [1, 1, 1], uAdd: [0, 0, 0] },
+    frag: `
+      void main() {
+        gl_FragColor = vec4(texture2D(tex0, vUv).rgb * uMul + uAdd, 1.0);
+      }`,
+    update(u, p, t) {
+      setVec3(u.uMul.value, p.mul ?? 1, t);
+      setVec3(u.uAdd.value, p.add ?? 0, t);
     },
   },
 
@@ -340,7 +357,9 @@ export class Quad {
 
 function inferUniform(v) {
   if (typeof v === 'number') return { value: v };
-  if (Array.isArray(v)) return { value: new THREE.Vector2(v[0], v[1]) };
+  if (Array.isArray(v)) {
+    return { value: v.length === 3 ? new THREE.Vector3(...v) : new THREE.Vector2(...v) };
+  }
   return { value: new THREE.Color(v) };
 }
 
@@ -355,7 +374,10 @@ function makeMaterial(spec) {
   const decls = [];
   for (const [name, init] of Object.entries(spec.extras ?? {})) {
     uniforms[name] = inferUniform(init);
-    const type = typeof init === 'number' ? 'float' : Array.isArray(init) ? 'vec2' : 'vec3';
+    const type =
+      typeof init === 'number' ? 'float'
+      : Array.isArray(init) && init.length === 2 ? 'vec2'
+      : 'vec3';
     decls.push(`uniform ${type} ${name};`);
   }
   return new THREE.ShaderMaterial({
@@ -451,6 +473,40 @@ function runPass(ctx, material, tex0, tex1, target, setup) {
   ctx.quad.render(ctx.renderer, material, target);
 }
 
+// Structural identity for tile-variant dedupe: the fn builds a fresh chain per
+// cell, so node identity can't be compared — kind + params (fns by source) +
+// input signatures can. Cached on the node; chains are immutable so it's safe.
+function sigOf(node) {
+  node._sig ??=
+    node.kind +
+    JSON.stringify(node.params, (k, v) => (typeof v === 'function' ? v.toString() : v instanceof Uint8Array ? Array.from(v) : v)) +
+    '[' + node.inputs.map(sigOf).join(',') + ']';
+  return node._sig;
+}
+
+const TILE_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform vec2 uGrid;
+uniform sampler2D uMap;
+uniform sampler2D t0; uniform sampler2D t1; uniform sampler2D t2; uniform sampler2D t3;
+uniform sampler2D t4; uniform sampler2D t5; uniform sampler2D t6; uniform sampler2D t7;
+void main() {
+  vec2 cell = floor(vUv * uGrid);
+  vec2 local = fract(vUv * uGrid);
+  float v = texture2D(uMap, (cell + 0.5) / uGrid).r * 255.0;
+  vec4 c;
+  if      (v < 0.5) c = texture2D(t0, local);
+  else if (v < 1.5) c = texture2D(t1, local);
+  else if (v < 2.5) c = texture2D(t2, local);
+  else if (v < 3.5) c = texture2D(t3, local);
+  else if (v < 4.5) c = texture2D(t4, local);
+  else if (v < 5.5) c = texture2D(t5, local);
+  else if (v < 6.5) c = texture2D(t6, local);
+  else              c = texture2D(t7, local);
+  gl_FragColor = c;
+}
+`;
+
 // ---------------------------------------------------------------------------
 // the chainable node
 
@@ -475,7 +531,8 @@ export class TopOp {
   slope(o = {}) { return this._n('neighbor', { mode: 'slope', ...o }); }
   normalMap(o = {}) { return this._n('neighbor', { mode: 'normal', ...o }); }
   levels(o = {}) { return this._n('adjust', o); }
-  brightness(v = 0) { return this._n('adjust', { brightness: v }); }
+  add(v = 0) { return this._n('math', { add: v }); }
+  mul(v = 1) { return this._n('math', { mul: v }); }
   contrast(v = 1) { return this._n('adjust', { contrast: v }); }
   saturation(v = 1) { return this._n('adjust', { saturation: v }); }
   gamma(v = 1) { return this._n('adjust', { gamma: v }); }
@@ -489,6 +546,36 @@ export class TopOp {
   comp(layer, mode = 'over', opacity = 1) { return this._n('comp', { mode, opacity }, [layer]); }
   blur(radius = 1) { return this._n('blur', { radius }); }
   bloom(o = {}) { return this._n('bloom', o); }
+
+  // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
+  // per-cell choice of TOP. The fn runs once per cell at eval time and may
+  // return src itself, a treatment of it, or any other chain. Structurally
+  // identical variants are deduped (so `src.saturation(0)` per call is fine);
+  // up to 8 distinct variants. x runs left→right, y bottom→top, i = y*nx + x.
+  tile(nx = 2, ny = nx, fn) {
+    nx = Math.max(1, Math.round(nx));
+    ny = Math.max(1, Math.round(ny));
+    const variants = [];
+    const bySig = new Map();
+    const map = new Uint8Array(nx * ny);
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const i = y * nx + x;
+        const v = (fn ? fn(this, i, x, y) : this) ?? this;
+        if (!(v instanceof TopOp)) throw new Error('tile: fn must return a TOP chain');
+        const sig = sigOf(v);
+        let idx = bySig.get(sig);
+        if (idx == null) {
+          if (variants.length >= 8) throw new Error('tile: more than 8 distinct variants');
+          idx = variants.length;
+          variants.push(v);
+          bySig.set(sig, idx);
+        }
+        map[i] = idx;
+      }
+    }
+    return new TopOp(this.engine, 'tile', { nx, ny, map }, variants);
+  }
 
   out() {
     this.engine.topOutput = this;
@@ -540,6 +627,30 @@ export class TopOp {
       return (this._outTex = out.texture);
     }
 
+    if (this.kind === 'tile') {
+      const { nx, ny, map } = this.params;
+      if (!this._lut) {
+        this._lut = new THREE.DataTexture(map, nx, ny, THREE.RedFormat, THREE.UnsignedByteType);
+        this._lut.minFilter = this._lut.magFilter = THREE.NearestFilter;
+        this._lut.needsUpdate = true;
+      }
+      if (!this.mat) {
+        const uniforms = { uGrid: { value: new THREE.Vector2(nx, ny) }, uMap: { value: this._lut } };
+        for (let i = 0; i < 8; i++) uniforms[`t${i}`] = { value: null };
+        this.mat = new THREE.ShaderMaterial({
+          vertexShader: VERT,
+          fragmentShader: TILE_FRAG,
+          uniforms,
+          depthTest: false,
+          depthWrite: false,
+        });
+      }
+      ins.forEach((tex, i) => { this.mat.uniforms[`t${i}`].value = tex; });
+      const out = this._rt(ctx);
+      ctx.quad.render(ctx.renderer, this.mat, out);
+      return (this._outTex = out.texture);
+    }
+
     const spec = SPECS[this.kind];
     if (!spec) throw new Error(`unknown TOP: ${this.kind}`);
     this.mat ??= makeMaterial(spec);
@@ -550,6 +661,7 @@ export class TopOp {
 
   dispose() {
     for (const key of ['_tgt_main', '_tgt_auxA', '_tgt_auxB']) this[key]?.dispose();
+    this._lut?.dispose();
     this.mat?.dispose();
   }
 }

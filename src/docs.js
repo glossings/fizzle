@@ -47,8 +47,9 @@ export const METHODS = {
   edge: ['.edge({ strength, spread })', 'TOP: Sobel edge magnitude (grayscale).'],
   slope: ['.slope({ strength, spread })', 'TOP: neighbor-difference gradient, centered on 0.5, in RG.'],
   normalMap: ['.normalMap({ strength, spread })', 'TOP: tangent-space normal map from luma height.'],
-  levels: ['.levels({ brightness, contrast, saturation, gamma })', 'TOP: combined tonal adjust.'],
-  brightness: ['.brightness(v)', 'TOP: add v to all channels (0 = unchanged).'],
+  levels: ['.levels({ contrast, saturation, gamma })', 'TOP: combined tonal adjust.'],
+  add: ['.add(v)', 'TOP: add v to every pixel. Scalar or [r, g, b]; negative darkens.'],
+  mul: ['.mul(v)', 'TOP: multiply every pixel by v. Scalar or [r, g, b].'],
   contrast: ['.contrast(v)', 'TOP: contrast around mid-gray (1 = unchanged).'],
   saturation: ['.saturation(v)', 'TOP: 0 = grayscale, 1 = unchanged, >1 boosts.'],
   gamma: ['.gamma(v)', 'TOP: gamma curve (1 = unchanged).'],
@@ -62,6 +63,7 @@ export const METHODS = {
   comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. Modes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn.'],
   blur: ['.blur(radius)', 'TOP: separable gaussian blur.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'TOP: brightpass + half-res gaussian glow.'],
+  tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe (max 8 distinct). x left→right, y bottom→top, i = y*nx + x.'],
 };
 
 const globalOptions = Object.entries(GLOBALS).map(([label, [detail, info]]) => ({

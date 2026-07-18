@@ -128,7 +128,15 @@ scene()
 
 - `.mirror({ axis: 'x'|'y'|'both', flip })` · `.kaleido(sides, { rotate })`
 - `.transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror' })`
-- `.brightness(v)` `.contrast(v)` `.saturation(v)` `.gamma(v)` — or combined: `.levels({...})`
+- `.add(v)` `.mul(v)` — per-pixel math, scalar or `[r, g, b]`
+- `.contrast(v)` `.saturation(v)` `.gamma(v)` — or combined: `.levels({...})`
+- `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
+  chain: return `src`, a treatment of it, or any other TOP. Cells with
+  structurally identical variants share one render (max 8 distinct).
+
+  ```js
+  scene().tile(4, 3, (src, i, x, y) => (x + y) % 2 ? src.saturation(0) : src).out()
+  ```
 - `.posterize(steps)` — quantize value · `.pixellate(x, y?)` — quantize position
 - `.threshold(level, { soft })` · `.invert()` · `.blur(radius)`
 - `.edge({ strength, spread })` · `.slope({...})` · `.normalMap({...})` — one
