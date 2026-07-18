@@ -546,6 +546,14 @@ export class TopOp {
     return new TopOp(this.engine, kind, params, [this, ...extraInputs]);
   }
 
+  // TOP-valued args (comp layer, displace/remap map) may be a fn of the chain
+  // so far — .comp(s => s.edge(), 'add') overlays the current node's own edges
+  _top(v, op) {
+    if (typeof v === 'function') v = v(this);
+    if (!(v instanceof TopOp)) throw new Error(`${op}: expected a TOP (or a fn of the chain returning one)`);
+    return v;
+  }
+
   // --- generators-as-filters & filters ---
   mirror(o = {}) { return this._n('mirror', o); }
   kaleido(sides = 6, o = {}) { return this._n('kaleido', { sides, ...o }); }
@@ -563,9 +571,9 @@ export class TopOp {
   transform(o = {}) { return this._n('transform', o); }
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
   invert() { return this._n('invert'); }
-  remap(map) { return this._n('remap', {}, [map]); }
-  displace(map, amount = 0.1) { return this._n('displace', { amount }, [map]); }
-  comp(layer, mode = 'over', opacity = 1) { return this._n('comp', { mode, opacity }, [layer]); }
+  remap(map) { return this._n('remap', {}, [this._top(map, 'remap')]); }
+  displace(map, amount = 0.1) { return this._n('displace', { amount }, [this._top(map, 'displace')]); }
+  comp(layer, mode = 'over', opacity = 1) { return this._n('comp', { mode, opacity }, [this._top(layer, 'comp')]); }
   blur(radius = 1) { return this._n('blur', { radius }); }
   bloom(o = {}) { return this._n('bloom', o); }
 
@@ -604,6 +612,15 @@ export class TopOp {
     return this;
   }
 
+  // .fbend('name') — close a named feedback loop here: this node's output is
+  // snapshotted into the buffer at end of frame, and feedback('name') reads it
+  // back next frame. Passthrough, so the chain continues past the tap.
+  fbend(name) {
+    if (typeof name !== 'string' || !name) throw new Error('fbend: needs a buffer name, e.g. .fbend("trail")');
+    this.engine.topFbEnds.set(name, this);
+    return this;
+  }
+
   _rt(ctx, key = 'main', scale = 1) {
     const w = Math.max(1, Math.round(ctx.w * scale));
     const h = Math.max(1, Math.round(ctx.h * scale));
@@ -626,7 +643,9 @@ export class TopOp {
       runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out);
       return (this._outTex = out.texture);
     }
-    if (this.kind === 'feedback') return (this._outTex = ctx.feedbackTex);
+    if (this.kind === 'feedback') {
+      return (this._outTex = this.params.name != null ? ctx.fbTex(this.params.name) : ctx.feedbackTex);
+    }
 
     // text generator: drawn on a 2D canvas (any CSS font, or a font file by
     // URL), re-rendered only when the resolved content/params change — so
@@ -756,6 +775,19 @@ export function renderTops(engine) {
     st.feedbackRT = makeRT(size.x, size.y);
   }
 
+  // named feedback buffers (feedback('x') / .fbend('x')); persist across
+  // re-runs like the unnamed one, created black on first use
+  st.fbRTs ??= new Map();
+  const fbRT = (name) => {
+    let rt = st.fbRTs.get(name);
+    if (!rt || rt.width !== size.x || rt.height !== size.y) {
+      rt?.dispose();
+      rt = makeRT(size.x, size.y);
+      st.fbRTs.set(name, rt);
+    }
+    return rt;
+  };
+
   if (needsScene) {
     renderer.setRenderTarget(st.sceneRT);
     renderer.render(engine.scene, engine.camera);
@@ -771,6 +803,7 @@ export function renderTops(engine) {
     aspect: size.x / size.y,
     sceneTex: needsScene ? st.sceneRT.texture : null,
     feedbackTex: st.feedbackRT.texture,
+    fbTex: (name) => fbRT(name).texture,
   };
 
   const outTex = engine.topOutput.renderNode(ctx);
@@ -779,6 +812,15 @@ export function renderTops(engine) {
   // snapshot for next frame's feedback(); frozen while paused so trails hold
   if (!engine.paused && outTex !== st.feedbackRT.texture) {
     runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
+  }
+  // named taps: render each .fbend chain (memoized if it's already on the
+  // display path) and snapshot into its buffer for next frame's feedback(name)
+  if (!engine.paused) {
+    for (const [name, node] of engine.topFbEnds) {
+      const tex = node.renderNode(ctx);
+      const rt = fbRT(name);
+      if (tex !== rt.texture) runPass(ctx, MAT_COPY, tex, null, rt);
+    }
   }
   renderer.setRenderTarget(null);
 }

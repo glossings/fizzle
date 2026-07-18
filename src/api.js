@@ -371,7 +371,7 @@ export function makeApi(engine) {
 
     // TOPs — texture operators (see tops.js). Chains render only with .out()
     scene: () => new TopOp(engine, 'scene'),
-    feedback: () => new TopOp(engine, 'feedback'),
+    feedback: (name) => new TopOp(engine, 'feedback', name != null ? { name: String(name) } : {}),
     ramp: (o) => new TopOp(engine, 'ramp', o ?? {}),
     circle: (o) => new TopOp(engine, 'circle', o ?? {}),
     noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),

@@ -9,7 +9,7 @@ import { colorPicker } from './colorpicker.js';
 import { apiCompletions, apiHover } from './docs.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
-//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show editor · ctrl+b sidebar
+//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show editor · ctrl+p sidebar
 export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar }) {
   const toggleEditor = () => {
     parent.classList.toggle('hidden');
@@ -22,7 +22,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Shift-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
       { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
       { key: 'Ctrl-h', run: () => { toggleEditor(); return true; } },
-      { key: 'Ctrl-b', run: () => { onToggleSidebar?.(); return true; } },
+      { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
       // completions accept with Tab, not Enter; Enter just newlines through
       // an open popup. Tab indents when no popup is showing.
       { key: 'Tab', run: acceptCompletion },
@@ -60,7 +60,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }
     else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
     else if (e.key === 'h') { e.preventDefault(); toggleEditor(); }
-    else if (e.key === 'b') { e.preventDefault(); onToggleSidebar?.(); }
+    else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
   });
 
   view.focus();

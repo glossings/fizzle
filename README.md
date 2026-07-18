@@ -9,14 +9,14 @@ npm install
 npm run dev   # then open http://localhost:5173
 ```
 
-**Keys:** `ctrl + enter` run the sketch · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · `ctrl + b` toggle the sidebar · `ctrl + hover` a command for docs · drag to orbit, scroll to zoom.
+**Keys:** `ctrl + enter` run the sketch · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · `ctrl + p` toggle the sidebar · `ctrl + hover` a command for docs · drag to orbit, scroll to zoom.
 
 **Editor smarts:** autocomplete knows the whole API (globals at the top level,
 chain methods after a `.`), each completion carries its signature and a doc
 line — accept with `Tab` (`Enter` inserts a newline as usual). Holding `ctrl`
 while hovering any API name pops the same docs.
 
-**Sidebar** (`ctrl + b` or the ☰ button): render quality, editor font size,
+**Sidebar** (`ctrl + p` or the ☰ button): render quality, editor font size,
 live-color-update toggle, fps — plus the sketch palette. User sketches are
 saved as plain `.js` files in `sketches/user/` via the dev server, so the
 folder can be committed to git like any other source; bundled read-only
@@ -137,6 +137,22 @@ scene()
 - `scene()` — the lit 3D render.
 - `feedback()` — last frame's final output (a feedback bus; survives
   re-runs, frozen while paused). Comp it back in for trails and video feedback.
+- `feedback('name')` + `.fbend('name')` — a named feedback loop that closes
+  anywhere in the graph, not just at the display output. `.fbend('name')` is a
+  passthrough tap: it snapshots that point of the chain each frame, and
+  `feedback('name')` reads the snapshot back the next frame. Useful when
+  later stages (say, bloom) shouldn't compound into the trail:
+
+  ```js
+  scene()
+    .comp(feedback('trail').transform({ scale: 0.97, rotate: 0.01 }), 'add', 0.6)
+    .fbend('trail')          // loop closes here, pre-bloom
+    .bloom({ threshold: 0.5 })
+    .out()
+  ```
+
+  Multiple named loops coexist; a tapped chain doesn't even need to reach
+  `.out()` — off-screen loops render too.
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
 - `noise({ freq, octaves, lacunarity, gain, speed, a, b })` — animated fbm.
@@ -167,7 +183,14 @@ scene()
   absolute UV lookup from the map.
 - `.comp(layer, mode, opacity)` — composite `layer` over the chain. Modes:
   `over add sub mult screen overlay hardLight softLight darken lighten
-  difference exclusion dodge burn`.
+  difference exclusion dodge burn`. `layer` may also be a **function of the
+  chain so far**, for self-referencing composites:
+
+  ```js
+  scene().kaleido(6).comp(s => s.edge(), 'add').out()   // overlay own edges
+  ```
+
+  (`.displace(map)` and `.remap(map)` accept the same fn form.)
 - `.bloom({ threshold, strength, radius })` — brightpass + half-res gaussian.
 
 ## Escape hatches

@@ -98,7 +98,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
 
   const toggleBtn = document.createElement('button');
   toggleBtn.id = 'sb-toggle';
-  toggleBtn.title = 'settings & sketches (ctrl+b)';
+  toggleBtn.title = 'settings & sketches (ctrl+p)';
   toggleBtn.textContent = '☰';
   document.body.appendChild(toggleBtn);
 
