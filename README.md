@@ -293,6 +293,22 @@ sphere().color(col).scale(wob.mul(0.5).add(1)).out()
   be numbers, colors, strings, or fns of t.
 - `.gte(v)` / `.lte(v)` — comparison gates, mainly for `.when(...)` and
   `.counter()`.
+- `.hold(trigger, threshold?)` — sample-and-hold driven by *another* signal:
+  freezes the current value each time the trigger crosses up through
+  threshold.
+- `.round()` `.floor()` `.ceil()` `.abs()` — the usual math, chainable.
+- `rnd(freq?, seed?)` — smooth random signal (deterministic value noise of
+  t, 0..1); the signal cousin of the `noise()` TOP. Different seeds give
+  independent signals.
+- `sig(fn)` — lift any `t => ...` fn into a chainable signal when you want
+  the processing methods on it.
+
+```js
+const kick = audio().bandpass(30, 160).kicks()
+sphere()
+  .noise({ amp: 0.4, freq: 3, seed: rnd().hold(kick).mul(4).round() })
+  .out()                                         // new noise shape per kick
+```
 
 Free-running (non-tempo) LFOs don't need any of this — `t => Math.sin(t)` is
 already idiomatic everywhere.

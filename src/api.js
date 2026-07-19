@@ -4,7 +4,7 @@ import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
 import { TopOp } from './tops.js';
-import { sig } from './audio.js';
+import { sig, valueNoise } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -413,6 +413,15 @@ export function makeApi(engine) {
         return phase - Math.floor(phase);
       });
     },
+    // smooth random signal (deterministic value noise of t, 0..1) — the
+    // signal-space cousin of the noise() TOP. freq in Hz-ish wiggles/sec;
+    // different seeds give independent signals. Pairs with .hold():
+    // rnd().hold(audio().kicks()) freezes a new random value on every kick.
+    rnd(freq = 1, seed = 0) {
+      return sig((t) => valueNoise(t * resolve(freq, t) + seed * 137.31));
+    },
+    // lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth()
+    sig: (fn) => sig((t) => resolve(fn, t)),
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },

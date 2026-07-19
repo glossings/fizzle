@@ -33,6 +33,8 @@ export const GLOBALS = {
 
   beat: ['beat(div = 1)', 'Tempo-synced phase ramp 0..1 over div beats (tempo in the sidebar). Shape it: beat(2).sin() two-beat LFO, beat(0.25).sqr() sixteenth gates, beat(1).rand() sample-hold, beat(4).counter().select([...]) walks a list per bar.'],
   audio: ['audio(chan?)', 'Audio input level as a signal — a fn of t, usable in any parameter. Mono mix by default, or one channel by index (inputs can be >2ch). Chain .mul/.add/.pow/.smooth/.kicks/.lowpass/.highpass/.bandpass. First use starts capture; pick the device in the sidebar.'],
+  rnd: ['rnd(freq = 1, seed = 0)', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() TOP. freq scales wiggle speed; different seeds are independent. rnd().hold(audio().kicks()).mul(4).round() = random 0..4 per kick.'],
+  sig: ['sig(fn)', 'Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.'],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
@@ -72,6 +74,11 @@ export const METHODS = {
   saw: ['.saw()', 'Signal: fractional part of the value — a ramp per cycle.'],
   sqr: ['.sqr(width = 0.5)', 'Signal: 1 while the phase is below width, else 0 — square LFO / rhythmic gate.'],
   rand: ['.rand()', 'Signal: sample-and-hold — a fresh random 0..1 each time the integer part of the value advances. beat(1).rand() = new value every beat.'],
+  hold: ['.hold(trigger, threshold = 0.5)', 'Signal: sample-and-hold driven by another signal — freezes the current value each time trigger crosses up through threshold. rnd().hold(audio().kicks()) = new random per kick.'],
+  round: ['.round()', 'Signal: round to the nearest integer. rnd().mul(4).round() picks 0..4.'],
+  floor: ['.floor()', 'Signal: round down to an integer.'],
+  ceil: ['.ceil()', 'Signal: round up to an integer.'],
+  abs: ['.abs()', 'Signal: absolute value.'],
   when: ['.when(cond, s => ...)', 'TOP: per-frame switch — while cond >= 0.5 the chain becomes fn(chain), otherwise it passes through. E.g. .when(audio().gte(0.3), s => s.kaleido(6)). Only the active branch renders.'],
   contrast: ['.contrast(v)', 'TOP: contrast around mid-gray (1 = unchanged).'],
   saturation: ['.saturation(v)', 'TOP: 0 = grayscale, 1 = unchanged, >1 boosts.'],

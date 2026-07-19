@@ -152,6 +152,14 @@ export class AudioEngine {
 
 const frac = (x) => x - Math.floor(x);
 
+// deterministic smooth value noise of x, 0..1 — the signal-space cousin of
+// the noise() TOP (exposed in sketches as rnd())
+const hash = (i) => frac(Math.sin(i * 127.1 + 311.7) * 43758.5453);
+export function valueNoise(x) {
+  const i = Math.floor(x), u = x - i, s = u * u * (3 - 2 * u);
+  return hash(i) * (1 - s) + hash(i + 1) * s;
+}
+
 // A signal is a callable fn of t with chainable processing. Stateful ops
 // (smooth/counter/rand) advance on new t values and cache per t, so one node
 // shared by several parameters steps exactly once per frame.
@@ -161,6 +169,10 @@ export function sig(fn, ae = null) {
   f.add = (v = 0) => mk((t) => f(t) + resolve(v, t));
   f.mul = (v = 1) => mk((t) => f(t) * resolve(v, t));
   f.pow = (v = 1) => mk((t) => Math.pow(Math.max(f(t), 0), resolve(v, t)));
+  f.round = () => mk((t) => Math.round(f(t)));
+  f.floor = () => mk((t) => Math.floor(f(t)));
+  f.ceil = () => mk((t) => Math.ceil(f(t)));
+  f.abs = () => mk((t) => Math.abs(f(t)));
   // comparisons -> 1/0 gates, ready for .when()/.counter()
   f.gte = (v) => mk((t) => (f(t) >= resolve(v, t) ? 1 : 0));
   f.lte = (v) => mk((t) => (f(t) <= resolve(v, t) ? 1 : 0));
@@ -200,6 +212,19 @@ export function sig(fn, ae = null) {
       const c = Math.floor(f(t));
       if (c !== cycle) { cycle = c; v = Math.random(); }
       return v;
+    });
+  };
+  // sample-and-hold driven by another signal: freeze the current value each
+  // time the trigger crosses up through threshold (a kicks() hit, a gate)
+  f.hold = (trigger, threshold = 0.5) => {
+    let held = null, prev = Infinity, lastT = null;
+    return mk((t) => {
+      if (t === lastT) return held;
+      lastT = t;
+      const x = resolve(trigger, t);
+      if (held == null || (x >= threshold && prev < threshold)) held = f(t);
+      prev = x;
+      return held;
     });
   };
   // adaptive onset detector on this signal: fires 1 when the value jumps
