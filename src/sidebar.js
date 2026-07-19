@@ -80,6 +80,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       </label>
       <label>font size <input id="sb-font" type="number" min="10" max="24" step="1"></label>
       <label>audio in <select id="sb-audio"></select></label>
+      <label>audio out <select id="sb-audio-out"></select></label>
       <label><input id="sb-live" type="checkbox"> live color updates</label>
       <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
     </section>
@@ -141,26 +142,35 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   const applyAudio = () => {
     const v = settings.audioDevice ?? 'default';
     engine.setAudioDevice(v === 'off' ? null : v === 'default' ? undefined : v);
+    const o = settings.audioOut ?? 'off';
+    engine.setAudioOutput(o === 'off' ? null : o);
   };
   async function fillAudioDevices() {
-    const sel = $('#sb-audio');
     let devs = [];
     try {
       devs = (await navigator.mediaDevices.enumerateDevices()).filter(
-        (d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default'
+        (d) => d.deviceId && d.deviceId !== 'default'
       );
     } catch { /* no device enumeration (http, headless) — keep the basics */ }
-    sel.innerHTML = '';
-    sel.append(
-      new Option('default mic', 'default'),
-      ...devs.map((d, i) => new Option(d.label || `input ${i + 1}`, d.deviceId)),
-      new Option('off', 'off')
-    );
-    const cur = settings.audioDevice ?? 'default';
-    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : 'default';
+    const fill = (sel, kind, defLabel, cur) => {
+      sel.innerHTML = '';
+      sel.append(
+        new Option('off', 'off'),
+        new Option(defLabel, 'default'),
+        ...devs.filter((d) => d.kind === kind).map((d, i) => new Option(d.label || `${kind === 'audioinput' ? 'input' : 'output'} ${i + 1}`, d.deviceId))
+      );
+      sel.value = [...sel.options].some((o) => o.value === cur) ? cur : 'default';
+    };
+    fill($('#sb-audio'), 'audioinput', 'default mic', settings.audioDevice ?? 'default');
+    fill($('#sb-audio-out'), 'audiooutput', 'default output', settings.audioOut ?? 'off');
   }
   $('#sb-audio').addEventListener('change', (e) => {
     settings.audioDevice = e.target.value;
+    persist();
+    applyAudio();
+  });
+  $('#sb-audio-out').addEventListener('change', (e) => {
+    settings.audioOut = e.target.value;
     persist();
     applyAudio();
   });

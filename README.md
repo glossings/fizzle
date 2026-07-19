@@ -255,6 +255,12 @@ Capture starts on first use (browser permission prompt; the AudioContext may
 stay silent until the page has had a click or keypress — re-running with
 ctrl+enter counts). Signals freeze while paused, like everything else.
 
+The sidebar's **audio out** setting passes the captured input through to an
+output device (off by default) — handy for monitoring, or when the input is
+an interface channel you also want to hear. Picking a specific device needs
+Chrome/Edge (`AudioContext.setSinkId`); elsewhere passthrough goes to the
+default output. Mind feedback: mic → speakers will howl.
+
 ## Escape hatches
 
 - `THREE` — the full three.js namespace is in scope.

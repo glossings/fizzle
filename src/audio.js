@@ -20,6 +20,8 @@ export class AudioEngine {
     this.channels = 0;
     this.starting = false;
     this.running = false;
+    this.monitor = null;      // gain node wiring input -> output (passthrough)
+    this.outputId = null;     // null = passthrough off, 'default' or a deviceId
   }
 
   async start(deviceId) {
@@ -66,12 +68,37 @@ export class AudioEngine {
       this.levels = new Array(n).fill(0);
       this.binHz = this.ctx.sampleRate / ma.fftSize;
       this.running = true;
+      if (this.outputId != null) this.setOutput(this.outputId); // rewire passthrough
       window.dispatchEvent(new Event('td-audio-started')); // sidebar refreshes labels
     } catch (e) {
       console.warn(`td-livecode: audio input: ${e.message ?? e}`);
       this.running = false;
     } finally {
       this.starting = false;
+    }
+  }
+
+  // Pass the input through to an output device (null disables). Device
+  // selection uses AudioContext.setSinkId — Chrome/Edge; elsewhere the
+  // passthrough still works but only to the default output.
+  async setOutput(deviceId) {
+    this.outputId = deviceId;
+    if (!this.ctx || !this.source) return; // applied when capture starts
+    if (deviceId == null) {
+      this.monitor?.disconnect();
+      return;
+    }
+    this.monitor ??= this.ctx.createGain();
+    this.source.connect(this.monitor);
+    this.monitor.connect(this.ctx.destination);
+    if (this.ctx.setSinkId) {
+      try {
+        await this.ctx.setSinkId(deviceId === 'default' ? '' : deviceId);
+      } catch (e) {
+        console.warn(`td-livecode: audio output: ${e.message ?? e}`);
+      }
+    } else if (deviceId !== 'default') {
+      console.warn('td-livecode: this browser cannot pick an output device; passing through to the default output');
     }
   }
 

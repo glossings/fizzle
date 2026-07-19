@@ -4,7 +4,7 @@ import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
 import { TopOp } from './tops.js';
-import { AudioEngine, sig } from './audio.js';
+import { sig } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -427,9 +427,7 @@ export function makeApi(engine) {
   };
 
   function audioIn() {
-    const ae = (engine.audio ??= new AudioEngine());
-    if (engine.audioEnabled && !ae.running && !ae.starting) ae.start(engine.audioDeviceId);
-    return ae;
+    return engine.ensureAudio();
   }
 
   return api;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTops } from './tops.js';
+import { AudioEngine } from './audio.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -92,6 +93,14 @@ export class Engine {
     if (updater) this.updaters.push(updater);
   }
 
+  // Lazy audio capture: created/started on first use (audio()/kicks() in a
+  // sketch, or enabling passthrough in the sidebar). No-op while disabled.
+  ensureAudio() {
+    const ae = (this.audio ??= new AudioEngine());
+    if (this.audioEnabled && !ae.running && !ae.starting) ae.start(this.audioDeviceId);
+    return ae;
+  }
+
   // Audio input device, from the sidebar: a deviceId string, undefined for
   // the system default, or null to disable audio entirely. The capture
   // (re)starts immediately if audio is already live; otherwise the next
@@ -101,6 +110,13 @@ export class Engine {
     this.audioDeviceId = deviceId ?? undefined;
     if (!this.audioEnabled) this.audio?.stop();
     else if (this.audio) this.audio.start(this.audioDeviceId);
+  }
+
+  // Passthrough output device: null = off, 'default', or a deviceId.
+  // Selecting one starts capture if it isn't running yet.
+  setAudioOutput(deviceId) {
+    if (deviceId == null) this.audio?.setOutput(null);
+    else this.ensureAudio().setOutput(deviceId);
   }
 
   // Named geometry layers: geometry .out('name') moves the object onto its
