@@ -79,6 +79,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
         </select>
       </label>
       <label>font size <input id="sb-font" type="number" min="10" max="24" step="1"></label>
+      <label>audio in <select id="sb-audio"></select></label>
       <label><input id="sb-live" type="checkbox"> live color updates</label>
       <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
     </section>
@@ -132,6 +133,41 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   $('#sb-font').addEventListener('change', (e) => { settings.fontSize = Number(e.target.value); applySettings(); persist(); });
   $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
   applySettings();
+
+  // --- audio input device ---
+  // 'default' = system default mic, 'off' = audio disabled, else a deviceId.
+  // Labels are empty until mic permission is granted; the td-audio-started
+  // event (fired on successful capture) refreshes them.
+  const applyAudio = () => {
+    const v = settings.audioDevice ?? 'default';
+    engine.setAudioDevice(v === 'off' ? null : v === 'default' ? undefined : v);
+  };
+  async function fillAudioDevices() {
+    const sel = $('#sb-audio');
+    let devs = [];
+    try {
+      devs = (await navigator.mediaDevices.enumerateDevices()).filter(
+        (d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default'
+      );
+    } catch { /* no device enumeration (http, headless) — keep the basics */ }
+    sel.innerHTML = '';
+    sel.append(
+      new Option('default mic', 'default'),
+      ...devs.map((d, i) => new Option(d.label || `input ${i + 1}`, d.deviceId)),
+      new Option('off', 'off')
+    );
+    const cur = settings.audioDevice ?? 'default';
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : 'default';
+  }
+  $('#sb-audio').addEventListener('change', (e) => {
+    settings.audioDevice = e.target.value;
+    persist();
+    applyAudio();
+  });
+  window.addEventListener('td-audio-started', fillAudioDevices);
+  navigator.mediaDevices?.addEventListener?.('devicechange', fillAudioDevices);
+  fillAudioDevices();
+  applyAudio();
 
   let lastFrames = 0;
   setInterval(() => {

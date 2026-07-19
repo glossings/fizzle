@@ -95,7 +95,8 @@ cheap.
   its own position, so copies deform differently.
 - `.material({ color, roughness, metalness, emissive, emissiveIntensity, flatShading, wireframe })`
   · `.color(c)` shorthand.
-- `.out()` — build it and add it to the scene.
+- `.out()` — build it and add it to the scene. `.out('name')` builds it into
+  its own named render layer instead — see **Geometry layers** below.
 
 ## Lights, camera, scene
 
@@ -165,6 +166,22 @@ scene()
 
   Multiple buses coexist, and published chains render even if they never
   reach a naked `.out()` (as long as something does).
+- **Geometry layers** — `.out('name')` on a geometry publishes it under the
+  same namespace: the object renders into its own layer (not the visible
+  scene), and `input('name')` pulls that layer as a TOP — same camera, lit,
+  tone-mapped, on a black background so layers comp cleanly with
+  `add`/`screen`/`lighten`. Lights hit every layer by default; a light's own
+  `.out('name')` restricts it to one layer. `scene()` stays what it always
+  was: the render of everything sent to a naked `.out()`.
+
+  ```js
+  torusKnot().rotate(0, t => t, 0).out('knot')     // not in the visible scene
+  icosa({ radius: 1.4 }).noise({ amp: 0.3 }).out('blob')
+
+  input('knot').edge({ strength: 2 })
+    .comp(input('blob').pixellate(90), 'add')      // separate looks, comped
+    .out()
+  ```
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
 - `noise({ freq, octaves, lacunarity, gain, speed, a, b })` — animated fbm.
@@ -204,6 +221,39 @@ scene()
 
   (`.displace(map)` and `.remap(map)` accept the same fn form.)
 - `.bloom({ threshold, strength, radius })` — brightpass + half-res gaussian.
+
+## Audio
+
+`audio()` turns the mic (or any input device — pick it in the sidebar) into a
+**signal**: a function of time with processing methods, so it drops straight
+into any parameter that takes a `t => ...`:
+
+```js
+const level = audio().smooth(0.05, 0.25)        // mono mix, fast up / slow down
+const bass  = audio().lowpass(150).smooth(0.03, 0.2)
+const kick  = kicks()                           // 1 on each kick, then decays
+
+icosa({ radius: 1.2 })
+  .noise({ amp: bass.mul(1.5).add(0.1), freq: 2.5 })
+  .scale(kick.mul(0.5).add(1))
+  .out()
+```
+
+- `audio()` — mono mix level (RMS). `audio(2)` — one channel by index;
+  inputs with more than 2 channels are fully addressable.
+- `.add(v)` `.mul(v)` `.pow(v)` — arithmetic (`pow < 1` lifts quiet detail).
+- `.smooth(up, down?)` — exponential lag, in seconds; with two args, attack
+  and release differ (fast up + slow down = envelope follower). This *is*
+  a lowpass filter, just applied to the control value rather than the audio.
+- `.lowpass(hz)` / `.highpass(hz)` / `.bandpass(lo, hi)` — energy (0..1) in
+  a region of the input's spectrum: bass level, treble level, etc.
+- `kicks({ band: [30, 160], threshold: 1.5, decay: 6 })` — onset detector:
+  jumps to 1 when band energy leaps past its own moving average, decays
+  exponentially. Tune `band` for other percussive material.
+
+Capture starts on first use (browser permission prompt; the AudioContext may
+stay silent until the page has had a click or keypress — re-running with
+ctrl+enter counts). Signals freeze while paused, like everything else.
 
 ## Escape hatches
 

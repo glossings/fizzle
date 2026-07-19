@@ -392,6 +392,8 @@ function makeMaterial(spec) {
   });
 }
 
+const LAYER_BG = new THREE.Color(0x000000);
+
 function makeRT(w, h) {
   return new THREE.WebGLRenderTarget(w, h, {
     type: THREE.HalfFloatType,
@@ -659,6 +661,9 @@ export class TopOp {
       // acyclic: pull the producer fresh this frame (plain routing between
       // chains); cyclic or unpublished: last frame's snapshot (feedback)
       if (producer && !producer._evaluating) return producer.renderNode(ctx);
+      // a geometry layer published with geometry .out('name')
+      const bit = this.engine.geoLayers.get(name);
+      if (bit != null) return ctx.layerTex(name, bit);
       return ctx.fbTex(name);
     }
 
@@ -808,6 +813,38 @@ export function renderTops(engine) {
     renderer.render(engine.scene, engine.camera);
   }
 
+  // named geometry layers: render the scene with the camera masked to one
+  // layer, on black (so layers comp cleanly with add/screen), then tonemap —
+  // same display-space boundary as scene(). Memoized per frame per name.
+  st.layerRTs ??= new Map();
+  const layerTex = (name, bit) => {
+    let e = st.layerRTs.get(name);
+    if (!e || e.lin.width !== size.x || e.lin.height !== size.y) {
+      e?.lin.dispose();
+      e?.out.dispose();
+      e = {
+        lin: new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 }),
+        out: makeRT(size.x, size.y),
+        frame: -1,
+      };
+      st.layerRTs.set(name, e);
+    }
+    if (e.frame !== st.frame) {
+      e.frame = st.frame;
+      const cam = engine.camera;
+      const mask = cam.layers.mask;
+      const bg = engine.scene.background;
+      engine.scene.background = LAYER_BG;
+      cam.layers.mask = 1 << bit;
+      renderer.setRenderTarget(e.lin);
+      renderer.render(engine.scene, cam);
+      cam.layers.mask = mask;
+      engine.scene.background = bg;
+      runPass(ctx, MAT_TONEMAP, e.lin.texture, null, e.out);
+    }
+    return e.out.texture;
+  };
+
   const ctx = {
     renderer,
     quad: st.quad,
@@ -819,6 +856,7 @@ export function renderTops(engine) {
     sceneTex: needsScene ? st.sceneRT.texture : null,
     feedbackTex: st.feedbackRT.texture,
     fbTex: (name) => fbRT(name).texture,
+    layerTex,
   };
 
   const outTex = engine.topOutput.renderNode(ctx);

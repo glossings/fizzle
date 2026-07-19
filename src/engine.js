@@ -29,10 +29,15 @@ export class Engine {
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
 
+    this.audio = null;              // AudioEngine, created lazily by audio()/kicks()
+    this.audioDeviceId = undefined; // undefined = system default input
+    this.audioEnabled = true;       // false = 'off' in the sidebar
+
     this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
     this.topNodes = [];             // TOP graph nodes from the current sketch
     this.topOutput = null;          // TOP chain marked with .out(), if any
     this.topBuffers = new Map();    // name -> node published with .out(name)
+    this.geoLayers = new Map();     // name -> three.js layer bit, geometry .out(name)
     this._topState = {};            // persistent RTs/quad (feedback survives re-runs)
 
     window.addEventListener('resize', () => this.resize());
@@ -61,6 +66,7 @@ export class Engine {
     this._lastT = now;
     if (!this.paused) {
       this.time += dt;
+      this.audio?.update();
       for (const fn of this.updaters) {
         try { fn(this.time, dt); } catch (e) { /* keep rendering even if one updater throws */ }
       }
@@ -86,6 +92,30 @@ export class Engine {
     if (updater) this.updaters.push(updater);
   }
 
+  // Audio input device, from the sidebar: a deviceId string, undefined for
+  // the system default, or null to disable audio entirely. The capture
+  // (re)starts immediately if audio is already live; otherwise the next
+  // audio()/kicks() call starts it.
+  setAudioDevice(deviceId) {
+    this.audioEnabled = deviceId !== null;
+    this.audioDeviceId = deviceId ?? undefined;
+    if (!this.audioEnabled) this.audio?.stop();
+    else if (this.audio) this.audio.start(this.audioDeviceId);
+  }
+
+  // Named geometry layers: geometry .out('name') moves the object onto its
+  // own three.js layer (invisible to the display camera), and input('name')
+  // renders just that layer as a TOP. Layer 0 is the naked-.out() scene.
+  geoLayer(name) {
+    let bit = this.geoLayers.get(name);
+    if (bit == null) {
+      bit = this.geoLayers.size + 1;
+      if (bit > 31) throw new Error('out: more than 31 named geometry layers');
+      this.geoLayers.set(name, bit);
+    }
+    return bit;
+  }
+
   clearPatch() {
     for (const obj of this.patch) {
       this.scene.remove(obj);
@@ -106,6 +136,7 @@ export class Engine {
     this.topNodes = [];
     this.topOutput = null;
     this.topBuffers.clear();
+    this.geoLayers.clear();
 
     this.cameraProgrammed = false;
     this.controls.enabled = true;

@@ -4,6 +4,7 @@ import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
 import { TopOp } from './tops.js';
+import { AudioEngine, sig } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -201,7 +202,7 @@ class GeoOp {
   material(o = {}) { Object.assign(this._material, o); return this; }
   color(c) { this._material.color = c; return this; }
 
-  out() {
+  out(name) {
     let pendingFont = null;
     if (this.type === 'text3d') {
       const resolved = resolveFont(this.opts);
@@ -299,6 +300,9 @@ class GeoOp {
     };
 
     updater(0);
+    // .out('name'): render into a named layer (pulled as a TOP by
+    // input('name')) instead of the visible scene
+    if (name != null) mesh.layers.set(this.engine.geoLayer(String(name)));
     this.engine.add(mesh, updater);
     return this;
   }
@@ -311,7 +315,11 @@ class LightOp {
     this._pos = [3, 4, 2];
   }
   pos(x, y, z) { this._pos = [x, y, z]; return this; }
-  out() {
+  out(name) {
+    // lights hit every layer by default (three culls lights by camera layer
+    // mask); .out('name') restricts one to a single named geometry layer
+    if (name != null) this.light.layers.set(this.engine.geoLayer(String(name)));
+    else this.light.layers.enableAll();
     const updater = (t) => this.light.position.set(...resolve3(this._pos, t));
     updater(0);
     this.engine.add(this.light, updater);
@@ -333,7 +341,9 @@ export function makeApi(engine) {
     text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
 
     ambient(intensity = 0.3, color = 0xffffff) {
-      engine.add(new THREE.AmbientLight(color, intensity));
+      const light = new THREE.AmbientLight(color, intensity);
+      light.layers.enableAll();
+      engine.add(light);
     },
     directional(o = {}) {
       return new LightOp(engine, new THREE.DirectionalLight(o.color ?? 0xffffff, o.intensity ?? 1.5));
@@ -381,10 +391,46 @@ export function makeApi(engine) {
     noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),
     text: (text, o) => new TopOp(engine, 'textGen', { ...o, text }),
 
+    // audio input as signals — fns of t with chainable processing, so they
+    // drop into any parameter. First use starts capture (device from the
+    // sidebar; system default until picked). See audio.js.
+    audio(chan) {
+      const ae = audioIn();
+      return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
+    },
+    // adaptive onset detector: fires 1 when band energy jumps past its own
+    // moving average, then decays exponentially — a ready-made kick envelope
+    kicks(o = {}) {
+      const ae = audioIn();
+      const [lo, hi] = o.band ?? [30, 160];
+      let avg = 0, env = 0, lastT = null, cool = 0;
+      return sig((t) => {
+        if (t === lastT) return env;
+        const dt = lastT == null ? 0 : Math.max(t - lastT, 0);
+        lastT = t;
+        const e = ae.band(lo, hi);
+        avg += (e - avg) * Math.min(1, dt * 2);
+        cool = Math.max(0, cool - dt);
+        if (cool <= 0 && e > 0.1 && e > avg * resolve(o.threshold ?? 1.5, t)) {
+          env = 1;
+          cool = 0.15; // refractory: one hit can't retrigger itself
+        } else {
+          env *= Math.exp(-resolve(o.decay ?? 6, t) * dt);
+        }
+        return env;
+      }, ae);
+    },
+
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },
   };
+
+  function audioIn() {
+    const ae = (engine.audio ??= new AudioEngine());
+    if (engine.audioEnabled && !ae.running && !ae.starting) ae.start(engine.audioDeviceId);
+    return ae;
+  }
 
   return api;
 }
