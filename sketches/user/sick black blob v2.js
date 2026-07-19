@@ -1,0 +1,21 @@
+bg('#ffffff')
+ambient(0.25)
+point({ color: '#88bbff', intensity: 60 }).pos(4, 4, 3).out()
+point({ color: '#ff7f9e', intensity: 40 }).pos(-4, 1, 2).out()
+
+const level = audio().smooth(0.05, 0.25)
+const bass = audio().lowpass(150).smooth(0.03, 0.2)
+const kick = audio().kicks()
+
+icosa({ radius: 1.1, detail: 10 })
+  .noise({ amp: bass.mul(1.4).add(0.08), freq: 2.5, octaves: 4, speed: 0, seed: kick.counter() })
+  .scale(level.mul(1.6).add(0.9))
+  .rotate(0, t => t * 0.3, 0)
+  .material({ color: '#225853', roughness: 0.35, metalness: 0.4 })
+  .out()
+
+scene()
+  .comp(input().transform({ scale: kick.mul(0.05).add(1.002) }), 'add', 0.55)
+  .when(audio().highpass(4000).gte(0.3).smooth(), s => s.kaleido(kick.counter(7).add(1)))
+  .bloom({ threshold: 0.5, strength: kick.mul(1.2).add(0.6) })
+  .out()

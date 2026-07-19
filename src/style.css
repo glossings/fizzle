@@ -204,16 +204,3 @@ html, body {
 #sidebar ul li button:hover { color: #ff7b72; }
 #sidebar .sb-empty { color: rgba(255, 255, 255, 0.3); cursor: default; }
 #sidebar .sb-empty:hover { background: none; }
-
-#hints {
-  position: fixed;
-  right: 12px;
-  bottom: 10px;
-  z-index: 15;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-  background: rgba(0, 0, 0, 0.5);
-  padding: 4px 8px;
-  border-radius: 4px;
-  pointer-events: none;
-}
