@@ -1,7 +1,7 @@
 // Audio input as control signals. AudioEngine captures an input device (any
 // channel count) and runs one analysis pass per rendered frame: per-channel
 // RMS, a mono-mix RMS, and a normalized magnitude spectrum. Signals returned
-// by audio()/kicks() are plain functions of t — they slot into every
+// by audio() are plain functions of t — they slot into every
 // value-or-fn-of-t parameter — with chainable processing methods attached.
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
@@ -159,6 +159,27 @@ export function sig(fn, ae = null) {
   f.add = (v = 0) => mk((t) => f(t) + resolve(v, t));
   f.mul = (v = 1) => mk((t) => f(t) * resolve(v, t));
   f.pow = (v = 1) => mk((t) => Math.pow(Math.max(f(t), 0), resolve(v, t)));
+  // adaptive onset detector on this signal: fires 1 when the value jumps
+  // past threshold × its own moving average (and above floor), then decays
+  // exponentially. Feed it a band for percussion: .bandpass(30, 160).kicks()
+  f.kicks = ({ threshold = 1.5, decay = 6, floor = 0.05 } = {}) => {
+    let avg = 0, env = 0, lastT = null, cool = 0;
+    return mk((t) => {
+      if (t === lastT) return env;
+      const dt = lastT == null ? 0 : Math.max(t - lastT, 0);
+      lastT = t;
+      const e = f(t);
+      avg += (e - avg) * Math.min(1, dt * 2); // ~0.5s adaptive baseline
+      cool = Math.max(0, cool - dt);
+      if (cool <= 0 && e > floor && e > avg * resolve(threshold, t)) {
+        env = 1;
+        cool = 0.15; // refractory: one hit can't retrigger itself
+      } else {
+        env *= Math.exp(-resolve(decay, t) * dt);
+      }
+      return env;
+    });
+  };
   // exponential lag (one-pole lowpass on the control value); up/down are
   // attack/release time constants in seconds
   f.smooth = (up = 0.15, down = up) => {

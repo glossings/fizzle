@@ -31,8 +31,7 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "TOP generator: canvas-rendered text (any CSS font name, 'google:Name', or a font URL; \\n for multiline). Content can be a fn of t; comp over a scene with add/screen."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "3D extruded text. font: a name (installed fonts, then Google Fonts), 'google:Name', or a .ttf/.otf/.typeface.json URL. Renders in helvetiker until the font arrives."],
 
-  audio: ['audio(chan?)', 'Audio input level as a signal — a fn of t, usable in any parameter. Mono mix by default, or one channel by index (inputs can be >2ch). Chain .mul/.add/.pow/.smooth/.lowpass/.highpass/.bandpass. First use starts capture; pick the device in the sidebar.'],
-  kicks: ['kicks({ band: [30, 160], threshold: 1.5, decay: 6 })', 'Onset detector on the audio input: jumps to 1 on each hit in the band (defaults tuned for kick drums), then decays. Use like any fn of t, e.g. scale(kicks().add(1)).'],
+  audio: ['audio(chan?)', 'Audio input level as a signal — a fn of t, usable in any parameter. Mono mix by default, or one channel by index (inputs can be >2ch). Chain .mul/.add/.pow/.smooth/.kicks/.lowpass/.highpass/.bandpass. First use starts capture; pick the device in the sidebar.'],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
@@ -58,6 +57,7 @@ export const METHODS = {
   mul: ['.mul(v)', 'TOP: multiply every pixel by v (scalar or [r, g, b]) · audio signal: plain gain.'],
   pow: ['.pow(v)', 'Audio signal: raise to a power — <1 expands quiet detail, >1 emphasizes peaks.'],
   smooth: ['.smooth(up, down?)', 'Audio signal: exponential lag (one-pole lowpass on the value), time constants in seconds. Two args = separate attack/release — fast up + slow down makes a nice envelope.'],
+  kicks: ['.kicks({ threshold: 1.5, decay: 6, floor: 0.05 })', 'Audio signal: onset detector — 1 when the value jumps past threshold × its own moving average, exponential decay after. audio().bandpass(30, 160).kicks() for kick drums; move the band for snares/hats.'],
   lowpass: ['.lowpass(hz)', "Audio signal: energy below hz (0..1) from the input's spectrum — bass level."],
   highpass: ['.highpass(hz)', "Audio signal: energy above hz (0..1) from the input's spectrum — treble level."],
   bandpass: ['.bandpass(lo, hi)', "Audio signal: energy between lo and hi Hz (0..1) from the input's spectrum."],

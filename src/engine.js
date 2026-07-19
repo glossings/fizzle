@@ -30,7 +30,7 @@ export class Engine {
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
 
-    this.audio = null;              // AudioEngine, created lazily by audio()/kicks()
+    this.audio = null;              // AudioEngine, created lazily by audio()
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
 
@@ -93,7 +93,7 @@ export class Engine {
     if (updater) this.updaters.push(updater);
   }
 
-  // Lazy audio capture: created/started on first use (audio()/kicks() in a
+  // Lazy audio capture: created/started on first use (audio() in a
   // sketch, or enabling passthrough in the sidebar). No-op while disabled.
   ensureAudio() {
     const ae = (this.audio ??= new AudioEngine());
@@ -104,7 +104,7 @@ export class Engine {
   // Audio input device, from the sidebar: a deviceId string, undefined for
   // the system default, or null to disable audio entirely. The capture
   // (re)starts immediately if audio is already live; otherwise the next
-  // audio()/kicks() call starts it.
+  // audio() call starts it.
   setAudioDevice(deviceId) {
     this.audioEnabled = deviceId !== null;
     this.audioDeviceId = deviceId ?? undefined;

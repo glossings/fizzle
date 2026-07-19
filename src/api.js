@@ -398,29 +398,6 @@ export function makeApi(engine) {
       const ae = audioIn();
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
     },
-    // adaptive onset detector: fires 1 when band energy jumps past its own
-    // moving average, then decays exponentially — a ready-made kick envelope
-    kicks(o = {}) {
-      const ae = audioIn();
-      const [lo, hi] = o.band ?? [30, 160];
-      let avg = 0, env = 0, lastT = null, cool = 0;
-      return sig((t) => {
-        if (t === lastT) return env;
-        const dt = lastT == null ? 0 : Math.max(t - lastT, 0);
-        lastT = t;
-        const e = ae.band(lo, hi);
-        avg += (e - avg) * Math.min(1, dt * 2);
-        cool = Math.max(0, cool - dt);
-        if (cool <= 0 && e > 0.1 && e > avg * resolve(o.threshold ?? 1.5, t)) {
-          env = 1;
-          cool = 0.15; // refractory: one hit can't retrigger itself
-        } else {
-          env *= Math.exp(-resolve(o.decay ?? 6, t) * dt);
-        }
-        return env;
-      }, ae);
-    },
-
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },

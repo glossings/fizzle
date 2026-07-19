@@ -1,5 +1,5 @@
 // audio-reactive: grabs the default mic on first run (pick another device in
-// the sidebar). audio()/kicks() are signals — fns of t — so they go anywhere
+// the sidebar). audio() returns a signal — fns of t — so they go anywhere
 // a fn of t goes. Play some music at your machine.
 
 bg('#05050a')
@@ -9,7 +9,7 @@ point({ color: '#ff7f9e', intensity: 40 }).pos(-4, 1, 2).out()
 
 const level = audio().smooth(0.05, 0.25)             // envelope-followed mix
 const bass = audio().lowpass(150).smooth(0.03, 0.2)  // low-end energy
-const kick = kicks()                                 // 1 on each kick, decays
+const kick = audio().bandpass(30, 160).kicks()       // 1 on each kick, decays
 
 icosa({ radius: 1.1, detail: 10 })
   .noise({ amp: bass.mul(1.4).add(0.08), freq: 2.5, octaves: 4, speed: 0.6 })

@@ -231,7 +231,7 @@ into any parameter that takes a `t => ...`:
 ```js
 const level = audio().smooth(0.05, 0.25)        // mono mix, fast up / slow down
 const bass  = audio().lowpass(150).smooth(0.03, 0.2)
-const kick  = kicks()                           // 1 on each kick, then decays
+const kick  = audio().bandpass(30, 160).kicks() // 1 on each kick, then decays
 
 icosa({ radius: 1.2 })
   .noise({ amp: bass.mul(1.5).add(0.1), freq: 2.5 })
@@ -247,9 +247,11 @@ icosa({ radius: 1.2 })
   a lowpass filter, just applied to the control value rather than the audio.
 - `.lowpass(hz)` / `.highpass(hz)` / `.bandpass(lo, hi)` — energy (0..1) in
   a region of the input's spectrum: bass level, treble level, etc.
-- `kicks({ band: [30, 160], threshold: 1.5, decay: 6 })` — onset detector:
-  jumps to 1 when band energy leaps past its own moving average, decays
-  exponentially. Tune `band` for other percussive material.
+- `.kicks({ threshold: 1.5, decay: 6, floor: 0.05 })` — onset detector on
+  whatever signal it's chained onto: jumps to 1 when the value leaps past
+  `threshold ×` its own moving average, decays exponentially. Chain it after
+  a band for percussion — `.bandpass(30, 160).kicks()` for kick drums,
+  `.highpass(5000).kicks()` for hats.
 
 Capture starts on first use (browser permission prompt; the AudioContext may
 stay silent until the page has had a click or keypress — re-running with
