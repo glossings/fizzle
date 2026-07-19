@@ -150,15 +150,58 @@ export class AudioEngine {
   }
 }
 
+const frac = (x) => x - Math.floor(x);
+
 // A signal is a callable fn of t with chainable processing. Stateful ops
-// (smooth) advance on new t values and cache per t, so one node shared by
-// several parameters steps exactly once per frame.
+// (smooth/counter/rand) advance on new t values and cache per t, so one node
+// shared by several parameters steps exactly once per frame.
 export function sig(fn, ae = null) {
   const f = (t) => fn(t);
   const mk = (g) => sig(g, ae);
   f.add = (v = 0) => mk((t) => f(t) + resolve(v, t));
   f.mul = (v = 1) => mk((t) => f(t) * resolve(v, t));
   f.pow = (v = 1) => mk((t) => Math.pow(Math.max(f(t), 0), resolve(v, t)));
+  // comparisons -> 1/0 gates, ready for .when()/.counter()
+  f.gte = (v) => mk((t) => (f(t) >= resolve(v, t) ? 1 : 0));
+  f.lte = (v) => mk((t) => (f(t) <= resolve(v, t) ? 1 : 0));
+  // rising-edge counter: +1 each time the value crosses up through threshold
+  // (a kicks() hit, a gate opening); wraps at max
+  f.counter = (max = Infinity, threshold = 0.5) => {
+    let n = 0, prev = Infinity, lastT = null;
+    return mk((t) => {
+      if (t === lastT) return n;
+      lastT = t;
+      const x = f(t);
+      if (x >= threshold && prev < threshold && Number.isFinite(x)) {
+        n = Number.isFinite(max) ? (n + 1) % Math.max(1, Math.round(max)) : n + 1;
+      }
+      prev = x;
+      return n;
+    });
+  };
+  // index an array by the value (floored, wrapped) — items may be fns of t,
+  // and non-numeric items (colors, strings) are fine
+  f.select = (arr) => mk((t) => {
+    const i = ((Math.floor(f(t)) % arr.length) + arr.length) % arr.length;
+    return resolve(arr[i], t);
+  });
+  // waveshapes: treat the value as a phase ramp (beat(), or anything);
+  // one cycle per whole unit, all outputs 0..1
+  f.sin = () => mk((t) => 0.5 + 0.5 * Math.sin(f(t) * Math.PI * 2));
+  f.tri = () => mk((t) => 1 - Math.abs(2 * frac(f(t)) - 1));
+  f.saw = () => mk((t) => frac(f(t)));
+  f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
+  // sample-and-hold: a fresh random 0..1 each time the integer part advances
+  f.rand = () => {
+    let cycle = null, v = 0, lastT = null;
+    return mk((t) => {
+      if (t === lastT) return v;
+      lastT = t;
+      const c = Math.floor(f(t));
+      if (c !== cycle) { cycle = c; v = Math.random(); }
+      return v;
+    });
+  };
   // adaptive onset detector on this signal: fires 1 when the value jumps
   // past threshold × its own moving average (and above floor), then decays
   // exponentially. Feed it a band for percussion: .bandpass(30, 160).kicks()

@@ -62,6 +62,7 @@ uniform float uOctaves;
 uniform float uLacunarity;
 uniform float uGain;
 uniform float uSpeed;
+uniform float uSeed;
 
 float fbm(vec3 p) {
   float sum = 0.0;
@@ -79,7 +80,7 @@ float fbm(vec3 p) {
 }
 
 vec3 displacePoint(vec3 p, vec3 n, vec3 seed) {
-  float d = fbm((p + seed) * uFreq + uTime * uSpeed);
+  float d = fbm((p + seed) * uFreq + uTime * uSpeed + uSeed * 19.19);
   return p + n * d * uAmp;
 }
 `;

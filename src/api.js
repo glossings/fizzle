@@ -188,6 +188,7 @@ class GeoOp {
       lacunarity: o.lacunarity ?? 2,
       gain: o.gain ?? 0.5,
       speed: o.speed ?? 0.3,
+      seed: o.seed ?? 0,
     };
     return this;
   }
@@ -212,7 +213,7 @@ class GeoOp {
     const geometry = buildGeometry(this.type, this.opts, this._font);
     const m = this._material;
     const material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(m.color ?? '#8899ff'),
+      color: new THREE.Color(resolve(m.color ?? '#8899ff', 0)),
       roughness: m.roughness ?? 0.5,
       metalness: m.metalness ?? 0.1,
       flatShading: m.flatShading ?? false,
@@ -220,7 +221,7 @@ class GeoOp {
       side: this.type === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
     });
     if (m.emissive) {
-      material.emissive = new THREE.Color(m.emissive);
+      material.emissive = new THREE.Color(resolve(m.emissive, 0));
       material.emissiveIntensity = m.emissiveIntensity ?? 1;
     }
 
@@ -234,6 +235,7 @@ class GeoOp {
         uLacunarity: { value: 0 },
         uGain: { value: 0 },
         uSpeed: { value: 0 },
+        uSeed: { value: 0 },
       };
       applyNoise(material, noiseUniforms);
     }
@@ -262,6 +264,9 @@ class GeoOp {
       if (mesh.parent) rebuildText(lastText);
     }).catch(() => { /* already warned in resolveFont */ });
     const updater = (t) => {
+      // colors as fns of t (e.g. a .select() signal cycling a palette)
+      if (typeof m.color === 'function') material.color.set(m.color(t));
+      if (typeof m.emissive === 'function') material.emissive.set(m.emissive(t));
       if (lastText !== null && typeof this.opts.text === 'function') {
         const s = String(this.opts.text(t));
         if (s !== lastText) {
@@ -282,6 +287,7 @@ class GeoOp {
         noiseUniforms.uLacunarity.value = resolve(n.lacunarity, t);
         noiseUniforms.uGain.value = resolve(n.gain, t);
         noiseUniforms.uSpeed.value = resolve(n.speed, t);
+        noiseUniforms.uSeed.value = resolve(n.seed, t);
       }
 
       if (inst) {
@@ -397,6 +403,15 @@ export function makeApi(engine) {
     audio(chan) {
       const ae = audioIn();
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
+    },
+    // tempo-synced phase ramp: 0..1 over `div` beats (tempo set in the
+    // sidebar). Shape it — beat(2).sin() is a two-beat LFO, beat(0.25).sqr()
+    // gates on sixteenths, beat(4).counter().select([...]) walks a list per bar
+    beat(div = 1) {
+      return sig((t) => {
+        const phase = (t * engine.bpm) / 60 / resolve(div, t);
+        return phase - Math.floor(phase);
+      });
     },
     // escape hatches
     THREE,

@@ -89,7 +89,7 @@ const SPECS = {
   },
 
   noiseGen: {
-    extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uColA: '#000000', uColB: '#ffffff' },
+    extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uSeed: 0, uColA: '#000000', uColB: '#ffffff' },
     pre: SNOISE_GLSL,
     frag: `
       void main() {
@@ -97,7 +97,7 @@ const SPECS = {
         float s = 0.0, a = 1.0, f = 1.0, n = 0.0;
         for (int i = 0; i < 8; i++) {
           if (float(i) >= uOct) break;
-          s += a * snoise(vec3(p * f, uTime * uSpeed + float(i) * 7.31));
+          s += a * snoise(vec3(p * f, uTime * uSpeed + uSeed * 19.19 + float(i) * 7.31));
           n += a; f *= uLac; a *= uGain;
         }
         float v = clamp((n > 0.0 ? s / n : 0.0) * 0.5 + 0.5, 0.0, 1.0);
@@ -109,6 +109,7 @@ const SPECS = {
       u.uLac.value = resolve(p.lacunarity ?? 2, t);
       u.uGain.value = resolve(p.gain ?? 0.5, t);
       u.uSpeed.value = resolve(p.speed ?? 0.3, t);
+      u.uSeed.value = resolve(p.seed ?? 0, t);
       u.uColA.value.set(resolve(p.a ?? '#000000', t));
       u.uColB.value.set(resolve(p.b ?? '#ffffff', t));
     },
@@ -179,12 +180,18 @@ const SPECS = {
   },
 
   adjust: {
-    extras: { uContrast: 1, uSat: 1, uGamma: 1 },
+    extras: { uContrast: 1, uSat: 1, uGamma: 1, uHue: 0 },
     frag: `
       void main() {
         vec3 c = texture2D(tex0, vUv).rgb;
         c = (c - 0.5) * uContrast + 0.5;
         c = mix(vec3(dot(c, LUMA)), c, uSat);
+        if (uHue != 0.0) {
+          // rotate around the gray axis (Rodrigues); uHue in radians
+          const vec3 k = vec3(0.57735026919);
+          float ca = cos(uHue), sa = sin(uHue);
+          c = c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
+        }
         c = pow(max(c, 0.0), vec3(1.0 / max(uGamma, 0.001)));
         gl_FragColor = vec4(c, 1.0);
       }`,
@@ -192,6 +199,7 @@ const SPECS = {
       u.uContrast.value = resolve(p.contrast ?? 1, t);
       u.uSat.value = resolve(p.saturation ?? 1, t);
       u.uGamma.value = resolve(p.gamma ?? 1, t);
+      u.uHue.value = resolve(p.hue ?? 0, t) * Math.PI * 2; // turns: 1 = full wheel
     },
   },
 
@@ -571,6 +579,7 @@ export class TopOp {
   contrast(v = 1) { return this._n('adjust', { contrast: v }); }
   saturation(v = 1) { return this._n('adjust', { saturation: v }); }
   gamma(v = 1) { return this._n('adjust', { gamma: v }); }
+  hue(v = 0) { return this._n('adjust', { hue: v }); }
   posterize(steps = 4) { return this._n('posterize', { steps }); }
   pixellate(x = 100, y) { return this._n('pixellate', { x, y }); }
   transform(o = {}) { return this._n('transform', o); }
@@ -581,6 +590,13 @@ export class TopOp {
   comp(layer, mode = 'over', opacity = 1) { return this._n('comp', { mode, opacity }, [this._top(layer, 'comp')]); }
   blur(radius = 1) { return this._n('blur', { radius }); }
   bloom(o = {}) { return this._n('bloom', o); }
+
+  // .when(cond, fn) — per-frame switch: while cond(t) >= 0.5 the chain
+  // becomes fn(chain), otherwise it passes through untouched. Both branches
+  // are built once; only the active one renders each frame.
+  when(cond, fn) {
+    return new TopOp(this.engine, 'switch', { cond }, [this, this._top(fn, 'when')]);
+  }
 
   // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
   // per-cell choice of TOP. The fn runs once per cell at eval time and may
@@ -707,6 +723,10 @@ export class TopOp {
         this._ctex.needsUpdate = true;
       }
       return this._ctex;
+    }
+
+    if (this.kind === 'switch') {
+      return this.inputs[resolve(this.params.cond, ctx.t) >= 0.5 ? 1 : 0].renderNode(ctx);
     }
 
     const ins = this.inputs.map((n) => n.renderNode(ctx));

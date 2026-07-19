@@ -84,10 +84,11 @@ cheap.
 ## Chain operators
 
 - `.pos(x, y, z)` / `.rotate(x, y, z)` / `.scale(x, y?, z?)` — transforms; `scale(2)` is uniform.
-- `.noise({ amp, freq, octaves, lacunarity, gain, speed })` — GPU fbm simplex
+- `.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })` — GPU fbm simplex
   displacement along vertex normals. `amp` is displacement distance, `freq` is
   spatial frequency, `octaves` (1–8) adds harmonic detail, `lacunarity`/`gain`
-  control per-octave frequency/amplitude falloff, `speed` animates the field.
+  control per-octave frequency/amplitude falloff, `speed` animates the field,
+  `seed` offsets it (same settings, different shape).
   Normals are recomputed in the vertex shader so lighting stays correct.
 - `.instance(count, fn)` — renders as a single `InstancedMesh`. `fn(i, count, t)`
   returns `{ pos: [x,y,z], rot: [x,y,z], scale: n | [x,y,z] }` per copy and runs
@@ -184,7 +185,7 @@ scene()
   ```
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
-- `noise({ freq, octaves, lacunarity, gain, speed, a, b })` — animated fbm.
+- `noise({ freq, octaves, lacunarity, gain, speed, seed, a, b })` — animated fbm.
 - `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
   text; any CSS font, `\n` for multiline, content may be a fn of `t`. It's an
   opaque image (black bg by default), so overlay with `comp(…, 'add')` /
@@ -195,7 +196,9 @@ scene()
 - `.mirror({ axis: 'x'|'y'|'both', flip })` · `.kaleido(sides, { rotate })`
 - `.transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror' })`
 - `.add(v)` `.mul(v)` — per-pixel math, scalar or `[r, g, b]`
-- `.contrast(v)` `.saturation(v)` `.gamma(v)` — or combined: `.levels({...})`
+- `.contrast(v)` `.saturation(v)` `.gamma(v)` `.hue(v)` — or combined:
+  `.levels({...})`. Hue is in turns: `.hue(t => t * 0.1)` drifts the palette,
+  `.hue(0.5)` flips it.
 - `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
   chain: return `src`, a treatment of it, or any other TOP. Cells with
   structurally identical variants share one render (max 8 distinct).
@@ -221,6 +224,14 @@ scene()
 
   (`.displace(map)` and `.remap(map)` accept the same fn form.)
 - `.bloom({ threshold, strength, radius })` — brightpass + half-res gaussian.
+- `.when(cond, s => ...)` — per-frame switch: while the condition signal is
+  ≥ 0.5 the chain becomes `fn(chain)`, otherwise it passes through untouched
+  (only the active branch renders):
+
+  ```js
+  scene().when(audio().gte(0.3), s => s.kaleido(6)).out()   // kaleido on loud
+  scene().when(beat(1).sqr(0.25), s => s.invert()).out()    // strobe on the beat
+  ```
 
 ## Audio
 
@@ -256,6 +267,35 @@ icosa({ radius: 1.2 })
 Capture starts on first use (browser permission prompt; the AudioContext may
 stay silent until the page has had a click or keypress — re-running with
 ctrl+enter counts). Signals freeze while paused, like everything else.
+
+### Tempo, gates, counters
+
+`beat(div)` is a phase ramp — 0..1 over `div` beats at the sidebar's tempo —
+and any signal can be shaped, gated, counted, or used to pick from a list:
+
+```js
+const wob  = beat(2).sin()                       // two-beat sine LFO, 0..1
+const gate = beat(0.25).sqr(0.3)                 // rhythmic 1/0 on sixteenths
+const drift = beat(1).rand().smooth(0.2)         // new random target per beat
+const step = audio().bandpass(30, 160).kicks()
+  .counter(4)                                    // 0,1,2,3,0,... one per kick
+const col  = step.select(['#ff5f9e', '#4fd1c5', '#ffd166', '#a78bfa'])
+sphere().color(col).scale(wob.mul(0.5).add(1)).out()
+```
+
+- `.sin()` `.tri()` `.saw()` `.sqr(width)` — waveshapes of value-as-phase
+  (one cycle per whole unit, 0..1 out). They work on anything ramp-like.
+- `.rand()` — sample-and-hold: fresh random each time the integer part
+  advances (`beat(4).rand()` = new value per bar).
+- `.counter(max?, threshold?)` — counts rising edges (kick hits, gates),
+  wrapping at `max`.
+- `.select([...])` — index a list by the value (floored, wrapped); items can
+  be numbers, colors, strings, or fns of t.
+- `.gte(v)` / `.lte(v)` — comparison gates, mainly for `.when(...)` and
+  `.counter()`.
+
+Free-running (non-tempo) LFOs don't need any of this — `t => Math.sin(t)` is
+already idiomatic everywhere.
 
 The sidebar's **audio out** setting passes the captured input through to an
 output device (off by default) — handy for monitoring, or when the input is

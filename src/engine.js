@@ -30,6 +30,8 @@ export class Engine {
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
 
+    this.bpm = 120;                 // tempo for beat(), set in the sidebar
+
     this.audio = null;              // AudioEngine, created lazily by audio()
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
