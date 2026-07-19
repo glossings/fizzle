@@ -29,7 +29,14 @@ function togglePause() {
   }
 }
 
+// explicit runs (ctrl+enter, loading a sketch) resume playback if paused
+function runResume(code) {
+  engine.paused = false;
+  run(code);
+}
+
 // dragging the color wheel fires rapidly; rebuild the patch at most ~8x/sec
+// (and doesn't resume — tweaking a color while paused keeps the freeze-frame)
 let liveTimer;
 function liveRun(code) {
   clearTimeout(liveTimer);
@@ -46,12 +53,12 @@ const setCode = (code) => {
     engine,
     getCode: () => view.state.doc.toString(),
     setCode,
-    run,
+    run: runResume,
   });
 
   const initial = sidebar.initialCode ?? DEFAULT_SKETCH;
   view = makeEditor(document.getElementById('editor'), initial, {
-    onRun: run,
+    onRun: runResume,
     onTogglePause: togglePause,
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
     onToggleSidebar: sidebar.toggle,

@@ -9,7 +9,7 @@ npm install
 npm run dev   # then open http://localhost:5173
 ```
 
-**Keys:** `ctrl + enter` run the sketch · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · `ctrl + p` toggle the sidebar · `ctrl + hover` a command for docs · drag to orbit, scroll to zoom.
+**Keys:** `ctrl + enter` run the sketch (resumes if paused) · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · `ctrl + p` toggle the sidebar · `ctrl + hover` a command for docs · drag to orbit, scroll to zoom.
 
 **Editor smarts:** autocomplete knows the whole API (globals at the top level,
 chain methods after a `.`), each completion carries its signature and a doc
@@ -147,7 +147,7 @@ scene()
 
   ```js
   scene().kaleido(6).out('kal')                 // publish (no display)
-  noise({ freq: 3 }).out('warp')
+  noise({ freq: 3, channels: 2 }).out('warp')
   input('kal').displace(input('warp'), 0.08).bloom().out()
   ```
 
@@ -185,16 +185,24 @@ scene()
   ```
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
-- `noise({ freq, octaves, lacunarity, gain, speed, seed, a, b })` — animated fbm.
+- `noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
+  animated fbm. `channels: 2`–`4` puts *independent* fields in R/G(/B/A)
+  instead of the a→b grayscale ramp — what you want for `.displace()` maps.
 - `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
   text; any CSS font, `\n` for multiline, content may be a fn of `t`. It's an
   opaque image (black bg by default), so overlay with `comp(…, 'add')` /
   `'screen'`, or `.threshold()` it into a mask.
+- `video(name?)` — live camera. `name` matches a camera label
+  (case-insensitive substring: `video('facetime')`); no name = the default
+  camera. Permission prompt on first use; the stream survives re-runs and
+  shows black until it's live.
 
 **Filters** (chain on any TOP; every numeric param takes `t => ...`)
 
 - `.mirror({ axis: 'x'|'y'|'both', flip })` · `.kaleido(sides, { rotate })`
 - `.transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror' })`
+  — or the shorthands `.translate(x, y)`, `.rotate(v)`, `.scale(v)` (each
+  takes `{ wrap }` as a trailing option).
 - `.add(v)` `.mul(v)` — per-pixel math, scalar or `[r, g, b]`
 - `.contrast(v)` `.saturation(v)` `.gamma(v)` `.hue(v)` — or combined:
   `.levels({...})`. Hue is in turns: `.hue(t => t * 0.1)` drifts the palette,
@@ -211,8 +219,11 @@ scene()
 - `.edge({ strength, spread })` · `.slope({...})` · `.normalMap({...})` — one
   Sobel pass, three encodings: edge magnitude, centered gradient (RG), or
   tangent-space normal.
-- `.displace(mapTop, amount)` — offset UVs by a map's RG · `.remap(mapTop)` —
-  absolute UV lookup from the map.
+- `.displace(mapTop, amount, { mid: 0.5 })` — offset UVs by the map's RG
+  minus `mid`. Mid-gray is neutral by default; `mid: 0` makes black neutral
+  (use for dark maps like `edge()` output). Grayscale maps push along the
+  diagonal only — `noise({ channels: 2 })` displaces isotropically.
+  `.remap(mapTop)` — absolute UV lookup from the map.
 - `.comp(layer, mode, opacity)` — composite `layer` over the chain. Modes:
   `over add sub mult screen overlay hardLight softLight darken lighten
   difference exclusion dodge burn`. `layer` may also be a **function of the
@@ -223,6 +234,15 @@ scene()
   ```
 
   (`.displace(map)` and `.remap(map)` accept the same fn form.)
+- `.mask(maskTop, fn?)` — without `fn`, multiply by the mask's luma (cutout).
+  With `fn`, apply it **only where the mask is bright** — a dry→wet blend by
+  mask luma:
+
+  ```js
+  scene()
+    .mask(circle({ radius: 0.3, soft: 0.15 }), s => s.displace(noise({ channels: 2 }), 0.2))
+    .out()   // displaced inside the circle, untouched outside
+  ```
 - `.bloom({ threshold, strength, radius })` — brightpass + half-res gaussian.
 - `.when(cond, s => ...)` — per-frame switch: while the condition signal is
   ≥ 0.5 the chain becomes `fn(chain)`, otherwise it passes through untouched

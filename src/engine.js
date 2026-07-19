@@ -35,6 +35,7 @@ export class Engine {
     this.audio = null;              // AudioEngine, created lazily by audio()
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
+    this.videos = new Map();        // camera captures by name, shared across re-runs
 
     this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
     this.topNodes = [];             // TOP graph nodes from the current sketch
@@ -119,6 +120,49 @@ export class Engine {
   setAudioOutput(deviceId) {
     if (deviceId == null) this.audio?.setOutput(null);
     else this.ensureAudio().setOutput(deviceId);
+  }
+
+  // Camera capture for the video() TOP. name matches a camera label
+  // (case-insensitive substring); no name = default camera. Streams are
+  // created once and survive re-runs, so livecoding doesn't re-prompt.
+  ensureVideo(name) {
+    const key = name ?? '';
+    let v = this.videos.get(key);
+    if (v) return v;
+    v = { texture: null };
+    this.videos.set(key, v);
+    (async () => {
+      try {
+        let deviceId;
+        if (name) {
+          const find = (devs) => devs.find(
+            (d) => d.kind === 'videoinput' && d.label.toLowerCase().includes(name.toLowerCase())
+          );
+          let dev = find(await navigator.mediaDevices.enumerateDevices());
+          if (!dev) {
+            // labels are blank before camera permission — grab the default
+            // camera once to unlock them, then retry the match
+            const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
+            tmp.getTracks().forEach((t) => t.stop());
+            dev = find(await navigator.mediaDevices.enumerateDevices());
+          }
+          if (dev) deviceId = dev.deviceId;
+          else console.warn(`td-livecode: video: no camera matching "${name}" — using default`);
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { exact: deviceId } } : true,
+        });
+        const el = document.createElement('video');
+        el.srcObject = stream;
+        el.muted = true;
+        el.playsInline = true;
+        await el.play();
+        v.texture = new THREE.VideoTexture(el);
+      } catch (e) {
+        console.warn(`td-livecode: video: ${e.message ?? e}`);
+      }
+    })();
+    return v;
   }
 
   // Named geometry layers: geometry .out('name') moves the object onto its

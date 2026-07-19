@@ -396,6 +396,10 @@ export function makeApi(engine) {
     circle: (o) => new TopOp(engine, 'circle', o ?? {}),
     noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),
     text: (text, o) => new TopOp(engine, 'textGen', { ...o, text }),
+    // camera capture as a TOP; name matches a camera label (substring,
+    // case-insensitive), no name = default camera. Permission prompt on
+    // first use; the stream survives re-runs.
+    video: (name) => new TopOp(engine, 'video', name != null ? { name: String(name) } : {}),
 
     // audio input as signals — fns of t with chainable processing, so they
     // drop into any parameter. First use starts capture (device from the

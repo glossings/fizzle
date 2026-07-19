@@ -34,6 +34,7 @@ const HEADER = /* glsl */ `
 varying vec2 vUv;
 uniform sampler2D tex0;
 uniform sampler2D tex1;
+uniform sampler2D tex2;
 uniform vec2 uTexel;
 uniform float uAspect;
 uniform float uTime;
@@ -89,19 +90,31 @@ const SPECS = {
   },
 
   noiseGen: {
-    extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uSeed: 0, uColA: '#000000', uColB: '#ffffff' },
+    extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uSeed: 0, uChannels: 1, uColA: '#000000', uColB: '#ffffff' },
     pre: SNOISE_GLSL,
     frag: `
-      void main() {
-        vec2 p = vUv * vec2(uAspect, 1.0) * uFreq;
+      float fbm2(vec2 p, float zoff) {
         float s = 0.0, a = 1.0, f = 1.0, n = 0.0;
         for (int i = 0; i < 8; i++) {
           if (float(i) >= uOct) break;
-          s += a * snoise(vec3(p * f, uTime * uSpeed + uSeed * 19.19 + float(i) * 7.31));
+          s += a * snoise(vec3(p * f, uTime * uSpeed + uSeed * 19.19 + zoff + float(i) * 7.31));
           n += a; f *= uLac; a *= uGain;
         }
-        float v = clamp((n > 0.0 ? s / n : 0.0) * 0.5 + 0.5, 0.0, 1.0);
-        gl_FragColor = vec4(mix(uColA, uColB, v), 1.0);
+        return clamp((n > 0.0 ? s / n : 0.0) * 0.5 + 0.5, 0.0, 1.0);
+      }
+      void main() {
+        vec2 p = vUv * vec2(uAspect, 1.0) * uFreq;
+        if (uChannels < 1.5) {
+          gl_FragColor = vec4(mix(uColA, uColB, fbm2(p, 0.0)), 1.0);
+        } else {
+          // independent fields per channel (seed-offset); unused stay 0
+          vec4 c = vec4(0.0, 0.0, 0.0, 1.0);
+          c.r = fbm2(p, 0.0);
+          c.g = fbm2(p, 101.7);
+          if (uChannels > 2.5) c.b = fbm2(p, 203.9);
+          if (uChannels > 3.5) c.a = fbm2(p, 307.1);
+          gl_FragColor = c;
+        }
       }`,
     update(u, p, t) {
       u.uFreq.value = resolve(p.freq ?? 4, t);
@@ -110,6 +123,7 @@ const SPECS = {
       u.uGain.value = resolve(p.gain ?? 0.5, t);
       u.uSpeed.value = resolve(p.speed ?? 0.3, t);
       u.uSeed.value = resolve(p.seed ?? 0, t);
+      u.uChannels.value = Math.min(4, Math.max(1, Math.round(resolve(p.channels ?? 1, t))));
       u.uColA.value.set(resolve(p.a ?? '#000000', t));
       u.uColB.value.set(resolve(p.b ?? '#ffffff', t));
     },
@@ -246,13 +260,27 @@ const SPECS = {
   },
 
   displace: {
-    extras: { uAmount: 0.1 },
+    extras: { uAmount: 0.1, uMid: 0.5 },
     frag: `
       void main() {
-        vec2 uv = vUv + (texture2D(tex1, vUv).rg - 0.5) * uAmount;
+        vec2 uv = vUv + (texture2D(tex1, vUv).rg - uMid) * uAmount;
         gl_FragColor = texture2D(tex0, uv);
       }`,
-    update(u, p, t) { u.uAmount.value = resolve(p.amount ?? 0.1, t); },
+    update(u, p, t) {
+      u.uAmount.value = resolve(p.amount ?? 0.1, t);
+      u.uMid.value = resolve(p.mid ?? 0.5, t);
+    },
+  },
+
+  // tex0 = dry chain, tex1 = mask (luma), tex2 = wet chain (when blending)
+  mask: {
+    extras: { uBlend: 0 },
+    frag: `
+      void main() {
+        vec4 dry = texture2D(tex0, vUv);
+        float m = clamp(dot(texture2D(tex1, vUv).rgb, LUMA), 0.0, 1.0);
+        gl_FragColor = uBlend > 0.5 ? mix(dry, texture2D(tex2, vUv), m) : dry * m;
+      }`,
   },
 
   transform: {
@@ -378,6 +406,7 @@ function makeMaterial(spec) {
   const uniforms = {
     tex0: { value: null },
     tex1: { value: null },
+    tex2: { value: null },
     uTexel: { value: new THREE.Vector2() },
     uAspect: { value: 1 },
     uTime: { value: 0 },
@@ -401,6 +430,16 @@ function makeMaterial(spec) {
 }
 
 const LAYER_BG = new THREE.Color(0x000000);
+
+// 1×1 black fallback (video() before the camera stream is live)
+let BLACK_TEX;
+function blackTex() {
+  if (!BLACK_TEX) {
+    BLACK_TEX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    BLACK_TEX.needsUpdate = true;
+  }
+  return BLACK_TEX;
+}
 
 function makeRT(w, h) {
   return new THREE.WebGLRenderTarget(w, h, {
@@ -583,11 +622,27 @@ export class TopOp {
   posterize(steps = 4) { return this._n('posterize', { steps }); }
   pixellate(x = 100, y) { return this._n('pixellate', { x, y }); }
   transform(o = {}) { return this._n('transform', o); }
+  // transform shorthands (same pass; wrap etc. via the trailing options)
+  translate(x = 0, y = 0, o = {}) { return this._n('transform', { translate: [x, y], ...o }); }
+  rotate(v = 0, o = {}) { return this._n('transform', { rotate: v, ...o }); }
+  scale(v = 1, o = {}) { return this._n('transform', { scale: v, ...o }); }
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
   invert() { return this._n('invert'); }
   remap(map) { return this._n('remap', {}, [this._top(map, 'remap')]); }
-  displace(map, amount = 0.1) { return this._n('displace', { amount }, [this._top(map, 'displace')]); }
+  displace(map, amount = 0.1, o = {}) {
+    // options object in the amount slot: .displace(map, { amount, mid })
+    if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
+    return this._n('displace', { ...o, amount }, [this._top(map, 'displace')]);
+  }
   comp(layer, mode = 'over', opacity = 1) { return this._n('comp', { mode, opacity }, [this._top(layer, 'comp')]); }
+  // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
+  // apply fn only where the mask is bright: dry→wet blend by mask luma.
+  // Both the mask and the fn's return may be fns of the chain so far.
+  mask(maskTop, fn) {
+    const ins = [this._top(maskTop, 'mask')];
+    if (fn != null) ins.push(this._top(fn, 'mask'));
+    return this._n('mask', {}, ins);
+  }
   blur(radius = 1) { return this._n('blur', { radius }); }
   bloom(o = {}) { return this._n('bloom', o); }
 
@@ -729,6 +784,11 @@ export class TopOp {
       return this.inputs[resolve(this.params.cond, ctx.t) >= 0.5 ? 1 : 0].renderNode(ctx);
     }
 
+    // camera capture (stream owned by the engine, black until it's live)
+    if (this.kind === 'video') {
+      return this.engine.ensureVideo(this.params.name).texture ?? blackTex();
+    }
+
     const ins = this.inputs.map((n) => n.renderNode(ctx));
 
     if (this.kind === 'blur') {
@@ -771,6 +831,16 @@ export class TopOp {
       ins.forEach((tex, i) => { this.mat.uniforms[`t${i}`].value = tex; });
       const out = this._rt(ctx);
       ctx.quad.render(ctx.renderer, this.mat, out);
+      return out.texture;
+    }
+
+    if (this.kind === 'mask') {
+      this.mat ??= makeMaterial(SPECS.mask);
+      const out = this._rt(ctx);
+      runPass(ctx, this.mat, ins[0], ins[1], out, (u) => {
+        u.tex2.value = ins[2] ?? null;
+        u.uBlend.value = ins[2] ? 1 : 0;
+      });
       return out.texture;
     }
 
