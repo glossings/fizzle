@@ -518,8 +518,9 @@ circle({
 - `.sin()` `.tri()` `.saw()` `.sqr(width)` — waveshapes of value-as-phase (one
   cycle per whole unit, 0..1 out). `beat(2).sin()` = two-beat LFO,
   `beat(0.25).sqr(0.3)` = sixteenth-note gates.
-- `.rand()` — sample-and-hold: fresh random each time the integer part
-  advances. `beat(4).rand()` = new value per bar.
+- `.beat(div?)` — tempo-synced sample-and-hold: freezes a new value of the
+  signal at the start of every `div` beats. `rand().beat(4)` = new random
+  value per bar.
 - `.counter(max?, threshold?)` — counts rising edges (kick hits, gates),
   wrapping at `max`.
 - `.select([...])` — index a list by the value (floored, wrapped); items can
@@ -531,11 +532,12 @@ circle({
 
 ## random & custom signals
 
-`rnd({ freq, seed })` is a smooth random signal — deterministic value noise of
+`rand({ freq, seed })` is a smooth random signal — deterministic value noise of
 `t`, 0..1 — the signal cousin of the `noise()` TOP (positional
-`rnd(freq, seed)` works too). Different seeds give independent signals —
-`rnd({ seed: i })` inside a `.tile()` or `.instance()` fn gives every copy its
-own. Combined with `.hold`, it samples a new random value per trigger:
+`rand(freq, seed)` works too). Different seeds give independent signals —
+`rand({ seed: i })` inside a `.tile()` or `.instance()` fn gives every copy its
+own. `.beat(div)` snaps it to the grid, and `.hold` samples a new random value
+per trigger:
 
 ```js
 const hit = beat(1).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())
@@ -544,7 +546,7 @@ ambient(0.25)
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 
 sphere({ res: 96 })
-  .noise({ amp: 0.35, freq: 3, seed: rnd().hold(hit).mul(4).round() })
+  .noise({ amp: 0.35, freq: 3, seed: rand().hold(hit).mul(4).round() })
   .color('#4fd1c5')
   .out()
 ```

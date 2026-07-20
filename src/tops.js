@@ -559,7 +559,7 @@ function cssFont(spec, weight = 400) {
 // cell, so node identity can't be compared — kind + params (fns by source and
 // sampled outputs) + input signatures can. Cached on the node; chains are
 // immutable so it's safe.
-// Sampling matters: rnd(1, i) has the same source for every i — the seed only
+// Sampling matters: rand(1, i) has the same source for every i — the seed only
 // exists in closure state — so source alone would merge cells that differ.
 function fnSig(fn) {
   let sampled;

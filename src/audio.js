@@ -153,15 +153,19 @@ export class AudioEngine {
 const frac = (x) => x - Math.floor(x);
 
 // deterministic smooth value noise of x, 0..1 — the signal-space cousin of
-// the noise() TOP (exposed in sketches as rnd())
+// the noise() TOP (exposed in sketches as rand())
 const hash = (i) => frac(Math.sin(i * 127.1 + 311.7) * 43758.5453);
 export function valueNoise(x) {
   const i = Math.floor(x), u = x - i, s = u * u * (3 - 2 * u);
   return hash(i) * (1 - s) + hash(i + 1) * s;
 }
 
+// tempo for the .beat() signal helper — makeApi points this at the engine
+let bpm = () => 120;
+export const setBpmSource = (fn) => { bpm = fn; };
+
 // A signal is a callable fn of t with chainable processing. Stateful ops
-// (smooth/counter/rand) advance on new t values and cache per t, so one node
+// (smooth/counter/beat) advance on new t values and cache per t, so one node
 // shared by several parameters steps exactly once per frame.
 export function sig(fn, ae = null) {
   const f = (t) => fn(t);
@@ -203,18 +207,16 @@ export function sig(fn, ae = null) {
   f.tri = () => mk((t) => 1 - Math.abs(2 * frac(f(t)) - 1));
   f.saw = () => mk((t) => frac(f(t)));
   f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
-  // sample-and-hold: a fresh random 0..1 each time the phase enters a new
-  // cycle — the integer part advancing, or a wrapped ramp (beat()) resetting
-  f.rand = () => {
-    let cycle = null, prev = null, v = 0, lastT = null;
+  // tempo-synced sample-and-hold: freeze a new value of this signal at the
+  // start of every `div` beats — rand().beat(4) resamples once per bar
+  f.beat = (div = 1) => {
+    let cycle = null, held = 0, lastT = null;
     return mk((t) => {
-      if (t === lastT) return v;
+      if (t === lastT) return held;
       lastT = t;
-      const x = f(t);
-      const c = Math.floor(x);
-      if (c !== cycle || (prev != null && x < prev)) { cycle = c; v = Math.random(); }
-      prev = x;
-      return v;
+      const c = Math.floor((t * bpm()) / 60 / resolve(div, t));
+      if (c !== cycle) { cycle = c; held = f(t); }
+      return held;
     });
   };
   // sample-and-hold driven by another signal: freeze the current value each

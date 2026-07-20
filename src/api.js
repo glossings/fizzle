@@ -4,7 +4,7 @@ import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
 import { TopOp } from './tops.js';
-import { sig, valueNoise } from './audio.js';
+import { sig, valueNoise, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -334,6 +334,7 @@ class LightOp {
 }
 
 export function makeApi(engine) {
+  setBpmSource(() => engine.bpm);
   const geo = (type) => (opts) => new GeoOp(engine, type, opts);
 
   const api = {
@@ -423,10 +424,11 @@ export function makeApi(engine) {
     },
     // smooth random signal (deterministic value noise of t, 0..1) — the
     // signal-space cousin of the noise() TOP. freq in Hz-ish wiggles/sec;
-    // different seeds give independent signals. Pairs with .hold():
-    // rnd().hold(audio().kicks()) freezes a new random value on every kick.
-    // rnd({ freq, seed }) and positional rnd(freq, seed) both work.
-    rnd(freq = 1, seed = 0) {
+    // different seeds give independent signals. Pairs with .beat()/.hold():
+    // rand().beat(4) freezes a new random value each bar,
+    // rand().hold(audio().kicks()) one on every kick.
+    // rand({ freq, seed }) and positional rand(freq, seed) both work.
+    rand(freq = 1, seed = 0) {
       if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed = 0 } = freq);
       return sig((t) => valueNoise(t * resolve(freq, t) + seed * 137.31));
     },
