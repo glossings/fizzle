@@ -92,6 +92,7 @@ export const METHODS = {
   threshold: ['.threshold(level, { soft })', 'TOP: luma threshold to a black/white mask.'],
   invert: ['.invert()', 'TOP: invert colors.'],
   remap: ['.remap(mapTop)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
+  lookup: ['.lookup(rampTop)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. .lookup(ramp({ a: 'black', b: 'red' })). Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount: 0.1, mid: 0.5 })', "Texture: offset UVs by the map's RG minus mid, scaled by amount (0.5 = mid-gray neutral; mid: 0 makes black neutral for dark maps). Positional .displace(map, amount) also works. Grayscale maps move along the diagonal only — use noise({ channels: 2 }) for isotropic. Map can be a fn of the chain so far."],
   comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Modes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn.'],
   blur: ['.blur(radius)', 'TOP: separable gaussian blur.'],

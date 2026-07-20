@@ -259,6 +259,14 @@ const SPECS = {
     frag: `void main() { gl_FragColor = texture2D(tex0, texture2D(tex1, vUv).rg); }`,
   },
 
+  lookup: {
+    frag: `
+      void main() {
+        float l = clamp(dot(texture2D(tex0, vUv).rgb, LUMA), 0.0, 1.0);
+        gl_FragColor = texture2D(tex1, vec2(l, 0.5));
+      }`,
+  },
+
   displace: {
     extras: { uAmount: 0.1, uMid: 0.5 },
     frag: `
@@ -637,6 +645,7 @@ export class TopOp {
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
   invert() { return this._n('invert'); }
   remap(map) { return this._n('remap', {}, [this._top(map, 'remap')]); }
+  lookup(rampTop) { return this._n('lookup', {}, [this._top(rampTop, 'lookup')]); }
   displace(map, amount = 0.1, o = {}) {
     // options object in the amount slot: .displace(map, { amount, mid })
     if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
