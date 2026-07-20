@@ -402,6 +402,31 @@ export function makeApi(engine) {
     // first use; the stream survives re-runs.
     video: (name) => new TopOp(engine, 'video', name != null ? { name: String(name) } : {}),
 
+    // Imported media files: drag a file into the window to import it (the
+    // drop also types the call for you), or run an empty call for a picker.
+    // name = filename, exact or case-insensitive substring; files persist
+    // in the browser across reloads and keep playing through re-runs.
+    videofile(name, o = {}) {
+      if (name !== null && typeof name === 'object') { o = name; name = o.name; }
+      if (name == null) engine.requestMediaPick('videofile', 'video');
+      return new TopOp(engine, 'videofile', { ...o, name: name != null ? String(name) : null });
+    },
+    imagefile(name) {
+      if (Array.isArray(name)) return api.imageseq(name);
+      if (name == null) engine.requestMediaPick('imagefile', 'image');
+      return new TopOp(engine, 'imagefile', { name: name != null ? String(name) : null });
+    },
+    // several images with an index picking the current one — any fn of t or
+    // signal (floored, wrapped): imageseq([...], beat(1).counter()) steps on
+    // the beat, .hold(audio().kicks()).counter() on kicks. Default: 1/sec.
+    imageseq(names, index) {
+      if (names == null || !names.length) {
+        engine.requestMediaPick('imageseq', 'image', true);
+        names = [];
+      }
+      return new TopOp(engine, 'imageseq', { names: names.map(String), index });
+    },
+
     // audio input as signals — fns of t with chainable processing, so they
     // drop into any parameter. audio() = mono mix of the sidebar's device,
     // audio(2) = one channel by index, audio('scarlett') = a device by label
@@ -413,6 +438,35 @@ export function makeApi(engine) {
       const ae = audioIn(name);
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
     },
+    // An imported audio file, played out loud and analysed like audio():
+    // returns its level as a signal with the same chainable methods
+    // (.kicks/.lowpass/...). Empty call = file picker. Options: volume,
+    // speed, loop (default true), restart (fn of t, rising edge rewinds),
+    // chan (analyse one channel). Numeric second arg = chan.
+    audiofile(name, o = {}) {
+      if (typeof o === 'number') o = { chan: o };
+      if (name !== null && typeof name === 'object') { o = name; name = o.name; }
+      if (name == null) {
+        engine.requestMediaPick('audiofile', 'audio');
+        return sig(() => 0);
+      }
+      const m = engine.ensureMedia('audio', String(name));
+      let restartPrev = Infinity; // Infinity: a trigger already high at t0 doesn't fire
+      engine.updaters.push((t) => {
+        if (o.volume != null) m.ae.setVolume(resolve(o.volume, t));
+        if (!m.el) return;
+        if (o.speed != null) m.el.playbackRate = Math.max(0, resolve(o.speed, t));
+        if (o.loop != null) m.el.loop = resolve(o.loop, t) >= 0.5;
+        if (o.restart != null) {
+          const v = resolve(o.restart, t);
+          if (v >= 0.5 && restartPrev < 0.5) m.el.currentTime = 0;
+          restartPrev = v;
+        }
+      });
+      return sig((t) => (o.chan == null ? m.ae.level : m.ae.levels[o.chan] ?? 0), m.ae);
+    },
+    // rewind imported media files (all, or by name substring) — also on ctrl+r
+    restartMedia: (name) => engine.restartMedia(name),
     // tempo-synced phase ramp: 0..1 over `div` beats (tempo set in the
     // sidebar). Shape it — beat(2).sin() is a two-beat LFO, beat(0.25).sqr()
     // gates on sixteenths, beat(4).counter().select([...]) walks a list per bar

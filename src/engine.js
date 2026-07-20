@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTops } from './tops.js';
 import { AudioEngine } from './audio.js';
+import { mediaGet, mediaList } from './media.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -37,6 +38,8 @@ export class Engine {
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
     this.videos = new Map();        // camera captures by name, shared across re-runs
+    this.media = new Map();         // imported media files (kind:name), shared across re-runs
+    this.pendingPick = null;        // an empty videofile()/... asked for a file picker
 
     this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
     this.topNodes = [];             // TOP graph nodes from the current sketch
@@ -72,6 +75,8 @@ export class Engine {
     if (!this.paused) {
       this.time += dt;
       this.audio?.update();
+      for (const ae of this.audios.values()) ae.update();
+      for (const m of this.media.values()) m.ae?.update();
       for (const fn of this.updaters) {
         try { fn(this.time, dt); } catch (e) { /* keep rendering even if one updater throws */ }
       }
@@ -88,6 +93,11 @@ export class Engine {
 
   togglePause() {
     this.paused = !this.paused;
+    // media files freeze with the sketch (camera streams keep running)
+    for (const m of this.media.values()) {
+      if (this.paused) m.el?.pause?.();
+      else if (m.el?.play) m.el.play().catch(() => {});
+    }
     return this.paused;
   }
 
@@ -219,6 +229,88 @@ export class Engine {
     return v;
   }
 
+  // Imported media file (dropped into the window or picked via an empty
+  // videofile()/imagefile()/audiofile()) by name — exact filename, else
+  // case-insensitive substring. Entries persist across re-runs like camera
+  // streams, so a playing video survives ctrl+enter; restartMedia() rewinds.
+  ensureMedia(kind, name) {
+    const key = `${kind}:${String(name).toLowerCase()}`;
+    let m = this.media.get(key);
+    if (m) return m;
+    m = { kind, name: String(name), el: null, texture: null, ae: null };
+    // the analyser exists before the blob loads so audiofile() signals can
+    // bind to it synchronously; it reports 0 until startMedia wires it up
+    if (kind === 'audio') m.ae = new AudioEngine();
+    this.media.set(key, m);
+    (async () => {
+      try {
+        const rec = await mediaGet(name);
+        if (!rec) {
+          m.missing = true; // retried on the next run (clearPatch drops it)
+          const names = (await mediaList()).map((n) => `"${n}"`).join(', ');
+          console.warn(
+            `fizzle: ${kind}file: nothing imported matching "${name}" — drop a file into the window to import it. Imported: ${names || 'none'}`
+          );
+          return;
+        }
+        const url = URL.createObjectURL(rec.blob);
+        if (kind === 'image') {
+          const img = new Image();
+          img.src = url;
+          await img.decode();
+          m.el = img;
+          m.texture = new THREE.Texture(img);
+          m.texture.needsUpdate = true;
+        } else {
+          const el = document.createElement(kind === 'video' ? 'video' : 'audio');
+          el.src = url;
+          el.loop = true;
+          if (kind === 'video') {
+            el.muted = true;
+            el.playsInline = true;
+            m.texture = new THREE.VideoTexture(el);
+          } else {
+            m.ae.startMedia(el);
+          }
+          m.el = el;
+          // autoplay can be blocked before the page's first user gesture
+          // (sketch auto-run on load) — retry on the next one
+          if (!this.paused) {
+            await el.play().catch(() => {
+              const retry = () => { if (!this.paused && this.media.has(key)) el.play().catch(() => {}); };
+              window.addEventListener('pointerdown', retry, { once: true });
+              window.addEventListener('keydown', retry, { once: true });
+            });
+          }
+        }
+      } catch (e) {
+        console.warn(`fizzle: ${kind}file "${name}": ${e.message ?? e}`);
+      }
+    })();
+    return m;
+  }
+
+  // Rewind imported media: restartMedia() = everything, restartMedia('drums')
+  // by name (substring). Bound to ctrl+r; also callable from a sketch, where
+  // it runs on every execute.
+  restartMedia(name) {
+    const n = name == null ? null : String(name).toLowerCase();
+    for (const m of this.media.values()) {
+      if (n != null && !m.name.toLowerCase().includes(n)) continue;
+      if (m.el && 'currentTime' in m.el) {
+        m.el.currentTime = 0;
+        if (!this.paused) m.el.play().catch(() => {});
+      }
+    }
+  }
+
+  // An empty videofile()/imagefile()/imageseq()/audiofile() call: remember
+  // that a picker is wanted; main.js opens it right after the run (it needs
+  // the user-gesture context of the ctrl+enter) and fills the call in.
+  requestMediaPick(fn, kind, multiple = false) {
+    this.pendingPick ??= { fn, kind, multiple };
+  }
+
   // Named geometry layers: geometry .out('name') moves the object onto its
   // own three.js layer (invisible to the display camera), and input('name')
   // renders just that layer as a TOP. Layer 0 is the naked-.out() scene.
@@ -256,6 +348,12 @@ export class Engine {
 
     this.cameraProgrammed = false;
     this.controls.enabled = true;
+
+    // media that wasn't found gets another lookup next run — a file dropped
+    // in since then resolves it
+    for (const [key, m] of this.media) {
+      if (m.missing) this.media.delete(key);
+    }
   }
 
   // Evaluate sketch code with the livecoding API in scope. Returns an error

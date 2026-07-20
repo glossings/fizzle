@@ -814,6 +814,41 @@ export class TopOp {
       return this.engine.ensureVideo(this.params.name).texture ?? blackTex();
     }
 
+    // imported media files (drag-drop / picker); black until loaded, and
+    // black for a nameless call while its picker is still open
+    if (this.kind === 'videofile') {
+      const p = this.params;
+      if (p.name == null) return blackTex();
+      const m = this.engine.ensureMedia('video', p.name);
+      const el = m.el;
+      if (el) {
+        if (p.speed != null) el.playbackRate = Math.max(0, resolve(p.speed, ctx.t));
+        if (p.loop != null) el.loop = resolve(p.loop, ctx.t) >= 0.5;
+        if (p.mute != null) el.muted = !!p.mute;
+        // restart: fn of t (or signal); a rising edge through 0.5 rewinds
+        // (a trigger already high on the first frame doesn't fire)
+        if (p.restart != null) {
+          const v = resolve(p.restart, ctx.t);
+          if (v >= 0.5 && (this._restartPrev ?? Infinity) < 0.5) el.currentTime = 0;
+          this._restartPrev = v;
+        }
+      }
+      return m.texture ?? blackTex();
+    }
+    if (this.kind === 'imagefile') {
+      if (this.params.name == null) return blackTex();
+      return this.engine.ensureMedia('image', this.params.name).texture ?? blackTex();
+    }
+    if (this.kind === 'imageseq') {
+      const { names } = this.params;
+      if (!names.length) return blackTex();
+      const i = Math.floor(resolve(this.params.index ?? ((t) => t), ctx.t));
+      const tex = this.engine.ensureMedia('image', names[((i % names.length) + names.length) % names.length]).texture;
+      // warm the rest so switching is seamless
+      for (const n of names) this.engine.ensureMedia('image', n);
+      return tex ?? blackTex();
+    }
+
     const ins = this.inputs.map((n) => n.renderNode(ctx));
 
     if (this.kind === 'blur') {

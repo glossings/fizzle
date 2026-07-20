@@ -42,32 +42,9 @@ export class AudioEngine {
       this.ctx.resume(); // suspended until the page has had a user gesture
       this.source?.disconnect();
       const src = (this.source = this.ctx.createMediaStreamSource(stream));
-      const n = (this.channels =
-        stream.getAudioTracks()[0]?.getSettings().channelCount ?? src.channelCount ?? 2);
-      const splitter = this.ctx.createChannelSplitter(n);
-      src.connect(splitter);
-      this.analysers = [];
-      for (let i = 0; i < n; i++) {
-        const a = this.ctx.createAnalyser();
-        a.fftSize = 2048;
-        a.smoothingTimeConstant = 0;
-        splitter.connect(a, i);
-        this.analysers.push(a);
-      }
-      // mono mix: splitter outputs sum when wired to one input; scale by 1/n
-      const mono = this.ctx.createGain();
-      mono.gain.value = 1 / n;
-      for (let i = 0; i < n; i++) splitter.connect(mono, i, 0);
-      const ma = (this.monoAnalyser = this.ctx.createAnalyser());
-      ma.fftSize = 2048;
-      ma.smoothingTimeConstant = 0.5; // steadies the spectrum; RMS unaffected
-      mono.connect(ma);
-      this.wave = new Float32Array(ma.fftSize);
-      this.freq = new Float32Array(ma.frequencyBinCount);
-      this.spectrum = new Float32Array(ma.frequencyBinCount);
-      this.levels = new Array(n).fill(0);
-      this.binHz = this.ctx.sampleRate / ma.fftSize;
-      this.running = true;
+      const n =
+        stream.getAudioTracks()[0]?.getSettings().channelCount ?? src.channelCount ?? 2;
+      this._wire(src, n);
       if (this.outputId != null) this.setOutput(this.outputId); // rewire passthrough
       window.dispatchEvent(new Event('td-audio-started')); // sidebar refreshes labels
     } catch (e) {
@@ -76,6 +53,52 @@ export class AudioEngine {
     } finally {
       this.starting = false;
     }
+  }
+
+  // splitter + per-channel analysers + mono-mix analyser off any source node
+  _wire(src, n) {
+    this.channels = n;
+    const splitter = this.ctx.createChannelSplitter(n);
+    src.connect(splitter);
+    this.analysers = [];
+    for (let i = 0; i < n; i++) {
+      const a = this.ctx.createAnalyser();
+      a.fftSize = 2048;
+      a.smoothingTimeConstant = 0;
+      splitter.connect(a, i);
+      this.analysers.push(a);
+    }
+    // mono mix: splitter outputs sum when wired to one input; scale by 1/n
+    const mono = this.ctx.createGain();
+    mono.gain.value = 1 / n;
+    for (let i = 0; i < n; i++) splitter.connect(mono, i, 0);
+    const ma = (this.monoAnalyser = this.ctx.createAnalyser());
+    ma.fftSize = 2048;
+    ma.smoothingTimeConstant = 0.5; // steadies the spectrum; RMS unaffected
+    mono.connect(ma);
+    this.wave = new Float32Array(ma.fftSize);
+    this.freq = new Float32Array(ma.frequencyBinCount);
+    this.spectrum = new Float32Array(ma.frequencyBinCount);
+    this.levels = new Array(n).fill(0);
+    this.binHz = this.ctx.sampleRate / ma.fftSize;
+    this.running = true;
+  }
+
+  // Analyse (and play) a media element — the audiofile() path. The element
+  // routes through the analyser graph and a gain to the speakers.
+  startMedia(el, volume = 1) {
+    this.ctx ??= new AudioContext();
+    this.ctx.resume();
+    const src = (this.source = this.ctx.createMediaElementSource(el));
+    const out = (this.mediaGain = this.ctx.createGain());
+    out.gain.value = volume;
+    src.connect(out);
+    out.connect(this.ctx.destination);
+    this._wire(src, 2);
+  }
+
+  setVolume(v) {
+    if (this.mediaGain) this.mediaGain.gain.value = Math.max(0, v);
   }
 
   // Pass the input through to an output device (null disables). Device

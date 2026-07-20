@@ -10,7 +10,8 @@ import { apiCompletions, apiHover } from './docs.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show editor · ctrl+p sidebar
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar }) {
+//   ctrl+r restart media files
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia }) {
   const toggleEditor = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden')) view.focus();
@@ -23,6 +24,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
       { key: 'Ctrl-h', run: () => { toggleEditor(); return true; } },
       { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
+      { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
       // completions accept with Tab, not Enter; Enter just newlines through
       // an open popup. Tab indents when no popup is showing.
       { key: 'Tab', run: acceptCompletion },
@@ -61,6 +63,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
     else if (e.key === 'h') { e.preventDefault(); toggleEditor(); }
     else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
+    else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
   });
 
   view.focus();

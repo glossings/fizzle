@@ -253,6 +253,8 @@ scene()
   text. `size` is a font size in screen px (values ≤ 1 = fraction of screen
   height); any CSS font, `\n` for multiline, content may be a fn of `t`.
 - `video(name?)` — live camera (see **video input**).
+- `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` —
+  imported media files (see **media files**).
 
 ```js
 ramp({ type: 'radial', a: '#1a0533', b: '#ff5f9e' })
@@ -456,6 +458,48 @@ video()
   .pixellate(90)
   .posterize(4)
   .hue(t => t * 0.03)
+  .out()
+```
+
+## media files
+
+Drag a video, image, or audio file (or a handful) into the window: it's
+imported into the browser (IndexedDB — no upload, survives reloads) and a
+ready-made call lands at your cursor. Files are referenced by filename —
+exact, or case-insensitive substring, so `videofile('clip')` finds
+`clip.mp4`. Running an **empty** call (`videofile()`, `imagefile()`,
+`audiofile()`, `imageseq()`) opens a file picker and fills the name in for
+you. An unmatched name lists what's imported in the console.
+
+- `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
+  TOP. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
+  soundtrack.
+- `imagefile(name?)` — a still image as a TOP.
+- `imageseq([names], index?)` — several images with a signal choosing the
+  current one (floored, wrapped). Dropping multiple images at once types
+  `imageseq([...], beat(1).counter())` for you — swap the index for any
+  counter: `.counter()` of `.kicks()` steps on kicks, `rand().beat(1).mul(9)`
+  jumps randomly each beat. Default: one image per second.
+- `audiofile(name?, { volume, speed, loop, restart, chan })` — an audio file,
+  played out loud and analysed like `audio()`: it returns a level **signal**
+  (see below), so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
+
+Files keep playing through re-runs (like camera streams), so livecoding
+doesn't restart your clip. To rewind:
+
+- `ctrl+r` — restart all media files, from the keyboard.
+- `restartMedia(name?)` — in a sketch; runs on every execute. No name = all,
+  a name matches by substring.
+- `restart:` option — a fn of `t` or signal; a rising edge through 0.5
+  rewinds. `videofile('clip.mp4', { restart: beat(8).sqr(0.05) })` restarts
+  every 8 beats; `{ restart: audio().kicks() }` on every kick.
+
+```js
+const kick = audiofile('drums.mp3').bandpass(30, 160).kicks()
+
+videofile('clip.mp4', { speed: 1, restart: beat(16).sqr(0.05) })
+  .comp(imageseq(['a.png', 'b.png', 'c.png'], kick.counter()), 'screen', 0.5)
+  .scale(kick.mul(0.1).add(1))
   .out()
 ```
 
