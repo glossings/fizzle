@@ -147,7 +147,7 @@ export class Engine {
             dev = find(await navigator.mediaDevices.enumerateDevices());
           }
           if (dev) deviceId = dev.deviceId;
-          else console.warn(`td-livecode: video: no camera matching "${name}" — using default`);
+          else console.warn(`fizzle: video: no camera matching "${name}" — using default`);
         }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: deviceId ? { deviceId: { exact: deviceId } } : true,
@@ -159,7 +159,7 @@ export class Engine {
         await el.play();
         v.texture = new THREE.VideoTexture(el);
       } catch (e) {
-        console.warn(`td-livecode: video: ${e.message ?? e}`);
+        console.warn(`fizzle: video: ${e.message ?? e}`);
       }
     })();
     return v;

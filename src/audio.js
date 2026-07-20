@@ -71,7 +71,7 @@ export class AudioEngine {
       if (this.outputId != null) this.setOutput(this.outputId); // rewire passthrough
       window.dispatchEvent(new Event('td-audio-started')); // sidebar refreshes labels
     } catch (e) {
-      console.warn(`td-livecode: audio input: ${e.message ?? e}`);
+      console.warn(`fizzle: audio input: ${e.message ?? e}`);
       this.running = false;
     } finally {
       this.starting = false;
@@ -95,10 +95,10 @@ export class AudioEngine {
       try {
         await this.ctx.setSinkId(deviceId === 'default' ? '' : deviceId);
       } catch (e) {
-        console.warn(`td-livecode: audio output: ${e.message ?? e}`);
+        console.warn(`fizzle: audio output: ${e.message ?? e}`);
       }
     } else if (deviceId !== 'default') {
-      console.warn('td-livecode: this browser cannot pick an output device; passing through to the default output');
+      console.warn('fizzle: this browser cannot pick an output device; passing through to the default output');
     }
   }
 

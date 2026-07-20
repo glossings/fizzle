@@ -120,6 +120,15 @@ function gfontApi() {
 
 export default defineConfig({
   plugins: [sketchApi(), gfontApi()],
+  build: {
+    rollupOptions: {
+      // two pages: the app itself and the interactive docs
+      input: {
+        main: path.resolve('index.html'),
+        docs: path.resolve('docs.html'),
+      },
+    },
+  },
   resolve: {
     alias: {
       // three's TTFLoader imports opentype from a CDN; serve the local copy

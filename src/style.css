@@ -167,6 +167,14 @@ html, body {
   font: inherit;
   width: 110px;
 }
+#sb-docs {
+  display: block;
+  margin: 10px 0 2px;
+  color: #4fd1c5;
+  text-decoration: none;
+  font-size: 12px;
+}
+#sb-docs:hover { color: #7ee787; }
 #sb-current { color: #7ee787; text-transform: none; letter-spacing: 0; }
 #sb-store { color: rgba(255, 255, 255, 0.35); font-size: 11px; }
 .sb-btns { display: flex; gap: 6px; }

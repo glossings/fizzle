@@ -56,7 +56,14 @@ const setCode = (code) => {
     run: runResume,
   });
 
-  const initial = sidebar.initialCode ?? DEFAULT_SKETCH;
+  // "open in editor" from the docs page hands a sketch over via localStorage
+  let handoff = null;
+  try {
+    handoff = localStorage.getItem('fizzle-handoff');
+    if (handoff != null) localStorage.removeItem('fizzle-handoff');
+  } catch { /* storage unavailable — fall through */ }
+
+  const initial = handoff ?? sidebar.initialCode ?? DEFAULT_SKETCH;
   view = makeEditor(document.getElementById('editor'), initial, {
     onRun: runResume,
     onTogglePause: togglePause,

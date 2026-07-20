@@ -68,7 +68,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   const el = document.createElement('div');
   el.id = 'sidebar';
   el.innerHTML = `
-    <h1>td-livecode</h1>
+    <h1>fizzle</h1>
     <section>
       <h2>settings</h2>
       <label>quality
@@ -84,6 +84,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       <label>tempo <input id="sb-tempo" type="number" min="20" max="300" step="1"> bpm</label>
       <label><input id="sb-live" type="checkbox"> live color updates</label>
       <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
+      <a id="sb-docs" href="docs.html" target="_blank">docs &amp; reference ↗</a>
     </section>
     <section>
       <h2>sketch <span id="sb-current"></span></h2>

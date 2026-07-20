@@ -1,0 +1,286 @@
+/* fizzle docs — same palette as the app, laid out for reading */
+
+:root {
+  --bg: #0b0d13;
+  --panel: rgba(255, 255, 255, 0.04);
+  --line: rgba(255, 255, 255, 0.12);
+  --text: #cfd4e0;
+  --dim: rgba(255, 255, 255, 0.45);
+  --accent: #7ee787;
+  --accent2: #4fd1c5;
+  --err: #ff7b72;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.65;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) minmax(360px, 440px);
+  gap: 0 36px;
+}
+
+/* --- toc ------------------------------------------------------------------ */
+
+#toc {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 22px 0 40px 20px;
+  border-right: 1px solid var(--line);
+}
+
+#toc-brand {
+  display: block;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  margin-bottom: 18px;
+}
+#toc-brand span {
+  color: var(--accent);
+  font-weight: 400;
+  margin-left: 7px;
+  font-size: 12px;
+}
+#toc-brand:hover span { color: #fff; }
+
+#toc-links a {
+  display: block;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 3px 10px 3px 0;
+  border-right: 2px solid transparent;
+  margin-right: -1px;
+}
+#toc-links a:hover { color: var(--text); }
+#toc-links a.here {
+  color: var(--accent);
+  border-right-color: var(--accent);
+}
+
+/* --- content -------------------------------------------------------------- */
+
+#content {
+  max-width: 74ch;
+  padding: 22px 0 45vh;
+}
+
+#content h2 {
+  color: #fff;
+  font-size: 19px;
+  letter-spacing: 0.03em;
+  margin: 46px 0 12px;
+  padding-top: 10px;
+  scroll-margin-top: 6px;
+}
+#content h2:first-child { margin-top: 6px; }
+#content h3 {
+  color: var(--accent2);
+  font-size: 14px;
+  margin: 28px 0 8px;
+  scroll-margin-top: 6px;
+}
+
+#content p { margin: 10px 0; }
+#content a { color: var(--accent2); }
+#content strong { color: #fff; }
+
+#content code {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.5px 5px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+#content ul { padding-left: 22px; margin: 10px 0; }
+#content li { margin: 4px 0; }
+
+#content table {
+  border-collapse: collapse;
+  margin: 14px 0;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+#content th {
+  text-align: left;
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+#content th, #content td {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 14px 6px 0;
+  vertical-align: top;
+}
+#content td code { white-space: normal; }
+
+pre.static {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+
+/* --- live example blocks -------------------------------------------------- */
+
+.ex {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 14px 0;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.ex.running { border-color: rgba(126, 231, 135, 0.55); }
+
+.ex .cm-editor {
+  background: #101319 !important;
+  font-size: 12.5px;
+}
+.ex .cm-editor .cm-scroller {
+  font-family: var(--mono);
+  line-height: 1.55;
+  padding: 10px 64px 10px 4px;
+}
+.ex .cm-editor .cm-gutters { display: none; }
+.ex .cm-editor.cm-focused { outline: none; }
+.ex .cm-editor .cm-activeLine { background: rgba(255, 255, 255, 0.04); }
+
+.ex-btns {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+}
+.ex-btns button {
+  background: rgba(11, 13, 19, 0.85);
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.ex-btns button:hover { color: var(--accent); border-color: var(--accent); }
+
+/* doc tooltips inside example editors (shared .td-doc styles live in the
+   app stylesheet; docs pages carry their own copy) */
+.td-doc { max-width: 380px; padding: 7px 10px; font-size: 12px; line-height: 1.5; color: #d8dce6; }
+.td-doc-sig { color: var(--accent); font-weight: 600; margin-bottom: 3px; }
+.cm-tooltip {
+  background: rgba(12, 14, 22, 0.96) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 6px;
+}
+.cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected] { background: rgba(90, 120, 255, 0.35) !important; }
+.cm-tooltip .cm-completionDetail { color: rgba(255, 255, 255, 0.45); font-style: normal; margin-left: 8px; }
+
+/* --- reference ------------------------------------------------------------ */
+
+#ref-search {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #fff;
+  font: inherit;
+  padding: 7px 12px;
+  margin: 8px 0 4px;
+}
+#ref-search:focus { outline: none; border-color: var(--accent2); }
+
+table.ref td:first-child { width: 46%; }
+.ref-sig {
+  color: var(--accent);
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  white-space: normal !important;
+}
+
+/* --- preview panel -------------------------------------------------------- */
+
+#preview { padding: 22px 20px 22px 0; }
+
+#preview-box {
+  position: sticky;
+  top: 22px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+}
+
+#preview-gl {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 11;
+}
+
+#preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11.5px;
+  color: var(--dim);
+}
+#preview-status { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#preview-status.ok { color: var(--accent); }
+#preview-status.err { color: var(--err); }
+#preview-hint { white-space: nowrap; }
+#preview-bar button {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+#preview-bar button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --- narrow screens: preview floats bottom-right -------------------------- */
+
+@media (max-width: 1120px) {
+  body { grid-template-columns: 190px minmax(0, 1fr); }
+  #preview { padding: 0; }
+  #preview-box {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    width: min(340px, 44vw);
+    z-index: 50;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  }
+  #preview-hint { display: none; }
+  #content { padding-right: 18px; }
+}
+
+@media (max-width: 700px) {
+  body { grid-template-columns: minmax(0, 1fr); }
+  #toc { display: none; }
+  #content { padding-left: 16px; padding-right: 16px; }
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>fizzle · docs</title>
+  <link rel="stylesheet" href="/src/docs.css" />
+</head>
+<body>
+  <nav id="toc">
+    <a id="toc-brand" href="/">fizzle<span>docs</span></a>
+    <div id="toc-links"></div>
+  </nav>
+  <main id="content"></main>
+  <aside id="preview">
+    <div id="preview-box">
+      <canvas id="preview-gl"></canvas>
+      <div id="preview-bar">
+        <span id="preview-status">·</span>
+        <span id="preview-hint">drag to orbit · scroll to zoom</span>
+        <button id="preview-pause" title="pause / play (ctrl+.)">⏸</button>
+      </div>
+    </div>
+  </aside>
+  <script type="module" src="/src/docs-page.js"></script>
+</body>
+</html>

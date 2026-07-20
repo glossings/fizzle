@@ -98,7 +98,7 @@ function resolveFont(o) {
     });
     cached.catch((err) => {
       fontCache.delete(key);
-      console.warn(`td-livecode: ${err.message}`);
+      console.warn(`fizzle: ${err.message}`);
     });
     fontCache.set(key, cached);
   }

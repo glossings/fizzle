@@ -1,4 +1,4 @@
-# td-livecode
+# fizzle
 
 A Hydra-style livecoding environment with a synth-flavored 3D pipeline:
 geometry → transform → noise displacement → instancing → lit render, all on a
@@ -8,6 +8,11 @@ fullscreen canvas behind a live code editor.
 npm install
 npm run dev   # then open http://localhost:5173
 ```
+
+**Interactive docs** live at `/docs.html` (the "docs & reference ↗" link in
+the sidebar): every example is a live editor running on a real engine in a
+preview panel, plus a searchable reference generated from the same table
+that powers autocomplete.
 
 **Keys:** `ctrl + enter` run the sketch (resumes if paused) · `ctrl + .` pause/play (camera stays live) · `ctrl + h` hide/show the editor · `ctrl + p` toggle the sidebar · `ctrl + hover` a command for docs · drag to orbit, scroll to zoom.
 
@@ -352,6 +357,7 @@ default output. Mind feedback: mic → speakers will howl.
 - [src/noise.js](src/noise.js) — GLSL simplex fbm + shader injection
 - [src/editor.js](src/editor.js) — CodeMirror overlay, keybindings, completions
 - [src/docs.js](src/docs.js) — API docs table → autocomplete + ctrl+hover tooltips
+- [src/docs-page.js](src/docs-page.js) + [src/docs-content.md](src/docs-content.md) + [src/docs.css](src/docs.css) — the interactive docs page ([docs.html](docs.html))
 - [src/colorpicker.js](src/colorpicker.js) — inline hex swatches + native picker
 - [src/sidebar.js](src/sidebar.js) — settings + sketch palette
 - [src/main.js](src/main.js) — wiring

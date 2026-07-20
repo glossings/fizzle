@@ -542,7 +542,7 @@ function cssFont(spec, weight = 400) {
     cssFontCache.set(key, entry);
     new FontFace(entry.family, `url("${url}")`).load()
       .then((f) => { document.fonts.add(f); entry.loaded = true; })
-      .catch((e) => console.warn(`td-livecode: font ${spec}: ${e.message ?? e}`));
+      .catch((e) => console.warn(`fizzle: font ${spec}: ${e.message ?? e}`));
   }
   return entry;
 }
