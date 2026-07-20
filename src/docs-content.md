@@ -292,8 +292,9 @@ noise({ freq: 3, speed: 0.4 })
 - `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
   chain: return `src`, a treatment of it, or any other TOP. `x` runs
   left→right, `y` bottom→top, `i = y * nx + x`. Cells with structurally
-  identical variants share one render (max 15 distinct variants — each
-  distinct one costs a render pass).
+  identical variants share one render; each *distinct* variant renders its
+  own full pass per frame — the cost of `.tile(10, 10, (s, i) => s.hue(i / 100))`
+  is 100 renders, same as comping 100 `.out()`s.
 
 ```js
 circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })

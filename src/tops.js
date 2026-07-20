@@ -566,17 +566,21 @@ function sigOf(node) {
   return node._sig;
 }
 
-// 15 variant slots + the cell map = 16 samplers, the WebGL2 guaranteed minimum
+// The merge pass binds the cell map + 15 variants = 16 samplers (the WebGL2
+// guaranteed minimum). More variants aren't a limit: they render in batches
+// of 15 into the same target, each batch discarding the other batches' cells.
 const TILE_MAX = 15;
 const TILE_FRAG = /* glsl */ `
 varying vec2 vUv;
 uniform vec2 uGrid;
+uniform float uBase;
 uniform sampler2D uMap;
 ${Array.from({ length: TILE_MAX }, (_, i) => `uniform sampler2D t${i};`).join('\n')}
 void main() {
   vec2 cell = floor(vUv * uGrid);
   vec2 local = fract(vUv * uGrid);
-  float v = texture2D(uMap, (cell + 0.5) / uGrid).r * 255.0;
+  float v = texture2D(uMap, (cell + 0.5) / uGrid).r * 255.0 - uBase;
+  if (v < -0.5 || v > ${TILE_MAX - 1}.5) discard; // another batch's cell
   vec4 c;
   if      (v < 0.5) c = texture2D(t0, local);
 ${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c = texture2D(t${i + 1}, local);`).join('\n')}
@@ -680,7 +684,8 @@ export class TopOp {
         const sig = sigOf(v);
         let idx = bySig.get(sig);
         if (idx == null) {
-          if (variants.length >= TILE_MAX) throw new Error(`tile: more than ${TILE_MAX} distinct variants`);
+          // the cell map is a Uint8 texture, so indices top out at 255
+          if (variants.length >= 256) throw new Error('tile: more than 256 distinct variants');
           idx = variants.length;
           variants.push(v);
           bySig.set(sig, idx);
@@ -829,7 +834,7 @@ export class TopOp {
         this._lut.needsUpdate = true;
       }
       if (!this.mat) {
-        const uniforms = { uGrid: { value: new THREE.Vector2(nx, ny) }, uMap: { value: this._lut } };
+        const uniforms = { uGrid: { value: new THREE.Vector2(nx, ny) }, uBase: { value: 0 }, uMap: { value: this._lut } };
         for (let i = 0; i < TILE_MAX; i++) uniforms[`t${i}`] = { value: null };
         this.mat = new THREE.ShaderMaterial({
           vertexShader: VERT,
@@ -839,9 +844,16 @@ export class TopOp {
           depthWrite: false,
         });
       }
-      ins.forEach((tex, i) => { this.mat.uniforms[`t${i}`].value = tex; });
       const out = this._rt(ctx);
-      ctx.quad.render(ctx.renderer, this.mat, out);
+      const renderer = ctx.renderer;
+      const prevAutoClear = renderer.autoClear;
+      for (let base = 0; base < ins.length; base += TILE_MAX) {
+        this.mat.uniforms.uBase.value = base;
+        for (let i = 0; i < TILE_MAX; i++) this.mat.uniforms[`t${i}`].value = ins[base + i] ?? null;
+        renderer.autoClear = base === 0; // later batches add their cells to the same target
+        ctx.quad.render(renderer, this.mat, out);
+      }
+      renderer.autoClear = prevAutoClear;
       return out.texture;
     }
 
