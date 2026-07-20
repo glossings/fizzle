@@ -203,14 +203,17 @@ export function sig(fn, ae = null) {
   f.tri = () => mk((t) => 1 - Math.abs(2 * frac(f(t)) - 1));
   f.saw = () => mk((t) => frac(f(t)));
   f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
-  // sample-and-hold: a fresh random 0..1 each time the integer part advances
+  // sample-and-hold: a fresh random 0..1 each time the phase enters a new
+  // cycle — the integer part advancing, or a wrapped ramp (beat()) resetting
   f.rand = () => {
-    let cycle = null, v = 0, lastT = null;
+    let cycle = null, prev = null, v = 0, lastT = null;
     return mk((t) => {
       if (t === lastT) return v;
       lastT = t;
-      const c = Math.floor(f(t));
-      if (c !== cycle) { cycle = c; v = Math.random(); }
+      const x = f(t);
+      const c = Math.floor(x);
+      if (c !== cycle || (prev != null && x < prev)) { cycle = c; v = Math.random(); }
+      prev = x;
       return v;
     });
   };
