@@ -3,6 +3,8 @@
 // be git-versioned; when no server API is available (e.g. a static build)
 // they fall back to localStorage. Examples are bundled read-only.
 
+import { codeToHash } from './share.js';
+
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
   Object.entries(exampleFiles).map(([p, code]) => [p.split('/').pop().replace(/\.js$/, ''), code])
@@ -92,6 +94,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
         <button id="sb-save">save</button>
         <button id="sb-saveas">save as…</button>
         <button id="sb-new">new</button>
+        <button id="sb-share">copy link</button>
       </div>
       <h2>your sketches</h2>
       <ul id="sb-user"><li class="sb-empty">none yet — save one!</li></ul>
@@ -253,6 +256,18 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     }
   });
   $('#sb-saveas').addEventListener('click', () => saveAs(current.name));
+  $('#sb-share').addEventListener('click', async () => {
+    // encode what's in the editor right now (may be newer than the last run)
+    history.replaceState(null, '', '#' + (await codeToHash(getCode())));
+    const btn = $('#sb-share');
+    try {
+      await navigator.clipboard.writeText(location.href);
+      btn.textContent = 'copied!';
+    } catch {
+      btn.textContent = 'link in URL bar';
+    }
+    setTimeout(() => { btn.textContent = 'copy link'; }, 1200);
+  });
   $('#sb-new').addEventListener('click', () => {
     setCode(NEW_TEMPLATE);
     setCurrent(null, 'untitled');

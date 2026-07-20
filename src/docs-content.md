@@ -64,6 +64,11 @@ re-render live while you drag.
 Without the dev server (a static build) they fall back to localStorage. The
 last opened sketch is restored on reload.
 
+**Sharing:** every run mirrors the code into the URL hash (compressed), so the
+address bar is always a shareable link — copy it, or use the sidebar's
+*copy link* button to include unsaved edits. Opening a link loads its code
+straight into the editor, and a refresh recovers whatever last ran.
+
 ## time is a parameter
 
 The core idiom: **every numeric parameter accepts a function of time.**

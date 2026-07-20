@@ -2,13 +2,21 @@ import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor } from './editor.js';
 import { initSidebar } from './sidebar.js';
+import { codeToHash, codeFromHash } from './share.js';
 import DEFAULT_SKETCH from '../sketches/examples/glow-blobs.js?raw';
 
 const engine = new Engine(document.getElementById('gl'));
 const api = makeApi(engine);
 const status = document.getElementById('status');
 
+// every run mirrors the code into the URL hash, so the address bar is always a
+// shareable link and a refresh recovers the last-run code (even unsaved)
+function syncHash(code) {
+  codeToHash(code).then((h) => history.replaceState(null, '', '#' + h));
+}
+
 function run(code) {
+  syncHash(code);
   const err = engine.run(code, api);
   if (err) {
     status.textContent = String(err.stack?.split('\n').slice(0, 2).join('\n') ?? err);
@@ -63,7 +71,9 @@ const setCode = (code) => {
     if (handoff != null) localStorage.removeItem('fizzle-handoff');
   } catch { /* storage unavailable — fall through */ }
 
-  const initial = handoff ?? sidebar.initialCode ?? DEFAULT_SKETCH;
+  // a shared link's hash beats everything; docs handoff beats the last sketch
+  const fromUrl = await codeFromHash();
+  const initial = fromUrl ?? handoff ?? sidebar.initialCode ?? DEFAULT_SKETCH;
   view = makeEditor(document.getElementById('editor'), initial, {
     onRun: runResume,
     onTogglePause: togglePause,
