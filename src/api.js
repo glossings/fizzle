@@ -402,10 +402,14 @@ export function makeApi(engine) {
     video: (name) => new TopOp(engine, 'video', name != null ? { name: String(name) } : {}),
 
     // audio input as signals — fns of t with chainable processing, so they
-    // drop into any parameter. First use starts capture (device from the
-    // sidebar; system default until picked). See audio.js.
-    audio(chan) {
-      const ae = audioIn();
+    // drop into any parameter. audio() = mono mix of the sidebar's device,
+    // audio(2) = one channel by index, audio('scarlett') = a device by label
+    // (case-insensitive substring), audio('scarlett', 2) = a channel of it.
+    // First use starts capture. See audio.js / engine.ensureAudio.
+    audio(chan, chan2) {
+      let name;
+      if (typeof chan === 'string') { name = chan; chan = chan2; }
+      const ae = audioIn(name);
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
     },
     // tempo-synced phase ramp: 0..1 over `div` beats (tempo set in the
@@ -421,7 +425,9 @@ export function makeApi(engine) {
     // signal-space cousin of the noise() TOP. freq in Hz-ish wiggles/sec;
     // different seeds give independent signals. Pairs with .hold():
     // rnd().hold(audio().kicks()) freezes a new random value on every kick.
+    // rnd({ freq, seed }) and positional rnd(freq, seed) both work.
     rnd(freq = 1, seed = 0) {
+      if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed = 0 } = freq);
       return sig((t) => valueNoise(t * resolve(freq, t) + seed * 137.31));
     },
     // lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth()
@@ -431,8 +437,8 @@ export function makeApi(engine) {
     onFrame(fn) { engine.updaters.push(fn); },
   };
 
-  function audioIn() {
-    return engine.ensureAudio();
+  function audioIn(name) {
+    return engine.ensureAudio(name);
   }
 
   return api;

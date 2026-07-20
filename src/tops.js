@@ -548,35 +548,39 @@ function cssFont(spec, weight = 400) {
 }
 
 // Structural identity for tile-variant dedupe: the fn builds a fresh chain per
-// cell, so node identity can't be compared — kind + params (fns by source) +
-// input signatures can. Cached on the node; chains are immutable so it's safe.
+// cell, so node identity can't be compared — kind + params (fns by source and
+// sampled outputs) + input signatures can. Cached on the node; chains are
+// immutable so it's safe.
+// Sampling matters: rnd(1, i) has the same source for every i — the seed only
+// exists in closure state — so source alone would merge cells that differ.
+function fnSig(fn) {
+  let sampled;
+  try { sampled = JSON.stringify([fn(0.7391), fn(2.4173)]); } catch { sampled = '?'; }
+  return fn.toString() + '~' + sampled;
+}
 function sigOf(node) {
   node._sig ??=
     node.kind +
-    JSON.stringify(node.params, (k, v) => (typeof v === 'function' ? v.toString() : v instanceof Uint8Array ? Array.from(v) : v)) +
+    JSON.stringify(node.params, (k, v) => (typeof v === 'function' ? fnSig(v) : v instanceof Uint8Array ? Array.from(v) : v)) +
     '[' + node.inputs.map(sigOf).join(',') + ']';
   return node._sig;
 }
 
+// 15 variant slots + the cell map = 16 samplers, the WebGL2 guaranteed minimum
+const TILE_MAX = 15;
 const TILE_FRAG = /* glsl */ `
 varying vec2 vUv;
 uniform vec2 uGrid;
 uniform sampler2D uMap;
-uniform sampler2D t0; uniform sampler2D t1; uniform sampler2D t2; uniform sampler2D t3;
-uniform sampler2D t4; uniform sampler2D t5; uniform sampler2D t6; uniform sampler2D t7;
+${Array.from({ length: TILE_MAX }, (_, i) => `uniform sampler2D t${i};`).join('\n')}
 void main() {
   vec2 cell = floor(vUv * uGrid);
   vec2 local = fract(vUv * uGrid);
   float v = texture2D(uMap, (cell + 0.5) / uGrid).r * 255.0;
   vec4 c;
   if      (v < 0.5) c = texture2D(t0, local);
-  else if (v < 1.5) c = texture2D(t1, local);
-  else if (v < 2.5) c = texture2D(t2, local);
-  else if (v < 3.5) c = texture2D(t3, local);
-  else if (v < 4.5) c = texture2D(t4, local);
-  else if (v < 5.5) c = texture2D(t5, local);
-  else if (v < 6.5) c = texture2D(t6, local);
-  else              c = texture2D(t7, local);
+${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c = texture2D(t${i + 1}, local);`).join('\n')}
+  else              c = texture2D(t${TILE_MAX - 1}, local);
   gl_FragColor = c;
 }
 `;
@@ -650,6 +654,10 @@ export class TopOp {
   // becomes fn(chain), otherwise it passes through untouched. Both branches
   // are built once; only the active one renders each frame.
   when(cond, fn) {
+    // a static cond can never change — resolve the branch now. (Also keeps
+    // tile dedupe tight: cells that skip the fn don't drag its chain along
+    // in their structural signature.)
+    if (typeof cond !== 'function') return cond >= 0.5 ? this._top(fn, 'when') : this;
     return new TopOp(this.engine, 'switch', { cond }, [this, this._top(fn, 'when')]);
   }
 
@@ -672,7 +680,7 @@ export class TopOp {
         const sig = sigOf(v);
         let idx = bySig.get(sig);
         if (idx == null) {
-          if (variants.length >= 8) throw new Error('tile: more than 8 distinct variants');
+          if (variants.length >= TILE_MAX) throw new Error(`tile: more than ${TILE_MAX} distinct variants`);
           idx = variants.length;
           variants.push(v);
           bySig.set(sig, idx);
@@ -744,7 +752,10 @@ export class TopOp {
     if (this.kind === 'textGen') {
       const p = this.params;
       const str = String(resolve(p.text ?? '', ctx.t));
+      // size: CSS-pixel font size (size: 100 looks like 100px on screen,
+      // whatever the retina/quality scale); <= 1 = fraction of screen height
       const size = resolve(p.size ?? 0.15, ctx.t);
+      const fontPx = size <= 1 ? size * ctx.h : size * (ctx.h / window.innerHeight);
       const color = String(resolve(p.color ?? '#ffffff', ctx.t));
       const bg = String(resolve(p.bg ?? '#000000', ctx.t));
       const pos = p.pos ?? [0.5, 0.5];
@@ -754,7 +765,7 @@ export class TopOp {
       const weight = p.weight ?? 700;
       const align = p.align ?? 'center';
       // ff.loaded flips when a URL font finishes loading, forcing a redraw
-      const sig = [str, size, color, bg, px, py, font, ff.loaded, weight, align, ctx.w, ctx.h].join('\x1f');
+      const sig = [str, fontPx, color, bg, px, py, font, ff.loaded, weight, align, ctx.w, ctx.h].join('\x1f');
       if (sig !== this._textSig) {
         this._textSig = sig;
         if (!this._canvas) {
@@ -768,11 +779,11 @@ export class TopOp {
         g.fillStyle = bg;
         g.fillRect(0, 0, c.width, c.height);
         g.fillStyle = color;
-        g.font = `${weight} ${Math.round(size * c.height)}px ${font}`;
+        g.font = `${weight} ${Math.round(fontPx)}px ${font}`;
         g.textAlign = align;
         g.textBaseline = 'middle';
         const lines = str.split('\n');
-        const lineH = size * c.height * 1.2;
+        const lineH = fontPx * 1.2;
         const y0 = (1 - py) * c.height - ((lines.length - 1) * lineH) / 2;
         lines.forEach((line, i) => g.fillText(line, px * c.width, y0 + i * lineH));
         this._ctex.needsUpdate = true;
@@ -819,7 +830,7 @@ export class TopOp {
       }
       if (!this.mat) {
         const uniforms = { uGrid: { value: new THREE.Vector2(nx, ny) }, uMap: { value: this._lut } };
-        for (let i = 0; i < 8; i++) uniforms[`t${i}`] = { value: null };
+        for (let i = 0; i < TILE_MAX; i++) uniforms[`t${i}`] = { value: null };
         this.mat = new THREE.ShaderMaterial({
           vertexShader: VERT,
           fragmentShader: TILE_FRAG,

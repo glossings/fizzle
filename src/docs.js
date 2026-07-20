@@ -27,14 +27,14 @@ export const GLOBALS = {
   feedback: ['feedback(name?)', 'Legacy alias of input().'],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'TOP generator: two-color gradient.'],
   circle: ['circle({ radius, soft, center, color, bg })', 'TOP generator: soft-edged disc.'],
-  video: ['video(name?)', "TOP generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera. Permission prompt on first use; black until the stream is live."],
-  noise: ['noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'TOP generator: animated fbm simplex noise; seed picks a different field. channels: 2-4 = independent fields in R/G(/B/A) — feed channels: 2 to .displace() for isotropic wobble. (On a geometry chain, .noise() displaces vertices instead.)'],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "TOP generator: canvas-rendered text (any CSS font name, 'google:Name', or a font URL; \\n for multiline). Content can be a fn of t; comp over a scene with add/screen."],
+  video: ['video(name?)', "TOP generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera. The console lists the available sources on start (and when a name doesn't match). Permission prompt on first use; black until the stream is live."],
+  noise: ['noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'TOP generator: animated fbm simplex noise shading from color a (low) to b (high). octaves stacks detail layers; lacunarity = frequency step per octave (2 = each layer twice as fine); gain = amplitude falloff per octave (low = smooth blobs, high = rough grain — output is normalized, so gain shapes texture, not brightness; use .contrast()/.mul() for level). seed picks a different field. channels: 2-4 = independent fields in R/G(/B/A) — feed channels: 2 to .displace() for isotropic wobble. (On a geometry chain, .noise() displaces vertices instead.)'],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "TOP generator: canvas-rendered text. size = font size in screen px (like CSS; values <= 1 = fraction of screen height). Any CSS font name, 'google:Name', or a font URL; \\n for multiline. Content can be a fn of t; comp over a scene with add/screen."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "3D extruded text. font: a name (installed fonts, then Google Fonts), 'google:Name', or a .ttf/.otf/.typeface.json URL. Renders in helvetiker until the font arrives."],
 
   beat: ['beat(div = 1)', 'Tempo-synced phase ramp 0..1 over div beats (tempo in the sidebar). Shape it: beat(2).sin() two-beat LFO, beat(0.25).sqr() sixteenth gates, beat(1).rand() sample-hold, beat(4).counter().select([...]) walks a list per bar.'],
-  audio: ['audio(chan?)', 'Audio input level as a signal — a fn of t, usable in any parameter. Mono mix by default, or one channel by index (inputs can be >2ch). Chain .mul/.add/.pow/.smooth/.kicks/.lowpass/.highpass/.bandpass. First use starts capture; pick the device in the sidebar.'],
-  rnd: ['rnd(freq = 1, seed = 0)', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() TOP. freq scales wiggle speed; different seeds are independent. rnd().hold(audio().kicks()).mul(4).round() = random 0..4 per kick.'],
+  audio: ['audio(chan? | name?, chan?)', "Audio input level as a signal — a fn of t, usable in any parameter. audio() = mono mix of the sidebar's device, audio(2) = one channel by index, audio('scarlett') = an input device by name (case-insensitive substring; an unmatched name lists the available inputs in the console), audio('scarlett', 2) = a channel of it. Chain .mul/.add/.pow/.smooth/.kicks/.lowpass/.highpass/.bandpass. First use starts capture."],
+  rnd: ['rnd({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() TOP. freq scales wiggle speed; different seeds are independent — rnd({ seed: i }) in a tile/instance fn gives each copy its own. Positional rnd(freq, seed) also works. rnd().hold(audio().kicks()).mul(4).round() = random 0..4 per kick.'],
   sig: ['sig(fn)', 'Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.'],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
@@ -46,7 +46,7 @@ export const METHODS = {
   rotate: ['.rotate(x, y, z)', 'Geometry: rotation in radians (numbers or fns of t) · TOP: .rotate(v, { wrap }) rotates the image around center.'],
   scale: ['.scale(x, y?, z?)', 'Geometry: scale, one argument = uniform · TOP: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
   translate: ['.translate(x, y, { wrap })', 'TOP: shift the image in UV space (1 = full frame).'],
-  noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals; normals recomputed so lighting stays correct. seed offsets the field for a different shape.'],
+  noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals; normals recomputed so lighting stays correct. amp = displacement distance, freq = spatial frequency; octaves stacks detail layers, lacunarity = frequency step per octave, gain = amplitude falloff per octave (low = smooth, high = crinkly). seed offsets the field for a different shape.'],
   instance: ['.instance(count, (i, n, t) => ({ pos, rot, scale }))', 'Render as one InstancedMesh; the layout fn runs every frame so instances animate.'],
   material: ['.material({ color, roughness, metalness, emissive, flatShading, wireframe })', 'PBR material settings.'],
   color: ['.color(c)', 'Shorthand for .material({ color }). Colors may be fns of t or signals — e.g. .color(kickCounter.select(palette)).'],
@@ -92,11 +92,11 @@ export const METHODS = {
   threshold: ['.threshold(level, { soft })', 'TOP: luma threshold to a black/white mask.'],
   invert: ['.invert()', 'TOP: invert colors.'],
   remap: ['.remap(mapTop)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
-  displace: ['.displace(mapTop, amount, { mid: 0.5 })', "Texture: offset UVs by the map's RG minus mid (0.5 = mid-gray neutral; mid: 0 makes black neutral for dark maps). Also .displace(map, { amount, mid }). Grayscale maps move along the diagonal only — use noise({ channels: 2 }) for isotropic. Map can be a fn of the chain so far."],
+  displace: ['.displace(map, { amount: 0.1, mid: 0.5 })', "Texture: offset UVs by the map's RG minus mid, scaled by amount (0.5 = mid-gray neutral; mid: 0 makes black neutral for dark maps). Positional .displace(map, amount) also works. Grayscale maps move along the diagonal only — use noise({ channels: 2 }) for isotropic. Map can be a fn of the chain so far."],
   comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Modes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn.'],
   blur: ['.blur(radius)', 'TOP: separable gaussian blur.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'TOP: brightpass + half-res gaussian glow.'],
-  tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe (max 8 distinct). x left→right, y bottom→top, i = y*nx + x.'],
+  tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe (max 15 distinct — each costs a render pass). x left→right, y bottom→top, i = y*nx + x.'],
 };
 
 const globalOptions = Object.entries(GLOBALS).map(([label, [detail, info]]) => ({

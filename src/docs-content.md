@@ -125,7 +125,10 @@ icosa({ radius: 1.3, detail: 16 })
 ```
 
 - `amp` — displacement distance · `freq` — spatial frequency
-- `octaves` (1–8) — harmonic detail · `lacunarity` / `gain` — per-octave frequency/amplitude falloff
+- `octaves` (1–8) — how many detail layers get stacked
+- `lacunarity` — frequency step per octave (2 = each layer twice as fine)
+- `gain` — amplitude falloff per octave: low ≈ only the smooth base layer,
+  high = crinkly detail. It shapes roughness, not overall strength — that's `amp`.
 - `speed` — animates the field · `seed` — same settings, different shape
 
 ### .instance — many copies, one mesh
@@ -234,10 +237,16 @@ scene()
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })` — two-color gradient.
 - `circle({ radius, soft, center, color, bg })` — soft-edged disc.
 - `noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
-  animated fbm noise. `channels: 2`–`4` puts independent fields in R/G(/B/A)
-  instead of the a→b grayscale ramp — what you want for `.displace()` maps.
+  animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
+  stacks detail layers; `lacunarity` is the frequency step per octave, `gain`
+  the amplitude falloff per octave (low = smooth blobs, high = rough grain —
+  the output is normalized, so `gain` shapes texture, not brightness; reach
+  for `.contrast()` / `.mul()` to change level). `channels: 2`–`4` puts
+  independent fields in R/G(/B/A) instead of the a→b ramp — what you want for
+  `.displace()` maps.
 - `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
-  text; any CSS font, `\n` for multiline, content may be a fn of `t`.
+  text. `size` is a font size in screen px (values ≤ 1 = fraction of screen
+  height); any CSS font, `\n` for multiline, content may be a fn of `t`.
 - `video(name?)` — live camera (see **video input**).
 
 ```js
@@ -283,7 +292,8 @@ noise({ freq: 3, speed: 0.4 })
 - `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
   chain: return `src`, a treatment of it, or any other TOP. `x` runs
   left→right, `y` bottom→top, `i = y * nx + x`. Cells with structurally
-  identical variants share one render (max 8 distinct variants).
+  identical variants share one render (max 15 distinct variants — each
+  distinct one costs a render pass).
 
 ```js
 circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
@@ -323,7 +333,7 @@ ramp({ type: 'angular', a: '#000000', b: '#334455' })
 
 ```js
 noise({ freq: 3, speed: 0.3, a: '#031018', b: '#4fd1c5' })
-  .mask(circle({ radius: 0.32, soft: 0.15 }), s => s.displace(noise({ channels: 2, freq: 2, speed: 0.5 }), 0.2).invert())
+  .mask(circle({ radius: 0.32, soft: 0.15 }), s => s.displace(noise({ channels: 2, freq: 2, speed: 0.5 }), { amount: 0.2 }).invert())
   .out()
 ```
 
@@ -339,9 +349,9 @@ noise({ freq: 3, speed: 0.5, b: '#7ee787' })
 
 ## warping
 
-`.displace(mapTop, amount, { mid: 0.5 })` offsets each pixel's UV lookup by
+`.displace(map, { amount: 0.1, mid: 0.5 })` offsets each pixel's UV lookup by
 the map's RG channels minus `mid`, scaled by `amount` — the classic
-displacement map.
+displacement map. (`.displace(map, amount)` works as a positional shorthand.)
 
 - **`mid` is the neutral value.** By default mid-gray (0.5) means "don't
   move": brighter than mid pushes one way, darker
@@ -355,7 +365,7 @@ displacement map.
 
 ```js
 text('fizzle')
-  .displace(noise({ channels: 2, freq: 2, speed: 0.4 }), t => 0.04 + 0.03 * Math.sin(t))
+  .displace(noise({ channels: 2, freq: 2, speed: 0.4 }), { amount: t => 0.04 + 0.03 * Math.sin(t) })
   .out()
 ```
 
@@ -384,7 +394,7 @@ icosa({ radius: 1.2 }).noise({ amp: 0.3, freq: 2, speed: 0.4 }).color('#8899ff')
 
 scene().kaleido(6).out('kal')
 noise({ freq: 3, channels: 2, speed: 0.4 }).out('warp')
-input('kal').displace(input('warp'), 0.08).bloom().out()
+input('kal').displace(input('warp'), { amount: 0.08 }).bloom().out()
 ```
 
 When the wiring is acyclic, `input` pulls the producer fresh the same frame —
@@ -429,9 +439,11 @@ input('knot').edge({ strength: 2 })
 
 `video(name?)` is a live camera as a TOP generator. No name = the default
 camera; a name matches a camera label by case-insensitive substring
-(`video('facetime')`). First use asks for camera permission; the stream
-survives re-runs (livecoding doesn't re-prompt) and renders black until it's
-live. It's a texture like any other — displace it, mask it, feed it back.
+(`video('facetime')`). The browser console lists the available sources when
+the stream starts — and when a name doesn't match anything. First use asks
+for camera permission; the stream survives re-runs (livecoding doesn't
+re-prompt) and renders black until it's live. It's a texture like any other —
+displace it, mask it, feed it back.
 
 ```js
 video()
@@ -463,6 +475,10 @@ icosa({ radius: 1 })
 
 - `audio()` — mono mix level (RMS). `audio(2)` — one channel by index; inputs
   with more than 2 channels are fully addressable.
+- `audio('scarlett')` — a specific input device by name (case-insensitive
+  label substring), independent of the sidebar's selection — so two interfaces
+  can drive different parameters. `audio('scarlett', 2)` picks a channel of
+  it. An unmatched name lists the available inputs in the console.
 - `.lowpass(hz)` / `.highpass(hz)` / `.bandpass(lo, hi)` — energy (0..1) in a
   region of the spectrum: bass level, treble level, a drum's band.
 - `.smooth(up, down?)` — exponential lag in seconds; two args = separate
@@ -509,10 +525,11 @@ circle({
 
 ## random & custom signals
 
-`rnd(freq?, seed?)` is a smooth random signal — deterministic value noise of
-`t`, 0..1 — the signal cousin of the `noise()` TOP. Different seeds give
-independent signals. Combined with `.hold`, it samples a new random value per
-trigger:
+`rnd({ freq, seed })` is a smooth random signal — deterministic value noise of
+`t`, 0..1 — the signal cousin of the `noise()` TOP (positional
+`rnd(freq, seed)` works too). Different seeds give independent signals —
+`rnd({ seed: i })` inside a `.tile()` or `.instance()` fn gives every copy its
+own. Combined with `.hold`, it samples a new random value per trigger:
 
 ```js
 const hit = beat(1).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())

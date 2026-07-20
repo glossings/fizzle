@@ -33,6 +33,7 @@ export class Engine {
     this.bpm = 120;                 // tempo for beat(), set in the sidebar
 
     this.audio = null;              // AudioEngine, created lazily by audio()
+    this.audios = new Map();        // named audio captures, shared across re-runs
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
     this.videos = new Map();        // camera captures by name, shared across re-runs
@@ -98,10 +99,53 @@ export class Engine {
 
   // Lazy audio capture: created/started on first use (audio() in a
   // sketch, or enabling passthrough in the sidebar). No-op while disabled.
-  ensureAudio() {
-    const ae = (this.audio ??= new AudioEngine());
-    if (this.audioEnabled && !ae.running && !ae.starting) ae.start(this.audioDeviceId);
+  // A name picks an input device by label (case-insensitive substring),
+  // independent of the sidebar's default-device selection; named captures
+  // survive re-runs like video streams do.
+  ensureAudio(name) {
+    if (name == null) {
+      const ae = (this.audio ??= new AudioEngine());
+      if (this.audioEnabled && !ae.running && !ae.starting) ae.start(this.audioDeviceId);
+      return ae;
+    }
+    const key = String(name).toLowerCase();
+    let ae = this.audios.get(key);
+    if (!ae) {
+      ae = new AudioEngine();
+      this.audios.set(key, ae);
+    }
+    if (this.audioEnabled && !ae.running && !ae.starting) {
+      ae.starting = true; // hold the flag while the label resolves to a device
+      this.resolveAudioInput(key).then((id) => {
+        ae.starting = false;
+        ae.start(id);
+      });
+    }
     return ae;
+  }
+
+  // label -> deviceId (undefined = system default), with the same permission
+  // dance as video: labels are blank until mic permission is granted once
+  async resolveAudioInput(name) {
+    const mics = async () =>
+      (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    try {
+      let devs = await mics();
+      const find = () => devs.find((d) => d.label.toLowerCase().includes(name));
+      let dev = find();
+      if (!dev && !devs.some((d) => d.label)) {
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach((t) => t.stop());
+        devs = await mics();
+        dev = find();
+      }
+      if (dev) return dev.deviceId;
+      const labels = devs.map((d) => `"${d.label}"`).join(', ') || 'none found';
+      console.warn(`fizzle: audio: no input matching "${name}" — using default. Inputs: ${labels}`);
+    } catch (e) {
+      console.warn(`fizzle: audio: ${e.message ?? e}`);
+    }
+    return undefined;
   }
 
   // Audio input device, from the sidebar: a deviceId string, undefined for
@@ -111,8 +155,12 @@ export class Engine {
   setAudioDevice(deviceId) {
     this.audioEnabled = deviceId !== null;
     this.audioDeviceId = deviceId ?? undefined;
-    if (!this.audioEnabled) this.audio?.stop();
-    else if (this.audio) this.audio.start(this.audioDeviceId);
+    if (!this.audioEnabled) {
+      this.audio?.stop();
+      for (const ae of this.audios.values()) ae.stop();
+    } else if (this.audio) {
+      this.audio.start(this.audioDeviceId);
+    }
   }
 
   // Passthrough output device: null = off, 'default', or a deviceId.
@@ -131,27 +179,33 @@ export class Engine {
     if (v) return v;
     v = { texture: null };
     this.videos.set(key, v);
+    const cams = async () =>
+      (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const labels = (devs) => devs.map((d) => `"${d.label}"`).join(', ') || 'none found';
     (async () => {
       try {
         let deviceId;
+        let devs = await cams();
         if (name) {
-          const find = (devs) => devs.find(
-            (d) => d.kind === 'videoinput' && d.label.toLowerCase().includes(name.toLowerCase())
-          );
-          let dev = find(await navigator.mediaDevices.enumerateDevices());
+          const find = () => devs.find((d) => d.label.toLowerCase().includes(name.toLowerCase()));
+          let dev = find();
           if (!dev) {
             // labels are blank before camera permission — grab the default
             // camera once to unlock them, then retry the match
             const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
             tmp.getTracks().forEach((t) => t.stop());
-            dev = find(await navigator.mediaDevices.enumerateDevices());
+            devs = await cams();
+            dev = find();
           }
           if (dev) deviceId = dev.deviceId;
-          else console.warn(`fizzle: video: no camera matching "${name}" — using default`);
+          else console.warn(`fizzle: video: no camera matching "${name}" — using default. Sources: ${labels(devs)}`);
         }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: deviceId ? { deviceId: { exact: deviceId } } : true,
         });
+        // labels unlock once a stream is live; refresh so the listing is useful
+        if (!devs.some((d) => d.label)) devs = await cams();
+        console.info(`fizzle: video: using "${stream.getVideoTracks()[0]?.label}". Sources: ${labels(devs)}`);
         const el = document.createElement('video');
         el.srcObject = stream;
         el.muted = true;
