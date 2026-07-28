@@ -395,6 +395,22 @@ const SPECS = {
     frag: `void main() { gl_FragColor = vec4(1.0 - texture2D(tex0, vUv).rgb, 1.0); }`,
   },
 
+  // sRGB -> linear, appended to a chain feeding a *color* map slot. TOPs work
+  // in display space throughout (that's what the scene TOP's tonemap pass
+  // establishes), while three shades in linear and normally gets the decode
+  // for free from the texture's internal format — which a half-float render
+  // target can't have. So it happens here instead. Data maps (normal,
+  // roughness, displacement) are raw numbers either way and skip this.
+  toLinear: {
+    frag: `
+      void main() {
+        vec4 c = texture2D(tex0, vUv);
+        vec3 lo = c.rgb / 12.92;
+        vec3 hi = pow((max(c.rgb, 0.0) + 0.055) / 1.055, vec3(2.4));
+        gl_FragColor = vec4(mix(hi, lo, vec3(lessThanEqual(c.rgb, vec3(0.04045)))), c.a);
+      }`,
+  },
+
   comp: {
     extras: { uMode: 0, uOpacity: 1 },
     // the non-separable blends (luminosity / color) can't work channel by
@@ -813,6 +829,10 @@ export class TopOp {
     if (!rt || rt.width !== w || rt.height !== h) {
       rt?.dispose();
       rt = this[`_tgt_${key}`] = makeRT(w, h);
+      // three reads a render target's wrap mode once, when it first sets the
+      // target up — so a node feeding a tiled material map has to be marked
+      // before that happens, and re-marked whenever the size forces a realloc
+      if (this._tiled) rt.texture.wrapS = rt.texture.wrapT = THREE.RepeatWrapping;
     }
     return rt;
   }
@@ -1029,7 +1049,36 @@ export class TopOp {
 }
 
 // ---------------------------------------------------------------------------
-// per-frame evaluation, called by the engine when a TOP chain has .out()
+// TOPs bound to material map slots — .material({ map: scene().kaleido(6) }).
+// materials.js registers { node, material, slot } on the engine; these render
+// at the top of the frame, before the 3D pass that samples them, and the
+// current texture is written into the slot.
+
+function renderMaterialMaps(engine, ctx) {
+  const binds = engine.topMaps;
+  if (!binds.length) return;
+  // a mesh whose patch was cleared takes its bindings with it
+  let live = 0;
+  for (const b of binds) {
+    if (!b.isAlive()) continue;
+    binds[live++] = b;
+    const tex = b.node.renderNode(ctx);
+    // the texture object only changes when the node reallocates its target
+    // (first frame, and on resize) — the pixels change under it every frame
+    if (tex === b.tex) continue;
+    b.tex = tex;
+    b.configure?.(tex);
+    const first = b.material[b.slot] == null;
+    b.material[b.slot] = tex;
+    // a slot appearing after first compile changes the shader's defines
+    if (first) b.material.needsUpdate = true;
+  }
+  binds.length = live;
+}
+
+// ---------------------------------------------------------------------------
+// per-frame evaluation, called by the engine when a TOP chain has .out() (or
+// feeds a material map)
 
 export function renderTops(engine) {
   const renderer = engine.renderer;
@@ -1037,9 +1086,13 @@ export function renderTops(engine) {
   const st = engine._topState;
   st.quad ??= new Quad();
   st.frame = (st.frame ?? 0) + 1;
+  ensurePassMaterials();
 
-  // pure-TOP sketches (generators/feedback only) skip the 3D pass entirely
-  const needsScene = engine.topNodes.some((n) => n.kind === 'scene');
+  // pure-TOP sketches (generators/feedback only) skip the 3D pass entirely.
+  // With no TOP .out() the display *is* the scene (we're only here to feed a
+  // material map) — it still goes through the offscreen render, so that
+  // scene() and input() mean the same thing they always do.
+  const needsScene = !engine.topOutput || engine.topNodes.some((n) => n.kind === 'scene');
   if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y)) {
     st.sceneRT?.dispose();
     // linear HDR; the scene TOP's tonemap pass converts to display space
@@ -1065,11 +1118,6 @@ export function renderTops(engine) {
     }
     return rt;
   };
-
-  if (needsScene) {
-    renderer.setRenderTarget(st.sceneRT);
-    renderer.render(engine.scene, engine.camera);
-  }
 
   // named geometry layers: render the scene with the camera masked to one
   // layer, on black (so layers comp cleanly with add/screen), then tonemap —
@@ -1117,12 +1165,31 @@ export function renderTops(engine) {
     layerTex,
   };
 
-  const outTex = engine.topOutput.renderNode(ctx);
-  ensurePassMaterials();
-  runPass(ctx, MAT_COPY, outTex, null, null);
-  // snapshot for next frame's input(); frozen while paused so trails hold
-  if (!engine.paused && outTex !== st.feedbackRT.texture) {
-    runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
+  // Material maps first: the 3D render is about to sample them, so they have
+  // to be this frame's. The trade is that sceneTex is still *last* frame's
+  // here — a chain that maps scene() onto geometry inside that same scene is a
+  // one-frame feedback loop, for the same reason input() is.
+  renderMaterialMaps(engine, ctx);
+
+  if (needsScene) {
+    renderer.setRenderTarget(st.sceneRT);
+    renderer.render(engine.scene, engine.camera);
+  }
+
+  if (engine.topOutput) {
+    const outTex = engine.topOutput.renderNode(ctx);
+    runPass(ctx, MAT_COPY, outTex, null, null);
+    // snapshot for next frame's input(); frozen while paused so trails hold
+    if (!engine.paused && outTex !== st.feedbackRT.texture) {
+      runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
+    }
+  } else {
+    // no TOP .out() — the sketch is 3D that merely feeds a chain into a
+    // material, so what's on screen is the scene, reaching the canvas through
+    // the same tonemap the scene TOP uses (and snapshot for next frame's
+    // input(), which is otherwise the one thing this path would break)
+    runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, null);
+    if (!engine.paused) runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, st.feedbackRT);
   }
   // named buffers: render each published chain (memoized if it was already
   // pulled this frame) and snapshot it for next frame's cyclic input(name)

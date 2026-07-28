@@ -220,6 +220,34 @@ scene()
     .comp(input('blob').pixellate(90), 'add')      // separate looks, comped
     .out()
   ```
+- **TOPs as texture maps** — the other direction: a chain goes wherever a
+  filename goes in `.material()`, and re-renders every frame, so the surface is
+  live. Any slot takes one (`map`, `normalMap`, `roughnessMap`,
+  `displacementMap`, …).
+
+  ```js
+  box({ width: 3, height: 2, depth: 0.2, res: 2 })
+    .material({
+      map: noise({ freq: 3, speed: 0.3, b: '#4fd1c5' }).kaleido(6),
+      roughnessMap: noise({ freq: 8 }),
+    })
+    .out()
+  ```
+
+  Map chains are a pre-pass, rendered before the 3D render that samples them,
+  so anything independent of that render is current — including a bus, which is
+  how one chain hangs on several surfaces:
+
+  ```js
+  ramp({ type: 'angular', a: '#1a0533', b: '#ff5f9e' }).rotate(t => t * 0.3).out('feed')
+  plane({ width: 4, height: 2.5 }).material({ map: input('feed') }).out()
+  ```
+
+  The exception is `scene()`, which can only be last frame's render — this
+  frame's is the thing waiting on the texture — putting the scene inside itself
+  one frame behind, on the same rule `input()` follows. A sketch with no TOP
+  `.out()` at all still works: the scene displays as usual and only the map
+  chains run.
 - `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })`
 - `circle({ radius, soft, center, color, bg })`
 - `noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —

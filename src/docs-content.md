@@ -320,6 +320,8 @@ box({ res: 2 })
 - **slots** — `map` (color), `normalMap`, `roughnessMap`, `metalnessMap`,
   `aoMap`, `displacementMap`, and `arm` for one packed image filling the
   middle three. A slot named outright wins over whatever `pbr:` resolved.
+  Any slot also takes a live TOP chain instead of a filename — see
+  **tops as texture maps**.
 - **tiling** — `repeat` (a number, or `[x, y]`), `offset`, `uvRotate`
   (radians). These apply to every map on the material.
 - **tuning** — `normalScale` (relief strength), `aoIntensity`,
@@ -665,6 +667,72 @@ input('knot').edge({ strength: 2 })
   .comp(input('blob').pixellate(90), 'add')
   .out()
 ```
+
+### tops as texture maps
+
+The other direction: any TOP chain can be a **map on a material**, wherever a
+filename goes. The chain re-renders every frame, so the surface is live.
+
+```js
+ambient(0.25)
+directional({ intensity: 1.6 }).pos(3, 5, 4).out()
+
+box({ width: 3.2, height: 2, depth: 0.2, res: 2 })
+  .rotate(0, t => Math.sin(t * 0.4) * 0.6, 0)
+  .material({
+    map: noise({ freq: 3, octaves: 4, speed: 0.3, a: '#1a0533', b: '#4fd1c5' })
+      .kaleido(6)
+      .levels({ contrast: 1.3 }),
+    roughnessMap: noise({ freq: 6, speed: 0.2 }),
+    metalness: 0.2,
+  })
+  .out()
+```
+
+Any source works — generators as above, `video()`, `imagefile()`, a bus. Every
+slot takes one too: `map` for color, but also `normalMap`, `roughnessMap`,
+`displacementMap`, `aoMap`, `metalnessMap`, and `arm` to feed the packed three
+at once. `noise({ freq: 8 }).normalMap()` is a live bumpy surface; `noise()`
+into `displacementMap` on a high-`res` shape is a moving terrain.
+
+`repeat` / `offset` / `uvRotate` work as usual, and each binding gets its own
+copy of the chain's output, so two materials can tile one chain differently.
+
+A bus works here like anywhere else, which is how you build a chain once and
+hang it on several surfaces — or just keep the wiring readable:
+
+```js
+ramp({ type: 'angular', a: '#1a0533', b: '#ff5f9e' })
+  .rotate(t => t * 0.3)
+  .posterize(6)
+  .out('feed')
+
+plane({ width: 4, height: 2.5 }).pos(-2.5, 0, 0)
+  .material({ map: input('feed') })
+  .out()
+
+box({ res: 2 }).pos(2.5, 0, 0)
+  .material({ map: input('feed').invert(), roughness: 0.3 })
+  .out()
+```
+
+Chains this way are a **pre-pass**: they render at the top of the frame, before
+the 3D render that samples them. Anything that doesn't depend on the 3D render
+is therefore current — a video, a generator, a bus like the one above, all
+this frame's. The single exception is `scene()`, which can only be last frame's
+render, since this frame's is the thing waiting on the texture. That's the same
+rule `input()` follows, and it's a feedback loop worth having — a screen inside
+the scene showing the scene, one frame behind:
+
+```js
+plane({ width: 4, height: 3 })
+  .pos(0, 1, -2)
+  .material({ map: scene().transform({ scale: 0.98 }).hue(0.02) })
+  .out()
+```
+
+A sketch can be entirely 3D and still use this — with no TOP `.out()` anywhere,
+the scene still displays as normal and only the map chains run.
 
 ## video input
 

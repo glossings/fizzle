@@ -1,15 +1,17 @@
 // Texture maps on a geometry chain's .material(). Every slot takes the name of
 // an imported image (exact filename, else substring, like every other name
-// here), or a THREE.Texture as an escape hatch:
+// here), a live TOP chain, or a THREE.Texture as an escape hatch:
 //
 //   .material({ map: 'wood.jpg', normalMap: 'wood_nor.jpg', repeat: 4 })
-//   .material({ pbr: 'rock_2k', repeat: 2 })   // a whole set at once
+//   .material({ pbr: 'rock_2k', repeat: 2 })       // a whole set at once
+//   .material({ map: video().kaleido(6) })         // a TOP, re-rendered per frame
 //
 // Loading is async, like fonts and models: the mesh renders untextured for the
 // first frames after a fresh import and the maps appear when they land. On a
 // re-run they come from the engine's cache and are there on the first frame.
 
 import { MAP_SLOTS, SRGB_SLOTS, ARM_SLOTS } from './pbr.js';
+import { TopOp } from './tops.js';
 
 const pair = (v) => (Array.isArray(v) ? [v[0], v[1] ?? v[0]] : [v, v]);
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
@@ -194,6 +196,7 @@ export function applyMaps(engine, material, m, isAlive) {
   const offset = m.offset != null ? pair(m.offset) : null;
   const uvRotation = m.uvRotate ?? null;
 
+  const tiled = repeat || offset || uvRotation != null;
   const configure = (tex) => {
     if (repeat) tex.repeat.set(repeat[0], repeat[1]);
     if (offset) tex.offset.set(offset[0], offset[1]);
@@ -204,25 +207,51 @@ export function applyMaps(engine, material, m, isAlive) {
     return tex;
   };
 
-  const assign = (slot, tex) => {
-    if (!tex || !isAlive()) return;
-    // clone so tiling belongs to this material — the cached original is shared
-    material[slot] = configure(tex.clone());
-    // three multiplies these maps by the matching scalar, whose plain-material
-    // default would crush the map's range. Only a sketch that named a value
-    // keeps it — .material({ pbr: 'x', roughness: 0.4 }) still polishes it.
+  // three multiplies these maps by the matching scalar, whose plain-material
+  // default would crush the map's range. Only a sketch that named a value
+  // keeps it — .material({ pbr: 'x', roughness: 0.4 }) still polishes it.
+  const slotDefaults = (slot) => {
     if (slot === 'roughnessMap' && m.roughness == null) material.roughness = 1;
     if (slot === 'metalnessMap' && m.metalness == null) material.metalness = 1;
     if (slot === 'displacementMap') {
       material.displacementScale = m.displaceScale ?? DISPLACE_SCALE;
       material.displacementBias = m.displaceBias ?? -material.displacementScale / 2;
     }
+  };
+
+  const assign = (slot, tex) => {
+    if (!tex || !isAlive()) return;
+    // clone so tiling belongs to this material — the cached original is shared
+    material[slot] = configure(tex.clone());
+    slotDefaults(slot);
     // a slot appearing after first compile changes the shader's defines
     material.needsUpdate = true;
   };
 
+  // A TOP in a map slot is a live chain, not a file: it re-renders every frame,
+  // so the binding is handed to the engine and tops.js writes the current
+  // texture in ahead of each 3D pass.
+  //
+  // It always ends in one more pass, which is what makes the texture in the
+  // slot a render target *this binding owns*. A chain can end in a node that
+  // hands back someone else's texture — input('bus') forwards its producer's,
+  // videofile() the shared decoder's — and the uv transform below writes onto
+  // the texture itself, which would otherwise reach into every other user of
+  // it. Owning it also means two materials can tile one chain differently.
+  // For a color slot that pass is the sRGB decode it needed anyway.
+  const bindTop = (slot, chain) => {
+    slotDefaults(slot);
+    const node = new TopOp(engine, SRGB_SLOTS.has(slot) ? 'toLinear' : 'copy', {}, [chain]);
+    // tiling past the edge only wraps if the target says so, and it has to say
+    // so before it's allocated — hence a flag on the node rather than on the
+    // texture the way an imported image does it
+    if (repeat) node._tiled = true;
+    engine.topMaps.push({ node, material, slot, isAlive, configure: tiled ? configure : null, tex: null });
+  };
+
   const setSlot = (slot, spec) => {
     if (spec == null || spec === false) return;
+    if (spec instanceof TopOp) return bindTop(slot, spec);
     if (spec.isTexture) return assign(slot, spec);
     const t = engine.ensureTexture(spec, SRGB_SLOTS.has(slot));
     if (t.texture) assign(slot, t.texture);
@@ -237,6 +266,11 @@ export function applyMaps(engine, material, m, isAlive) {
   for (const [slot, spec] of Object.entries(explicit)) setSlot(slot, spec);
 
   if (m.pbr == null) return;
+  // pbr: names a set of files on disk; a chain is one image and has to say
+  // which slot it fills
+  if (m.pbr instanceof TopOp) {
+    throw new Error('material: pbr: names an imported set of maps — a TOP goes in one slot, e.g. { map: ... }');
+  }
   engine.ensurePbrSet(m.pbr).pending.then((maps) => {
     if (!maps || !isAlive()) return;
     const resolved = { ...maps };

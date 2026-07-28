@@ -52,6 +52,7 @@ export class Engine {
     this.topNodes = [];             // TOP graph nodes from the current sketch
     this.topOutput = null;          // TOP chain marked with .out(), if any
     this.topBuffers = new Map();    // name -> node published with .out(name)
+    this.topMaps = [];              // TOP chains bound to a material map slot
     this.geoLayers = new Map();     // name -> three.js layer bit, geometry .out(name)
     this._topState = {};            // persistent RTs/quad (feedback survives re-runs)
 
@@ -90,7 +91,8 @@ export class Engine {
     }
     // camera stays interactive while paused (unless the sketch drives it)
     if (!this.cameraProgrammed) this.controls.update();
-    if (this.topOutput) {
+    // TOPs feeding a material map need the graph running even with no .out()
+    if (this.topOutput || this.topMaps.length) {
       renderTops(this);
     } else {
       this.renderer.setRenderTarget(null);
@@ -527,6 +529,7 @@ export class Engine {
     this.topNodes = [];
     this.topOutput = null;
     this.topBuffers.clear();
+    this.topMaps = [];
     this.geoLayers.clear();
 
     this.cameraProgrammed = false;

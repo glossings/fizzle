@@ -4,9 +4,8 @@
 strikethroughs — a finished item just stops being here. The file is a list of
 what's left, not a history of what happened.
 
-Ordered roughly by leverage: the first two are small diffs that between them
-move the chain-instancing look and textured geometry from "partly reachable" to
-"basically there."
+Ordered roughly by leverage: the first is a small diff that moves the
+chain-instancing look from "partly reachable" to "basically there."
 
 ---
 
@@ -23,26 +22,15 @@ Euler by hand inside a sketch is miserable.
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
 
-## 2. TOPs as texture maps on geometry
+## 2. Depth buffer as a TOP source
 
-Current asymmetry: `input('name')` is TOP-only, and geometry can't consume a TOP
-at all. [src/materials.js](src/materials.js) already accepts a raw
-`THREE.Texture` as an escape hatch, but there's no way to get a TOP's output
-texture out of the graph.
-
-Expose it — `.material({ map: scene().kaleido(6) })`. Nearly free given the
-existing render-target plumbing, and it opens a whole category: chains wrapping
-an actual screen showing video feedback, CRT geometry, textured layers.
-
-## 3. Depth buffer as a TOP source
-
-`makeRT` sets `depthBuffer: false` ([src/tops.js:452](src/tops.js#L452)), so
+`makeRT` sets `depthBuffer: false` ([src/tops.js:553](src/tops.js#L553)), so
 there's no depth-of-field, no depth-graded haze, no SSAO.
 
 Expose a `depth()` source alongside `scene()`. Serves dreamcore (depth haze in
 liminal spaces) and Frutiger Aero (DOF on glass) at once. Medium effort.
 
-## 4. Shadow maps
+## 3. Shadow maps
 
 No `castShadow` anywhere in the codebase — shadows are entirely absent. This is
 dreamcore's remaining gap: the dread is largely a harsh light source throwing
@@ -52,18 +40,18 @@ Enable `renderer.shadowMap`, add opt-in flags on lights and geometry. Medium
 effort, mostly because shadows interact with the geometry-layer system in
 [src/tops.js](src/tops.js).
 
-## 5. `pixelsort()`
+## 4. `pixelsort()`
 
 A proper sort is an odd-even transposition network: dozens of full-res ping-pong
 passes per frame. The machinery exists (`blur` at
-[src/tops.js:855](src/tops.js#L855) is already multi-pass) but there's no way to
+[src/tops.js:770](src/tops.js#L770) is already multi-pass) but there's no way to
 express *N iterations of the same pass* from a sketch.
 
 Needs a dedicated op with an internal iteration count —
 `.pixelsort({ iterations: 48, threshold, angle })`. At 32–64 passes it's
 expensive but viable at reduced resolution. Roughly a focused day.
 
-## 6. GPGPU particles
+## 5. GPGPU particles
 
 The one item here that's a project rather than a patch.
 
@@ -86,7 +74,7 @@ state to a named bus, and a `points('bus')` renderer draws it. Conceptually
 clean and idiomatic to what's already built.
 
 Needs RGBA32F targets instead of the current `HalfFloatType`
-([src/tops.js:452](src/tops.js#L452)) for position precision, plus a
+([src/tops.js:553](src/tops.js#L553)) for position precision, plus a
 points/sprite render path that doesn't exist yet.
 
 ---
@@ -112,6 +100,6 @@ Kept here so they don't get re-investigated:
   carpet, the `text` TOP, feedback trails, `pixellate` + `posterize` for a PS1
   look, and high-frequency `noise()` comped over as film grain.
 
-- **`lookup`** ([src/tops.js:262](src/tops.js#L262)) is a 1D luma LUT — i.e. a
+- **`lookup`** ([src/tops.js:274](src/tops.js#L274)) is a 1D luma LUT — i.e. a
   palette grader, which is most of the "look" battle for both Frutiger Aero and
   dreamcore.
