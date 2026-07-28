@@ -266,7 +266,8 @@ scene()
   scene().tile(4, 3, (src, i, x, y) => (x + y) % 2 ? src.saturation(0) : src).out()
   ```
 - `.posterize(steps)` — quantize value · `.pixellate(x, y?)` — quantize position
-- `.threshold(level, { soft })` · `.invert()` · `.blur(radius)`
+- `.threshold(level, { soft })` · `.invert()` · `.blur(radius)` — radius in
+  texels; `[x, y]` blurs per axis, so `.blur([8, 0])` smears horizontally only
 - `.edge({ strength, spread })` · `.slope({...})` · `.normalMap({...})` — one
   Sobel pass, three encodings: edge magnitude, centered gradient (RG), or
   tangent-space normal.
@@ -276,15 +277,24 @@ scene()
   diagonal only — `noise({ channels: 2 })` displaces isotropically.
   `.remap(mapTop)` — absolute UV lookup from the map.
 - `.comp(layer, mode, opacity)` — composite `layer` over the chain. Modes:
-  `over add sub mult screen overlay hardLight softLight darken lighten
-  difference exclusion dodge burn`. `layer` may also be a **function of the
-  chain so far**, for self-referencing composites:
+  `over add sub mult divide screen overlay hardLight softLight darken lighten
+  difference exclusion dodge burn luminosity color`. `layer` may also be a
+  **function of the chain so far**, for self-referencing composites:
 
   ```js
   scene().kaleido(6).comp(s => s.edge(), 'add').out()   // overlay own edges
   ```
 
   (`.displace(map)` and `.remap(map)` accept the same fn form.)
+
+  `luminosity` keeps the base's color and takes the layer's brightness;
+  `color` is the reverse. Together they're a luma/chroma split — blur an
+  image, comp the original back in `luminosity`, and only the color stayed
+  blurred, which is how composite video treats color:
+
+  ```js
+  videofile('clip').blur([14, 3]).comp(videofile('clip'), 'luminosity').out()
+  ```
 - `.mask(maskTop, fn?)` — without `fn`, multiply by the mask's luma (cutout).
   With `fn`, apply it **only where the mask is bright** — a dry→wet blend by
   mask luma:

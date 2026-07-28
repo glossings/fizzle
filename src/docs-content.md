@@ -477,7 +477,9 @@ geometry.
 - `.hue(v)` — hue rotation in turns: `.hue(0.5)` flips the palette, `.hue(t => t * 0.1)` drifts it.
 - `.posterize(steps)` — quantize values · `.pixellate(x, y?)` — quantize position.
 - `.threshold(level, { soft })` — luma → black/white mask · `.invert()`.
-- `.blur(radius)` — separable gaussian.
+- `.blur(radius)` — separable gaussian, radius in texels. `[x, y]` gives a
+  radius per axis — `.blur([8, 0])` smears along the scanline and nowhere else
+  (an axis at 0 skips its pass, so it's cheaper too, not just narrower).
 - `.bloom({ threshold, strength, radius })` — brightpass + half-res gaussian glow.
 - `.edge({ strength, spread })` · `.slope({...})` · `.normalMap({...})` — one
   Sobel pass, three encodings: edge magnitude (grayscale), centered gradient
@@ -518,8 +520,25 @@ circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
 ## compositing
 
 `.comp(layer, mode, opacity)` composites `layer` over the chain. Modes:
-`over` `add` `sub` `mult` `screen` `overlay` `hardLight` `softLight` `darken`
-`lighten` `difference` `exclusion` `dodge` `burn`.
+`over` `add` `sub` `mult` `divide` `screen` `overlay` `hardLight` `softLight`
+`darken` `lighten` `difference` `exclusion` `dodge` `burn` `luminosity`
+`color`.
+
+The last two are the non-separable pair — they move whole colors rather than
+channels. `luminosity` keeps the **base's** color and takes the **layer's**
+brightness; `color` does the reverse.
+
+```js
+noise({ freq: 3, channels: 3, speed: 0.3 })
+  .blur([20, 6])
+  .comp(text('fizzle'), 'luminosity')   // the noise's colors, the text's shape
+  .out()
+```
+
+Between them they're a luma/chroma split with no dedicated op: blur a picture
+into mush, comp the untouched original back over it in `luminosity`, and only
+the color stayed blurred — which is what a composite video signal does to
+color for real, and most of why VHS looks like VHS (see the **vhs** example).
 
 `layer` may also be a **function of the chain so far**, for self-referencing
 composites — `.comp(s => s.edge(), 'add')` overlays the chain's own edges.
@@ -675,7 +694,14 @@ exact, or case-insensitive substring, so `videofile('clip')` finds
 `clip.mp4`. Running an **empty** call (`videofile()`, `imagefile()`,
 `audiofile()`, `imageseq()`, `model()`) opens a file picker and fills the name
 in for you; an empty `hdri()` or `.material()` opens the Poly Haven browser
-the same way. An unmatched name lists what's imported in the console.
+the same way. Since the name ends up in the code, deleting it back down to an
+empty call and running again is how you pick something else.
+
+The picker rides the ctrl+enter that ran the sketch — browsers only open file
+dialogs off a keypress or click. A sketch that runs on page load (the last one
+you had open, restored) has no such gesture, so it says which key to press in
+the status bar and waits. An unmatched name lists what's imported in the
+console.
 
 - `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
   TOP. `speed` and `loop` take fns of `t`; `mute: false` unmutes its

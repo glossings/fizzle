@@ -104,8 +104,8 @@ export const METHODS = {
   remap: ['.remap(mapTop)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(rampTop)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. .lookup(ramp({ a: 'black', b: 'red' })). Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount: 0.1, mid: 0.5 })', "Texture: offset UVs by the map's RG minus mid, scaled by amount (0.5 = mid-gray neutral; mid: 0 makes black neutral for dark maps). Positional .displace(map, amount) also works. Grayscale maps move along the diagonal only — use noise({ channels: 2 }) for isotropic. Map can be a fn of the chain so far."],
-  comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Modes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn.'],
-  blur: ['.blur(radius)', 'TOP: separable gaussian blur.'],
+  comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Modes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
+  blur: ['.blur(radius)', 'TOP: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'TOP: brightpass + half-res gaussian glow.'],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe, and each distinct one renders its own pass — like comping that many .out()s. x left→right, y bottom→top, i = y*nx + x.'],
 };

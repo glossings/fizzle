@@ -39,15 +39,23 @@ function run(code) {
   handleMediaPick();
 }
 
-// Fill the arguments of the first naked `fn()` in the editor and re-run. The
-// lookbehind keeps `material()` from matching the tail of someone's
-// `myMaterial()`, while still allowing the dot of a chained call.
+// Fill the arguments of the first naked `fn()` in the editor and re-run — so
+// the name is in the code afterwards, and deleting back down to `fn()` asks
+// again. The lookbehind keeps `material()` from matching the tail of someone's
+// `myMaterial()`, while still allowing the dot of a chained call; commented-out
+// calls are skipped, since a sketch that explains itself ("run videofile() to
+// pick a clip") would otherwise have the prose eat the fill and never fill the
+// real call at all.
 function fillCall(fn, args) {
   const doc = view.state.doc.toString();
-  const m = doc.match(new RegExp(`(?<![\\w$])${fn}\\(\\s*\\)`));
-  if (!m) return; // edited away while the picker was open
-  view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${fn}(${args})` } });
-  run(view.state.doc.toString());
+  for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${fn}\\(\\s*\\)`, 'g'))) {
+    const lineStart = doc.lastIndexOf('\n', m.index) + 1;
+    if (doc.slice(lineStart, m.index).includes('//')) continue;
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${fn}(${args})` } });
+    run(view.state.doc.toString());
+    return;
+  }
+  // nothing left to fill: edited away while the picker was open
 }
 
 // an empty videofile()/imagefile()/imageseq()/audiofile()/model() in the run
@@ -86,6 +94,17 @@ async function handleMediaPick() {
   if (picking || !engine.pendingPick) return;
   const req = engine.pendingPick;
   engine.pendingPick = null;
+  // A file dialog can only open off a user gesture, and not every run is one:
+  // restoring the last sketch on page load runs it with no activation at all,
+  // and the browser rejects the click with nothing to show for it. A sketch
+  // whose whole point is an empty call — the vhs example — lands here on every
+  // reload, so name the key that turns the next run into a gesture.
+  if (navigator.userActivation && !navigator.userActivation.isActive) {
+    const what = req.browse === 'textures' ? 'material' : req.browse ? 'HDRI' : req.kind;
+    status.textContent = `${req.fn}() has nothing to show yet — press ctrl+enter to open the ${what} picker`;
+    status.className = 'show';
+    return;
+  }
   picking = true;
   let pick = null;
   try {

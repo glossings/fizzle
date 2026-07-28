@@ -397,6 +397,21 @@ const SPECS = {
 
   comp: {
     extras: { uMode: 0, uOpacity: 1 },
+    // the non-separable blends (luminosity / color) can't work channel by
+    // channel: they move a whole color to a target luminance, then pull it
+    // back into gamut along the gray axis so the hue survives the trip. This
+    // is the PDF/Photoshop construction — SetLum + ClipColor.
+    pre: `
+      vec3 clipColor(vec3 c) {
+        float l = dot(c, LUMA);
+        float n = min(min(c.r, c.g), c.b);
+        float x = max(max(c.r, c.g), c.b);
+        if (n < 0.0) c = l + (c - l) * (l / max(l - n, 1e-4));
+        if (x > 1.0) c = l + (c - l) * ((1.0 - l) / max(x - l, 1e-4));
+        return c;
+      }
+      vec3 setLum(vec3 c, float l) { return clipColor(c + (l - dot(c, LUMA))); }
+    `,
     frag: `
       void main() {
         vec3 B = texture2D(tex0, vUv).rgb;   // base (this chain)
@@ -419,7 +434,10 @@ const SPECS = {
         else if (m < 10.5) r = abs(B - L);
         else if (m < 11.5) r = B + L - 2.0 * B * L;
         else if (m < 12.5) r = min(vec3(1.0), B / max(1.0 - L, vec3(0.001)));
-        else               r = 1.0 - min(vec3(1.0), (1.0 - B) / max(L, vec3(0.001)));
+        else if (m < 13.5) r = 1.0 - min(vec3(1.0), (1.0 - B) / max(L, vec3(0.001)));
+        else if (m < 14.5) r = B / max(L, vec3(0.001));
+        else if (m < 15.5) r = setLum(B, dot(L, LUMA));   // luminosity: base's color, layer's brightness
+        else               r = setLum(L, dot(B, LUMA));   // color: layer's color, base's brightness
         gl_FragColor = vec4(mix(B, clamp(r, 0.0, 1.0), uOpacity), 1.0);
       }`,
     update(u, p, t) {
@@ -446,6 +464,9 @@ const BLEND_MODES = {
   exclusion: 11,
   dodge: 12, colorDodge: 12,
   burn: 13, colorBurn: 13,
+  div: 14, divide: 14,
+  lum: 15, luminosity: 15,
+  color: 16,
 };
 
 // ---------------------------------------------------------------------------
@@ -727,6 +748,9 @@ export class TopOp {
     if (fn != null) ins.push(this._top(fn, 'mask'));
     return this._n('mask', {}, ins);
   }
+  // .blur(r) — isotropic. .blur([rx, ry]) — one radius per axis, which is the
+  // separable pass's natural shape: [8, 0] smears along the scanline only.
+  // An axis at 0 skips its pass entirely.
   blur(radius = 1) { return this._n('blur', { radius }); }
   bloom(o = {}) { return this._n('bloom', o); }
 
@@ -919,10 +943,20 @@ export class TopOp {
     const ins = this.inputs.map((n) => n.renderNode(ctx));
 
     if (this.kind === 'blur') {
-      const radius = resolve(this.params.radius ?? 1, ctx.t);
-      const a = this._rt(ctx, 'auxA'), out = this._rt(ctx);
-      runPass(ctx, MAT_BLUR, ins[0], null, a, (u) => u.uDir.value.set(radius, 0));
-      runPass(ctx, MAT_BLUR, a.texture, null, out, (u) => u.uDir.value.set(0, radius));
+      const r = resolve(this.params.radius ?? 1, ctx.t);
+      const rx = Array.isArray(r) ? resolve(r[0], ctx.t) : r;
+      const ry = Array.isArray(r) ? resolve(r[1], ctx.t) : r;
+      // a zero axis is a pass that would only copy — with both zero the blur
+      // is a no-op, so hand back the input untouched
+      if (rx <= 0 && ry <= 0) return ins[0];
+      const out = this._rt(ctx);
+      if (rx <= 0 || ry <= 0) {
+        runPass(ctx, MAT_BLUR, ins[0], null, out, (u) => u.uDir.value.set(rx, ry));
+        return out.texture;
+      }
+      const a = this._rt(ctx, 'auxA');
+      runPass(ctx, MAT_BLUR, ins[0], null, a, (u) => u.uDir.value.set(rx, 0));
+      runPass(ctx, MAT_BLUR, a.texture, null, out, (u) => u.uDir.value.set(0, ry));
       return out.texture;
     }
 
