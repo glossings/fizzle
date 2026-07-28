@@ -62,6 +62,24 @@ const SPECS = {
     frag: `void main() { gl_FragColor = texture2D(tex0, vUv); }`,
   },
 
+  // depth() — tex0 is the scene's depth attachment (window-space, non-linear).
+  // Undo the projection to get eye-space distance in world units, then map it
+  // to 0..1 so the result behaves like every other grayscale TOP.
+  // uMode 0: near→0, far→1. uMode 1: focus→0, ±range→1 (a DOF blur mask).
+  depth: {
+    extras: { uRange: [0, 20], uCam: [0.01, 500], uFocus: [8, 6], uMode: 0 },
+    frag: `
+      void main() {
+        float d = texture2D(tex0, vUv).x;
+        float ndc = d * 2.0 - 1.0;
+        float eye = (2.0 * uCam.x * uCam.y) / (uCam.y + uCam.x - ndc * (uCam.y - uCam.x));
+        float v = uMode > 0.5
+          ? abs(eye - uFocus.x) / max(uFocus.y, 1e-4)
+          : (eye - uRange.x) / max(uRange.y - uRange.x, 1e-4);
+        gl_FragColor = vec4(vec3(clamp(v, 0.0, 1.0)), 1.0);
+      }`,
+  },
+
   ramp: {
     extras: { uMode: 0, uColA: '#000000', uColB: '#ffffff', uAngle: 0, uPhase: 0 },
     frag: `
@@ -858,6 +876,25 @@ export class TopOp {
       runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out);
       return out.texture;
     }
+
+    // the same 3D render as scene(), read out of its depth attachment instead
+    // of its color. Range defaults follow the sketch's fog when it has one —
+    // depth() then lines up with what the fog is already doing.
+    if (this.kind === 'depth') {
+      const p = this.params;
+      const cam = this.engine.camera;
+      const fog = this.engine.scene.fog;
+      const out = this._rt(ctx);
+      this.mat ??= makeMaterial(SPECS.depth);
+      runPass(ctx, this.mat, ctx.sceneDepthTex ?? blackTex(), null, out, (u) => {
+        u.uCam.value.set(cam.near, cam.far);
+        u.uRange.value.set(resolve(p.near ?? fog?.near ?? 0, ctx.t), resolve(p.far ?? fog?.far ?? 20, ctx.t));
+        u.uMode.value = p.focus != null ? 1 : 0;
+        u.uFocus.value.set(resolve(p.focus ?? 8, ctx.t), resolve(p.range ?? 6, ctx.t));
+      });
+      return out.texture;
+    }
+
     if (this.kind === 'in') {
       const { name } = this.params;
       if (name == null) return ctx.feedbackTex;   // last frame's display output
@@ -1088,17 +1125,25 @@ export function renderTops(engine) {
   st.frame = (st.frame ?? 0) + 1;
   ensurePassMaterials();
 
+  // depth() reads the 3D pass's depth attachment, which is only allocated when
+  // a sketch asks for it (and stays once allocated — a re-run that drops
+  // depth() isn't worth a realloc)
+  const needsDepth = engine.topNodes.some((n) => n.kind === 'depth');
   // pure-TOP sketches (generators/feedback only) skip the 3D pass entirely.
   // With no TOP .out() the display *is* the scene (we're only here to feed a
   // material map) — it still goes through the offscreen render, so that
   // scene() and input() mean the same thing they always do.
-  const needsScene = !engine.topOutput || engine.topNodes.some((n) => n.kind === 'scene');
-  if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y)) {
+  const needsScene = !engine.topOutput || needsDepth || engine.topNodes.some((n) => n.kind === 'scene');
+  if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y
+      || (needsDepth && !st.sceneRT.depthTexture))) {
+    st.sceneRT?.depthTexture?.dispose();
     st.sceneRT?.dispose();
     // linear HDR; the scene TOP's tonemap pass converts to display space
     st.sceneRT = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: THREE.HalfFloatType,
       samples: 4,
+      // MSAA resolves depth alongside color, so the 4× scene render is unchanged
+      depthTexture: needsDepth ? new THREE.DepthTexture(size.x, size.y) : null,
     });
   }
   if (!st.feedbackRT || st.feedbackRT.width !== size.x || st.feedbackRT.height !== size.y) {
@@ -1160,6 +1205,7 @@ export function renderTops(engine) {
     h: size.y,
     aspect: size.x / size.y,
     sceneTex: needsScene ? st.sceneRT.texture : null,
+    sceneDepthTex: needsDepth ? st.sceneRT.depthTexture : null,
     feedbackTex: st.feedbackRT.texture,
     fbTex: (name) => fbRT(name).texture,
     layerTex,

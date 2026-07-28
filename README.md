@@ -174,6 +174,24 @@ scene()
 **Sources**
 
 - `scene()` — the lit 3D render.
+- `depth()` — the same render's depth buffer as a grayscale distance map:
+  black at `near`, white at `far`, empty space white. The range is in world
+  units and defaults to the sketch's `fog()` (`0..20` with no fog), so
+  `depth()` lines up with the haze you already have. Given `focus` instead, it
+  measures distance from a focal plane — 0 at `focus`, 1 by `focus ± range`.
+
+  It's a mask, so `.mask(m, fn)` does the rest — the fn applies where the mask
+  is bright:
+
+  ```js
+  fog(0x0a0a0f, 4, 26)
+  scene().mask(depth(), s => s.blur(10)).out()                    // distance blurs out
+  scene().mask(depth({ focus: 8, range: 5 }), s => s.blur(6)).out()  // depth of field
+  scene().mask(depth(), s => s.comp(ramp({ a: '#8a97a8', b: '#8a97a8' }), 'over')).out()
+  ```
+
+  Like `scene()`, it's the render of everything sent to a naked `.out()`, and
+  in a texture map it's last frame's (same one-frame rule as `input()`).
 - `input()` — last frame's final output (a feedback bus; survives
   re-runs, frozen while paused). Comp it back in for trails and video
   feedback. (`feedback()` still works as a legacy alias.)

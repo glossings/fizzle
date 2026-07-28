@@ -22,15 +22,7 @@ Euler by hand inside a sketch is miserable.
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
 
-## 2. Depth buffer as a TOP source
-
-`makeRT` sets `depthBuffer: false` ([src/tops.js:553](src/tops.js#L553)), so
-there's no depth-of-field, no depth-graded haze, no SSAO.
-
-Expose a `depth()` source alongside `scene()`. Serves dreamcore (depth haze in
-liminal spaces) and Frutiger Aero (DOF on glass) at once. Medium effort.
-
-## 3. Shadow maps
+## 2. Shadow maps
 
 No `castShadow` anywhere in the codebase — shadows are entirely absent. This is
 dreamcore's remaining gap: the dread is largely a harsh light source throwing
@@ -40,22 +32,22 @@ Enable `renderer.shadowMap`, add opt-in flags on lights and geometry. Medium
 effort, mostly because shadows interact with the geometry-layer system in
 [src/tops.js](src/tops.js).
 
-## 4. `pixelsort()`
+## 3. `pixelsort()`
 
 A proper sort is an odd-even transposition network: dozens of full-res ping-pong
 passes per frame. The machinery exists (`blur` at
-[src/tops.js:770](src/tops.js#L770) is already multi-pass) but there's no way to
+[src/tops.js:788](src/tops.js#L788) is already multi-pass) but there's no way to
 express *N iterations of the same pass* from a sketch.
 
 Needs a dedicated op with an internal iteration count —
 `.pixelsort({ iterations: 48, threshold, angle })`. At 32–64 passes it's
 expensive but viable at reduced resolution. Roughly a focused day.
 
-## 5. GPGPU particles
+## 4. GPGPU particles
 
 The one item here that's a project rather than a patch.
 
-`.instance(count, fn)` ([src/api.js:250](src/api.js#L250)) has two hard limits:
+`.instance(count, fn)` ([src/api.js:254](src/api.js#L254)) has two hard limits:
 
 1. **CPU-bound.** The callback runs per-instance per-frame in JS, then composes
    a matrix and writes 16 floats — realistically ~5–10k instances before it eats
@@ -74,7 +66,7 @@ state to a named bus, and a `points('bus')` renderer draws it. Conceptually
 clean and idiomatic to what's already built.
 
 Needs RGBA32F targets instead of the current `HalfFloatType`
-([src/tops.js:553](src/tops.js#L553)) for position precision, plus a
+([src/tops.js:571](src/tops.js#L571)) for position precision, plus a
 points/sprite render path that doesn't exist yet.
 
 ---
@@ -100,6 +92,6 @@ Kept here so they don't get re-investigated:
   carpet, the `text` TOP, feedback trails, `pixellate` + `posterize` for a PS1
   look, and high-frequency `noise()` comped over as film grain.
 
-- **`lookup`** ([src/tops.js:274](src/tops.js#L274)) is a 1D luma LUT — i.e. a
+- **`lookup`** ([src/tops.js:292](src/tops.js#L292)) is a 1D luma LUT — i.e. a
   palette grader, which is most of the "look" battle for both Frutiger Aero and
   dreamcore.

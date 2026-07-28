@@ -422,8 +422,9 @@ class GeoOp {
           const d = inst.fn(handle, i, inst.count, t);
           // the pre-handle signature was fn(i, n, t) returning { pos, rot,
           // scale }: under this one its `i` is the handle, so the math quietly
-          // goes NaN. Name it instead of rendering nothing.
-          if (i === 0 && d && (d.pos || d.rot || d.scale)) {
+          // goes NaN. Name it instead of rendering nothing. (A concise arrow —
+          // x => x.pos(...) — hands the handle itself back, which is fine.)
+          if (i === 0 && d && d !== handle && (d.pos || d.rot || d.scale)) {
             throw new Error('instance: the layout fn is now (x, i, n, t) and transforms x directly — x.pos(...).rotate(...).scale(...) instead of returning { pos, rot, scale }');
           }
           dummy.position.set(resolve(handle.px, t), resolve(handle.py, t), resolve(handle.pz, t));
@@ -573,6 +574,12 @@ export function makeApi(engine) {
 
     // TOPs — texture operators (see tops.js). Chains render only with .out()
     scene: () => new TopOp(engine, 'scene'),
+    // the same render as scene(), as a grayscale distance map: black near,
+    // white far. depth({ near, far }) sets the world-space range it spans
+    // (defaulting to the sketch's fog, else 0..20); depth({ focus, range })
+    // instead measures distance from a focal plane, which is a DOF blur mask.
+    // Pairs with .mask(m, fn): scene().mask(depth(), s => s.blur(8)).
+    depth: (o) => new TopOp(engine, 'depth', o ?? {}),
     // input() = last frame's display output; input('name') = the buffer
     // published by .out('name'). ('in' is a JS reserved word, hence 'input';
     // feedback() is a legacy alias kept for older sketches.)

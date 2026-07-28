@@ -26,6 +26,7 @@ export const GLOBALS = {
   fog: ['fog(color, near, far)', 'Scene fog.'],
 
   scene: ['scene()', 'TOP source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
+  depth: ['depth({ near, far }) | depth({ focus, range })', "TOP source: the same 3D render as scene(), as a grayscale distance map — black at near, white at far, empty space white. near/far are world units and default to the sketch's fog range (0..20 with no fog). Given a focus instead, it measures distance from that focal plane (0 at focus, 1 at focus ± range) — a ready-made depth-of-field mask. Feed it to .mask(m, fn): scene().mask(depth(), s => s.blur(8)) blurs the distance, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, and .mask(depth(), s => s.comp(ramp({ a: '#8a97a8', b: '#8a97a8' }), 'over')) is depth haze."],
   input: ['input(name?)', "TOP source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a TOP chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
   feedback: ['feedback(name?)', 'Legacy alias of input().'],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'TOP generator: two-color gradient.'],
