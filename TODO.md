@@ -4,27 +4,13 @@
 strikethroughs — a finished item just stops being here. The file is a list of
 what's left, not a history of what happened.
 
-Ordered roughly by leverage: the first three are small diffs that between them
-move CRT/glitch and the chain-instancing look from "partly reachable" to
+Ordered roughly by leverage: the first two are small diffs that between them
+move the chain-instancing look and textured geometry from "partly reachable" to
 "basically there."
 
 ---
 
-## 1. `chroma()` and `warp()` TOPs
-
-Two missing primitives, ~50 lines of SPEC total in [src/tops.js](src/tops.js).
-
-- **`chroma(amount, { radial })`** — per-channel UV offset. Every filter
-  currently samples all channels at one UV, so chromatic aberration is not
-  expressible at all. Pays off across CRT, glitch, *and* Frutiger Aero glass.
-- **`warp({ barrel, twist, zoom })`** — radial UV warp. `displace` can't do this
-  because there's no way to *generate* a radial vector field
-  (`noise({ channels: 2 })` gives noise, not a radial gradient). This is the one
-  thing standing between the current toolkit and a five-line CRT sketch —
-  scanlines (tiled ramp multiply), phosphor (`pixellate`) and glow (`bloom`)
-  already work.
-
-## 2. Instance orientation + `path()`
+## 1. Instance orientation + `path()`
 
 `InstanceHandle` ([src/api.js:177](src/api.js#L177)) exposes only
 `pos`/`rotate`/`scale`, and `rotate` is Euler XYZ. Wrapping chain links around a
@@ -37,7 +23,7 @@ Euler by hand inside a sketch is miserable.
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
 
-## 3. TOPs as texture maps on geometry
+## 2. TOPs as texture maps on geometry
 
 Current asymmetry: `input('name')` is TOP-only, and geometry can't consume a TOP
 at all. [src/materials.js](src/materials.js) already accepts a raw
@@ -48,7 +34,7 @@ Expose it — `.material({ map: scene().kaleido(6) })`. Nearly free given the
 existing render-target plumbing, and it opens a whole category: chains wrapping
 an actual screen showing video feedback, CRT geometry, textured layers.
 
-## 4. Depth buffer as a TOP source
+## 3. Depth buffer as a TOP source
 
 `makeRT` sets `depthBuffer: false` ([src/tops.js:452](src/tops.js#L452)), so
 there's no depth-of-field, no depth-graded haze, no SSAO.
@@ -56,7 +42,7 @@ there's no depth-of-field, no depth-graded haze, no SSAO.
 Expose a `depth()` source alongside `scene()`. Serves dreamcore (depth haze in
 liminal spaces) and Frutiger Aero (DOF on glass) at once. Medium effort.
 
-## 5. Shadow maps
+## 4. Shadow maps
 
 No `castShadow` anywhere in the codebase — shadows are entirely absent. This is
 dreamcore's remaining gap: the dread is largely a harsh light source throwing
@@ -66,7 +52,7 @@ Enable `renderer.shadowMap`, add opt-in flags on lights and geometry. Medium
 effort, mostly because shadows interact with the geometry-layer system in
 [src/tops.js](src/tops.js).
 
-## 6. `pixelsort()`
+## 5. `pixelsort()`
 
 A proper sort is an odd-even transposition network: dozens of full-res ping-pong
 passes per frame. The machinery exists (`blur` at
@@ -77,7 +63,7 @@ Needs a dedicated op with an internal iteration count —
 `.pixelsort({ iterations: 48, threshold, angle })`. At 32–64 passes it's
 expensive but viable at reduced resolution. Roughly a focused day.
 
-## 7. GPGPU particles
+## 6. GPGPU particles
 
 The one item here that's a project rather than a patch.
 

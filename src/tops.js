@@ -39,6 +39,18 @@ uniform vec2 uTexel;
 uniform float uAspect;
 uniform float uTime;
 #define LUMA vec3(0.2126, 0.7152, 0.0722)
+
+// what happens outside [0,1] after a UV transform — 0 clamp, 1 repeat,
+// 2 mirror, 3 black. Shared by transform and warp.
+vec4 wrapSample(sampler2D tex, vec2 p, float mode) {
+  if (mode > 2.5) {
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
+  }
+  else if (mode > 1.5) { vec2 m = mod(p, 2.0); p = 1.0 - abs(m - 1.0); }
+  else if (mode > 0.5) p = fract(p);
+  else p = clamp(p, 0.0, 1.0);
+  return texture2D(tex, p);
+}
 `;
 
 // ---------------------------------------------------------------------------
@@ -300,10 +312,7 @@ const SPECS = {
         p = mat2(cs, sn, -sn, cs) * p;
         p /= uScale;
         p += 0.5 - uTranslate;
-        if (uWrap > 1.5) { vec2 m = mod(p, 2.0); p = 1.0 - abs(m - 1.0); }
-        else if (uWrap > 0.5) p = fract(p);
-        else p = clamp(p, 0.0, 1.0);
-        gl_FragColor = texture2D(tex0, p);
+        gl_FragColor = wrapSample(tex0, p, uWrap);
       }`,
     update(u, p, t) {
       const tr = p.translate ?? [0, 0];
@@ -311,7 +320,60 @@ const SPECS = {
       const s = resolve(p.scale ?? 1, t);
       Array.isArray(s) ? u.uScale.value.set(resolve(s[0], t), resolve(s[1], t)) : u.uScale.value.set(s, s);
       u.uRot.value = resolve(p.rotate ?? 0, t);
-      u.uWrap.value = { clamp: 0, repeat: 1, mirror: 2 }[p.wrap ?? 'clamp'] ?? 0;
+      u.uWrap.value = WRAP_MODES[p.wrap ?? 'clamp'] ?? 0;
+    },
+  },
+
+  // radial UV warp — barrel/pincushion, twist, zoom. displace() can't express
+  // this: nothing in the toolkit *generates* a radial vector field.
+  warp: {
+    extras: { uBarrel: 0, uTwist: 0, uZoom: 1, uCenter: [0.5, 0.5], uWrap: 3 },
+    frag: `
+      void main() {
+        // square space (x scaled by aspect) so the warp stays circular, with
+        // r normalized to 1 at the frame corner
+        vec2 p = (vUv - uCenter) * vec2(uAspect, 1.0) / max(uZoom, 0.001);
+        float r = length(p) / max(0.5 * length(vec2(uAspect, 1.0)), 0.001);
+        p *= 1.0 + uBarrel * r * r;   // > 0 bulges outward like a CRT face
+        float a = uTwist * r;         // rotation grows with radius
+        float cs = cos(a), sn = sin(a);
+        p = mat2(cs, sn, -sn, cs) * p;
+        gl_FragColor = wrapSample(tex0, p / vec2(uAspect, 1.0) + uCenter, uWrap);
+      }`,
+    update(u, p, t) {
+      u.uBarrel.value = resolve(p.barrel ?? 0, t);
+      u.uTwist.value = resolve(p.twist ?? 0, t);
+      u.uZoom.value = resolve(p.zoom ?? 1, t);
+      const c = p.center ?? [0.5, 0.5];
+      u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
+      u.uWrap.value = WRAP_MODES[p.wrap ?? 'black'] ?? 3;
+    },
+  },
+
+  // per-channel UV offset — chromatic aberration. Every other filter samples
+  // all three channels at one UV, so this is the only way to split them.
+  chroma: {
+    extras: { uAmount: 0.005, uRadial: 0, uAngle: 0, uCenter: [0.5, 0.5] },
+    frag: `
+      void main() {
+        // radial: a scale about the center — zero split there, growing toward
+        // the edges, like a lens. directional: the same offset everywhere.
+        // Either way uAmount is roughly the split at the frame edge.
+        vec2 d = uRadial > 0.5
+          ? (vUv - uCenter) * 2.0 * uAmount
+          : vec2(cos(uAngle) / uAspect, sin(uAngle)) * uAmount;
+        gl_FragColor = vec4(
+          texture2D(tex0, vUv + d).r,
+          texture2D(tex0, vUv).g,
+          texture2D(tex0, vUv - d).b,
+          1.0);
+      }`,
+    update(u, p, t) {
+      u.uAmount.value = resolve(p.amount ?? 0.005, t);
+      u.uRadial.value = resolve(p.radial ?? 0, t) ? 1 : 0;
+      u.uAngle.value = resolve(p.angle ?? 0, t);
+      const c = p.center ?? [0.5, 0.5];
+      u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
     },
   },
 
@@ -366,6 +428,8 @@ const SPECS = {
     },
   },
 };
+
+const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, black: 3 };
 
 const BLEND_MODES = {
   over: 0, normal: 0,
@@ -638,6 +702,9 @@ export class TopOp {
   posterize(steps = 4) { return this._n('posterize', { steps }); }
   pixellate(x = 100, y) { return this._n('pixellate', { x, y }); }
   transform(o = {}) { return this._n('transform', o); }
+  warp(o = {}) { return this._n('warp', o); }
+  // .chroma(amount) splits horizontally; { radial: true } makes it lens-like
+  chroma(amount = 0.005, o = {}) { return this._n('chroma', { amount, ...o }); }
   // transform shorthands (same pass; wrap etc. via the trailing options)
   translate(x = 0, y = 0, o = {}) { return this._n('transform', { translate: [x, y], ...o }); }
   rotate(v = 0, o = {}) { return this._n('transform', { rotate: v, ...o }); }

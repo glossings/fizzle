@@ -237,9 +237,23 @@ scene()
 **Filters** (chain on any TOP; every numeric param takes `t => ...`)
 
 - `.mirror({ axis: 'x'|'y'|'both', flip })` · `.kaleido(sides, { rotate })`
-- `.transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror' })`
+- `.transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })`
   — or the shorthands `.translate(x, y)`, `.rotate(v)`, `.scale(v)` (each
   takes `{ wrap }` as a trailing option).
+- `.warp({ barrel, twist, zoom, center, wrap })` — radial UV warp. `barrel`
+  bulges the image outward like a CRT face (negative pincushions), `twist`
+  rotates by radius (radians at the corner) for a spiral, `zoom` scales about
+  the center. Radius is normalized to 1 at the frame corner, so `barrel: 0.3`
+  pulls the corners in by 30%; outside the frame is black unless you set
+  `wrap`.
+- `.chroma(amount, { radial, angle, center })` — chromatic aberration: R and B
+  sampled at opposite UV offsets, G at center. `amount` is the split at the
+  frame edge. Directional by default (`angle` turns it); `radial: true` is the
+  lens version — no split at the center, growing toward the corners.
+
+  ```js
+  scene().warp({ barrel: 0.25 }).chroma(0.004, { radial: true }).out()  // CRT face
+  ```
 - `.add(v)` `.mul(v)` — per-pixel math, scalar or `[r, g, b]`
 - `.contrast(v)` `.saturation(v)` `.gamma(v)` `.hue(v)` — or combined:
   `.levels({...})`. Hue is in turns: `.hue(t => t * 0.1)` drifts the palette,
