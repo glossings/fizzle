@@ -4,28 +4,13 @@
 strikethroughs — a finished item just stops being here. The file is a list of
 what's left, not a history of what happened.
 
-Ordered roughly by leverage: the first four are small diffs that between them
-move Frutiger Aero, CRT/glitch, and the chain-instancing look from "partly
-reachable" to "basically there."
+Ordered roughly by leverage: the first three are small diffs that between them
+move CRT/glitch and the chain-instancing look from "partly reachable" to
+"basically there."
 
 ---
 
-## 1. `MeshPhysicalMaterial` passthrough
-
-[src/api.js:288](src/api.js#L288) hardcodes `MeshStandardMaterial` with a fixed
-key list — no `opacity`, `transmission`, `clearcoat`, or `iridescence`. That's
-the whole Frutiger Aero vocabulary (glossy translucent bubbles, glass, chrome)
-sitting just out of reach.
-
-Switch to `MeshPhysicalMaterial` when any physical key is present. three renders
-refraction backdrops for `transmission` on its own, and `scene.environment` is
-already wired up via `hdri()` ([src/api.js:532](src/api.js#L532)), so
-`transmission: 0.9, thickness: 0.5, ior: 1.4, iridescence: 1` should work on the
-first frame. ~30 lines plus doc entries in [src/docs.js](src/docs.js).
-
-Biggest single aesthetic unlock in the codebase right now.
-
-## 2. `chroma()` and `warp()` TOPs
+## 1. `chroma()` and `warp()` TOPs
 
 Two missing primitives, ~50 lines of SPEC total in [src/tops.js](src/tops.js).
 
@@ -39,7 +24,7 @@ Two missing primitives, ~50 lines of SPEC total in [src/tops.js](src/tops.js).
   scanlines (tiled ramp multiply), phosphor (`pixellate`) and glow (`bloom`)
   already work.
 
-## 3. Instance orientation + `path()`
+## 2. Instance orientation + `path()`
 
 `InstanceHandle` ([src/api.js:177](src/api.js#L177)) exposes only
 `pos`/`rotate`/`scale`, and `rotate` is Euler XYZ. Wrapping chain links around a
@@ -52,7 +37,7 @@ Euler by hand inside a sketch is miserable.
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
 
-## 4. TOPs as texture maps on geometry
+## 3. TOPs as texture maps on geometry
 
 Current asymmetry: `input('name')` is TOP-only, and geometry can't consume a TOP
 at all. [src/materials.js](src/materials.js) already accepts a raw
@@ -63,7 +48,7 @@ Expose it — `.material({ map: scene().kaleido(6) })`. Nearly free given the
 existing render-target plumbing, and it opens a whole category: chains wrapping
 an actual screen showing video feedback, CRT geometry, textured layers.
 
-## 5. Depth buffer as a TOP source
+## 4. Depth buffer as a TOP source
 
 `makeRT` sets `depthBuffer: false` ([src/tops.js:452](src/tops.js#L452)), so
 there's no depth-of-field, no depth-graded haze, no SSAO.
@@ -71,7 +56,7 @@ there's no depth-of-field, no depth-graded haze, no SSAO.
 Expose a `depth()` source alongside `scene()`. Serves dreamcore (depth haze in
 liminal spaces) and Frutiger Aero (DOF on glass) at once. Medium effort.
 
-## 6. Shadow maps
+## 5. Shadow maps
 
 No `castShadow` anywhere in the codebase — shadows are entirely absent. This is
 dreamcore's remaining gap: the dread is largely a harsh light source throwing
@@ -81,7 +66,7 @@ Enable `renderer.shadowMap`, add opt-in flags on lights and geometry. Medium
 effort, mostly because shadows interact with the geometry-layer system in
 [src/tops.js](src/tops.js).
 
-## 7. `pixelsort()`
+## 6. `pixelsort()`
 
 A proper sort is an odd-even transposition network: dozens of full-res ping-pong
 passes per frame. The machinery exists (`blur` at
@@ -92,7 +77,7 @@ Needs a dedicated op with an internal iteration count —
 `.pixelsort({ iterations: 48, threshold, angle })`. At 32–64 passes it's
 expensive but viable at reduced resolution. Roughly a focused day.
 
-## 8. GPGPU particles
+## 7. GPGPU particles
 
 The one item here that's a project rather than a patch.
 

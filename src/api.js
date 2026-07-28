@@ -3,7 +3,7 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
-import { applyMaps, applyMaterialScalars, applyHdri, hasMaps } from './materials.js';
+import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical } from './materials.js';
 import { TopOp } from './tops.js';
 import { sig, valueNoise, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
@@ -285,10 +285,19 @@ class GeoOp {
     });
     const m = this._material;
     const textured = hasMaps(m);
-    const material = new THREE.MeshStandardMaterial({
-      // a color map is tinted by material.color, so a textured chain that
-      // didn't ask for a color starts white and shows the map as authored
-      color: new THREE.Color(resolve(m.color ?? (textured ? '#ffffff' : '#8899ff'), 0)),
+    // Glass, clearcoat, iridescence and friends live on the physical material,
+    // which is the pricier shader — so the sketch opts in simply by naming one
+    // of those properties, and everything else stays on standard.
+    const Material = isPhysical(m) ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    const material = new Material({
+      // A color map is tinted by material.color, so a textured chain that
+      // didn't ask for a color starts white and shows the map as authored.
+      // Transmission multiplies the light coming *through* the surface the same
+      // way, so glass starts white too — the default tint would otherwise turn
+      // every unpainted pane periwinkle. attenuationColor is how you tint it.
+      color: new THREE.Color(
+        resolve(m.color ?? (textured || m.transmission != null ? '#ffffff' : '#8899ff'), 0)
+      ),
       // the roughness/metalness scalars multiply their maps, so they're reset
       // to 1 if and when one actually lands (see applyMaps)
       roughness: m.roughness ?? 0.5,
@@ -307,6 +316,7 @@ class GeoOp {
       material.emissiveIntensity = m.emissiveIntensity ?? 1;
     }
     applyMaterialScalars(material, m);
+    const surfaceUpdate = applySurface(material, m);
 
     let noiseUniforms = null;
     if (this._noise) {
@@ -373,6 +383,8 @@ class GeoOp {
       // colors as fns of t (e.g. a .select() signal cycling a palette)
       if (typeof m.color === 'function') material.color.set(m.color(t));
       if (typeof m.emissive === 'function') material.emissive.set(m.emissive(t));
+      // opacity + any physical property given as a fn of t
+      surfaceUpdate?.(t);
       if (lastText !== null && typeof this.opts.text === 'function') {
         const s = String(this.opts.text(t));
         if (s !== lastText) {

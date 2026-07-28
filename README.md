@@ -112,6 +112,27 @@ cheap.
   belongs on the chain.
 - `.material({ color, roughness, metalness, emissive, emissiveIntensity, flatShading, wireframe })`
   · `.color(c)` shorthand.
+- **Glass and coatings** — `transmission` (see-through, 0..1), `thickness` +
+  `ior` + `dispersion` (refraction through a volume), `attenuationColor` /
+  `attenuationDistance`, `clearcoat` + `clearcoatRoughness` (lacquer),
+  `iridescence` + `iridescenceIOR` + `iridescenceThickness` (soap-bubble film,
+  nm), `sheen` + `sheenColor` + `sheenRoughness` (cloth), `anisotropy` +
+  `anisotropyRotation` (brushed metal), `specularIntensity`, `specularColor`,
+  `reflectivity`. Naming any of them switches the mesh to three's physical
+  material — the pricier shader — so sketches that don't ask, don't pay. They
+  all take `t => ...` like every other number.
+
+  ```js
+  sphere({ radius: 1.3, res: 96 })
+    .material({ transmission: 1, thickness: 1.2, ior: 1.45, roughness: 0.05, iridescence: 1 })
+    .out()
+  ```
+
+  These reflect their surroundings, so they want an `hdri()` environment far
+  more than they want point lights.
+- `.material({ opacity, transparent, depthWrite })` — plain alpha blending.
+  `opacity` turns transparency on by itself; `depthWrite: false` fixes the
+  popping when transparent shapes overlap.
 - `.out()` — build it and add it to the scene. `.out('name')` builds it into
   its own named render layer instead — see **Geometry layers** below.
 

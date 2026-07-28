@@ -215,6 +215,51 @@ back faces too — on by default for `plane()` and `model()`. `.color(c)` is sho
 `.material({ color })`, and colors may be fns of `t` or signals, so a palette
 can be sequenced: `.color(kick.counter().select(['#f09', '#0fc']))`.
 
+`opacity` fades a surface out and switches on blending by itself — name
+`transparent` only to override that, and `depthWrite: false` when a pile of
+overlapping transparent shapes pops as the camera turns.
+
+### glass & coatings
+
+Naming any of the properties below upgrades the mesh to three's *physical*
+material, which is the pricier shader — so a sketch that never mentions them
+pays nothing. They all take fns of `t` like every other number here.
+
+- `transmission` (0..1) — light passes through instead of bouncing off. This is
+  glass. Add `thickness` (world units) to refract through a *volume* rather than
+  a thin shell, `ior` to say how hard it bends (1.0 air · ~1.33 water · ~1.5
+  glass · 2.4 diamond), and `dispersion` to split it into rainbow fringes.
+  `attenuationColor` + `attenuationDistance` tint what survives the trip.
+- `clearcoat` (0..1) + `clearcoatRoughness` — a second specular lobe over the
+  base, like lacquer over paint. The cheap way to make anything look wet.
+- `iridescence` (0..1) + `iridescenceIOR` + `iridescenceThickness` (film
+  thickness in nm, ~100–800) — thin-film interference: soap bubbles, oil
+  slicks, beetle shells.
+- `sheen` + `sheenColor` + `sheenRoughness` — retroreflective fuzz, for cloth.
+- `anisotropy` + `anisotropyRotation` — stretches highlights along one
+  direction: brushed metal, hair.
+- `specularIntensity`, `specularColor`, `reflectivity` — dielectric reflection
+  strength when `metalness` is 0.
+
+Transmission and iridescence both reflect their surroundings, so they need
+something to reflect: an `hdri()` environment does far more for them than point
+lights do.
+
+```js
+hdri('kloofendal_43d_clear_puresky_2k.hdr', { blur: 0.4 })
+
+sphere({ radius: 1.3, res: 96 })
+  .material({
+    transmission: 1,
+    thickness: 1.2,
+    ior: 1.45,
+    roughness: 0.05,
+    iridescence: 1,
+    iridescenceThickness: t => 300 + Math.sin(t * 0.5) * 180,
+  })
+  .out()
+```
+
 ### textured materials
 
 The same `.material()` takes texture maps. `pbr:` is the shorthand for a whole

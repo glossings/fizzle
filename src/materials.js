@@ -12,6 +12,7 @@
 import { MAP_SLOTS, SRGB_SLOTS, ARM_SLOTS } from './pbr.js';
 
 const pair = (v) => (Array.isArray(v) ? [v[0], v[1] ?? v[0]] : [v, v]);
+const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
 // The knobs that go with maps and environment lighting. envIntensity is the
 // one that means something on a plain colored material too — it scales how
@@ -21,6 +22,87 @@ export function applyMaterialScalars(material, m) {
   if (m.normalScale != null) material.normalScale.set(...pair(m.normalScale));
   if (m.aoIntensity != null) material.aoMapIntensity = m.aoIntensity;
   if (m.envIntensity != null) material.envMapIntensity = m.envIntensity;
+}
+
+// Glass, coatings and blending — the properties three keeps on
+// MeshPhysicalMaterial rather than MeshStandardMaterial. Naming any of them on
+// a .material() is what upgrades the mesh to a physical material (see
+// isPhysical); a sketch that never mentions them pays nothing, since physical
+// is the more expensive shader and transmission costs a second scene render.
+const PHYSICAL_SCALARS = [
+  'transmission',       // 0..1 — how much light passes through (glass, bubbles)
+  'thickness',          // volume behind the surface, in world units; 0 = thin shell
+  'ior',                // index of refraction, 1.0 (air) .. 2.4 (diamond); glass ~1.5
+  'dispersion',         // splits the refraction into rainbow fringes (needs thickness)
+  'attenuationDistance',// how far light travels through the volume before it's tinted out
+  'clearcoat',          // 0..1 — a second specular lobe over the base, like lacquer
+  'clearcoatRoughness',
+  'iridescence',        // 0..1 — thin-film interference (soap bubble, oil slick)
+  'iridescenceIOR',
+  'sheen',              // 0..1 — retroreflective fuzz, for cloth
+  'sheenRoughness',
+  'specularIntensity',
+  'reflectivity',       // dielectric reflection strength when metalness is 0
+  'anisotropy',         // 0..1 — stretches highlights (brushed metal, hair)
+  'anisotropyRotation',
+];
+const PHYSICAL_COLORS = ['attenuationColor', 'sheenColor', 'specularColor'];
+
+// three wants iridescence film thickness as a [min, max] nm range that a map
+// interpolates across. With no map only the max is ever sampled, so the sketch
+// gives one number and keeps three's own 100nm floor.
+const IRIDESCENCE_MIN_NM = 100;
+
+const PHYSICAL_KEYS = new Set([...PHYSICAL_SCALARS, ...PHYSICAL_COLORS, 'iridescenceThickness']);
+
+// True if the material spec asks for anything only MeshPhysicalMaterial can do.
+export function isPhysical(m) {
+  for (const k in m) if (PHYSICAL_KEYS.has(k)) return true;
+  return false;
+}
+
+// Opacity, blending and every physical property named on `m`. Like the rest of
+// the API these take fns of t, so the returned updater re-resolves just the
+// animated ones per frame (null when nothing here moves).
+export function applySurface(material, m) {
+  const animated = [];
+  // set it now at t=0, and remember it for the updater only if it moves
+  const track = (v, apply) => {
+    apply(resolve(v, 0));
+    if (typeof v === 'function') animated.push((t) => apply(v(t)));
+  };
+
+  if (m.opacity != null) {
+    track(m.opacity, (v) => { material.opacity = v; });
+    // Blending is opt-in in three, and turning it on costs a depth-sort and
+    // correctness hazards — so it follows the value rather than the mention.
+    // An animated opacity could dip below 1 at any time, hence always on.
+    material.transparent = m.transparent ?? (typeof m.opacity === 'function' || resolve(m.opacity, 0) < 1);
+  } else if (m.transparent != null) {
+    material.transparent = m.transparent;
+  }
+  // Overlapping transparent surfaces sort per-object, so a stack of bubbles
+  // pops as the camera turns. Dropping depth writes trades the sort for
+  // order-independent blending, which reads better on exactly that kind of pile.
+  if (m.depthWrite != null) material.depthWrite = m.depthWrite;
+
+  if (isPhysical(m)) {
+    for (const prop of PHYSICAL_SCALARS) {
+      if (m[prop] != null) track(m[prop], (v) => { material[prop] = v; });
+    }
+    for (const prop of PHYSICAL_COLORS) {
+      if (m[prop] != null) track(m[prop], (v) => material[prop].set(v));
+    }
+    if (m.iridescenceThickness != null) {
+      // written in place: three re-reads this array into the uniform every
+      // frame, so an animated thickness doesn't need to allocate a new one
+      track(m.iridescenceThickness, (v) => {
+        material.iridescenceThicknessRange[0] = IRIDESCENCE_MIN_NM;
+        material.iridescenceThicknessRange[1] = v;
+      });
+    }
+  }
+  return animated.length ? (t) => { for (const fn of animated) fn(t); } : null;
 }
 
 // three's displacement is unsigned and defaults to a full world unit, which
