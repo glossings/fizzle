@@ -12,6 +12,7 @@ export const GLOBALS = {
   torusKnot: ['torusKnot({ radius, tube, res, p, q })', 'Torus knot geometry op.'],
   cylinder: ['cylinder({ radiusTop, radiusBottom, height, res })', 'Cylinder geometry op.'],
   icosa: ['icosa({ radius, detail })', 'Icosahedron geometry op — even triangle distribution, ideal for noise blobs.'],
+  model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx — chain .pos/.rotate/.scale/.noise/.instance/.material/.out() like any other shape. Drag a model into the window to import it (stored in the browser, survives reloads); an empty call opens a file picker. name = filename, exact or case-insensitive substring. All meshes in the file merge into one geometry and the file's own materials are dropped — shade it with .material(). center: true and fit: 2 (scale the longest axis to 2) by default so any file lands at a usable size; fit: 0 keeps the file's units. Parsing is cached across re-runs."],
 
   ambient: ['ambient(intensity, color?)', 'Ambient light, added immediately (no .out() needed).'],
   directional: ['directional({ color, intensity })', 'Directional light. Chain .pos(x,y,z).out().'],
@@ -53,7 +54,7 @@ export const METHODS = {
   translate: ['.translate(x, y, { wrap })', 'TOP: shift the image in UV space (1 = full frame).'],
   noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals; normals recomputed so lighting stays correct. amp = displacement distance, freq = spatial frequency; octaves stacks detail layers, lacunarity = frequency step per octave, gain = amplitude falloff per octave (low = smooth, high = crinkly). seed offsets the field for a different shape.'],
   instance: ['.instance(count, (i, n, t) => ({ pos, rot, scale }))', 'Render as one InstancedMesh; the layout fn runs every frame so instances animate.'],
-  material: ['.material({ color, roughness, metalness, emissive, flatShading, wireframe })', 'PBR material settings.'],
+  material: ['.material({ color, roughness, metalness, emissive, flatShading, wireframe, doubleSide })', 'PBR material settings. doubleSide renders back faces too — on by default for plane() and model(), off for the solid primitives.'],
   color: ['.color(c)', 'Shorthand for .material({ color }). Colors may be fns of t or signals — e.g. .color(kickCounter.select(palette)).'],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a TOP chain becomes the display output. With a name, publishes for input('name') instead: a TOP point (passthrough), a geometry as its own render layer, or a light lighting only that layer."],
 

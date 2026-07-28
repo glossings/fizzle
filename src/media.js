@@ -1,5 +1,5 @@
-// Imported media files (video / image / audio). The browser never exposes a
-// real filesystem path for a dropped file, so files live as blobs in
+// Imported media files (video / image / audio / 3D model). The browser never
+// exposes a real filesystem path for a dropped file, so files live as blobs in
 // IndexedDB keyed by filename — sketches reference them by name
 // (videofile('clip.mp4')) and the imports survive reloads. Names match
 // exact-first, then case-insensitive substring, like camera/audio labels.
@@ -32,21 +32,26 @@ export const mediaPut = (file) =>
 export const mediaDelete = (name) => tx('readwrite', (s) => s.delete(name));
 export const mediaList = () => tx('readonly', (s) => s.getAllKeys());
 
-export async function mediaGet(name) {
+// `accept` narrows the search to filenames it approves of, so a substring
+// lookup for a model can't land on the image of the same name
+export async function mediaGet(name, accept) {
+  const ok = (n) => !accept || accept(n);
   const exact = await tx('readonly', (s) => s.get(String(name)));
-  if (exact) return exact;
+  if (exact && ok(exact.name)) return exact;
   const n = String(name).toLowerCase();
-  const match = (await mediaList()).find((k) => k.toLowerCase().includes(n));
+  const match = (await mediaList()).find((k) => k.toLowerCase().includes(n) && ok(k));
   return match ? tx('readonly', (s) => s.get(match)) : null;
 }
 
 export function classifyFile(file) {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  // models by extension first: .obj/.fbx arrive with an empty or made-up type
+  if (['obj', 'fbx'].includes(ext)) return 'model';
   const t = file.type ?? '';
   if (t.startsWith('video/')) return 'video';
   if (t.startsWith('image/')) return 'image';
   if (t.startsWith('audio/')) return 'audio';
   // extension fallback — .mov/.mkv sometimes arrive with an empty type
-  const ext = file.name.split('.').pop()?.toLowerCase();
   if (['mp4', 'mov', 'webm', 'm4v', 'mkv'].includes(ext)) return 'video';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'].includes(ext)) return 'image';
   if (['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext)) return 'audio';
@@ -59,7 +64,8 @@ export function pickFiles(kind, multiple = false) {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = { video: 'video/*', image: 'image/*', audio: 'audio/*' }[kind] ?? '';
+    input.accept =
+      { video: 'video/*', image: 'image/*', audio: 'audio/*', model: '.obj,.fbx' }[kind] ?? '';
     input.multiple = multiple;
     input.style.display = 'none';
     document.body.appendChild(input);
@@ -82,6 +88,8 @@ export function snippetFor(files) {
     const kind = classifyFile(f);
     if (kind === 'video') parts.push(`videofile(${q(f)})`);
     else if (kind === 'audio') parts.push(`audiofile(${q(f)})`);
+    // a model is a geometry op, so it needs its .out() to show up at all
+    else if (kind === 'model') parts.push(`model(${q(f)}).out()`);
   }
   return parts.join('\n');
 }

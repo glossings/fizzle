@@ -104,9 +104,50 @@ Geometry ops start a chain; `.out()` builds the mesh and adds it to the scene.
 | `torusKnot` | `radius: 1, tube: 0.3, res: 64, p: 2, q: 3` |
 | `cylinder` | `radiusTop/Bottom: 0.5, height: 1.5, res: 48` |
 | `icosa` | `radius: 1, detail: 8` — even triangles, ideal for noise blobs |
+| `model` | `name, center: true, fit: 2` — an imported `.obj`/`.fbx` |
 
 `res` matters for `.noise()` — displacement is per-vertex, so more resolution
 means finer detail.
+
+### model — your own .obj / .fbx
+
+Drag an `.obj` or `.fbx` into the window and it's imported (stored in the
+browser, surviving reloads) with the call typed at your cursor. An empty
+`model()` opens a file picker instead, and `name` also matches on a
+case-insensitive substring, so `model('ship')` finds `ship_final_v2.fbx`.
+
+A model is a geometry op like any other — every chain method works on it,
+`.instance()` included:
+
+```js
+ambient(0.2)
+directional({ intensity: 1.4 }).pos(4, 6, 3).out()
+
+model('ship.obj')
+  .instance(40, (i, n, t) => ({
+    pos: [Math.cos((i / n) * Math.PI * 2) * 4, 0, Math.sin((i / n) * Math.PI * 2) * 4],
+    rot: [0, t * 0.5 + i, 0],
+    scale: 0.4,
+  }))
+  .material({ color: '#ffd166', roughness: 0.4 })
+  .out()
+```
+
+Everything in the file is merged into a **single** geometry, because a chain
+is a single mesh — that's also what makes instancing one draw call. The file's
+own materials and textures are dropped; `.material()` shades it.
+
+Model files disagree wildly about units and origin (an FBX authored in
+centimetres lands 100× too big), so by default the geometry is centered and
+scaled so its longest axis is `fit: 2` — roughly the size of a default
+`sphere()`, which keeps `.instance()` layouts predictable. Pass `fit: 0` to
+keep the file's own units, `center: false` to keep its own origin.
+
+Parsing happens off to the side and is cached across re-runs: on a fresh
+import the mesh is empty for a moment, then the geometry appears — after that
+ctrl+enter is instant. Dense scans work with `.noise()` and `.instance()`, but
+they carry their own vertex count, so a million-triangle model instanced 500
+times is exactly as heavy as it sounds.
 
 ### transforms
 
@@ -163,7 +204,8 @@ box({ res: 4 })
 ### materials
 
 `.material({ color, roughness, metalness, emissive, emissiveIntensity,
-flatShading, wireframe })` — PBR settings. `.color(c)` is shorthand for
+flatShading, wireframe, doubleSide })` — PBR settings. `doubleSide` renders
+back faces too — on by default for `plane()` and `model()`. `.color(c)` is shorthand for
 `.material({ color })`, and colors may be fns of `t` or signals, so a palette
 can be sequenced: `.color(kick.counter().select(['#f09', '#0fc']))`.
 
@@ -463,13 +505,13 @@ video()
 
 ## media files
 
-Drag a video, image, or audio file (or a handful) into the window: it's
+Drag a video, image, audio or model file (or a handful) into the window: it's
 imported into the browser (IndexedDB — no upload, survives reloads) and a
 ready-made call lands at your cursor. Files are referenced by filename —
 exact, or case-insensitive substring, so `videofile('clip')` finds
 `clip.mp4`. Running an **empty** call (`videofile()`, `imagefile()`,
-`audiofile()`, `imageseq()`) opens a file picker and fills the name in for
-you. An unmatched name lists what's imported in the console.
+`audiofile()`, `imageseq()`, `model()`) opens a file picker and fills the name
+in for you. An unmatched name lists what's imported in the console.
 
 - `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
   TOP. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
@@ -483,6 +525,8 @@ you. An unmatched name lists what's imported in the console.
 - `audiofile(name?, { volume, speed, loop, restart, chan })` — an audio file,
   played out loud and analysed like `audio()`: it returns a level **signal**
   (see below), so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
+- `model(name?, { center, fit })` — an `.obj`/`.fbx` as a geometry op, not a
+  TOP: it starts a chain like `sphere()` does (see **geometry**).
 
 Files keep playing through re-runs (like camera streams), so livecoding
 doesn't restart your clip. To rewind:

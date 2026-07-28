@@ -85,10 +85,11 @@ const setCode = (code) => {
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code } });
 };
 
-// Drag & drop media import: dropped video/image/audio files are stored in the
-// browser (IndexedDB) and a ready-made call — videofile('clip.mp4'),
-// imageseq([...], beat(1).counter()) for several images — lands at the
-// cursor. Capture phase, so CodeMirror doesn't paste the file as text.
+// Drag & drop media import: dropped video/image/audio/model files are stored
+// in the browser (IndexedDB) and a ready-made call — videofile('clip.mp4'),
+// model('ship.obj').out(), imageseq([...], beat(1).counter()) for several
+// images — lands at the cursor. Capture phase, so CodeMirror doesn't paste
+// the file as text.
 function initDrop() {
   const overlay = document.createElement('div');
   overlay.id = 'drop-overlay';
@@ -113,7 +114,7 @@ function initDrop() {
     e.preventDefault();
     e.stopPropagation();
     const files = [...e.dataTransfer.files].filter(classifyFile);
-    if (!files.length) return flash('no video / image / audio files in that drop');
+    if (!files.length) return flash('no video / image / audio / .obj / .fbx files in that drop');
     for (const f of files) await mediaPut(f);
     if (!view) return; // dropped before the editor finished booting
     const snippet = snippetFor(files);

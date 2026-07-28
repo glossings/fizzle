@@ -66,7 +66,15 @@ static values.
 | `torusKnot` | `radius: 1, tube: 0.3, res: 64, p: 2, q: 3` |
 | `cylinder` | `radiusTop/Bottom: 0.5, height: 1.5, res: 48` |
 | `icosa` | `radius: 1, detail: 8` |
+| `model('ship.obj', …)` | an imported `.obj`/`.fbx` — `center: true, fit: 2` |
 | `text3d('hi', …)` | `size: 1, depth: 0.25, bevel: 0.02, res: 8, font, weight: 'regular'\|'bold', center: true` |
+
+`model` takes a file you dragged into the window (an empty `model()` opens a
+picker). Every mesh in the file merges into one geometry — so `.noise()`,
+`.instance()` and the rest work on it exactly like on a primitive — and the
+file's own materials are dropped in favour of `.material()`. Since model files
+disagree about units and origin, the geometry is centered and scaled to `fit`
+across its longest axis by default; `fit: 0` keeps the file's own units.
 
 `text3d`'s `font` takes a bare font name — resolved against your installed
 fonts first (Chrome/Edge, one-time permission prompt; needs a user gesture, so

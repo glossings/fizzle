@@ -122,8 +122,14 @@ function resolveFont(o) {
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
 
-function buildGeometry(type, o = {}, font3d = null) {
+// extra carries things resolved outside the switch: `font` for text3d, and
+// `geometry` for model() — the parsed .obj/.fbx, which arrives asynchronously
+function buildGeometry(type, o = {}, extra = {}) {
   switch (type) {
+    // an empty geometry renders nothing, which is exactly what a model that
+    // hasn't finished parsing (or wasn't found) should do
+    case 'model':
+      return extra.geometry ? extra.geometry.clone() : new THREE.BufferGeometry();
     case 'sphere':
       return new THREE.SphereGeometry(o.radius ?? 1, o.res ?? 64, Math.ceil((o.res ?? 64) / 2));
     case 'box': {
@@ -143,7 +149,7 @@ function buildGeometry(type, o = {}, font3d = null) {
     case 'text3d': {
       const bevel = o.bevel ?? 0.02;
       const g = new TextGeometry(String(resolve(o.text ?? 'text', 0)), {
-        font: font3d ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
+        font: extra.font ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
         size: o.size ?? 1,
         depth: o.depth ?? 0.25,
         curveSegments: o.res ?? 8,
@@ -210,7 +216,18 @@ class GeoOp {
       this._font = resolved.font;
       pendingFont = resolved.pending;
     }
-    const geometry = buildGeometry(this.type, this.opts, this._font);
+    // an imported .obj/.fbx: cached across re-runs, so this is usually
+    // already parsed and `pending` resolves on the spot
+    let pendingModel = null;
+    if (this.type === 'model' && this.opts.name != null) {
+      const m = this.engine.ensureModel(this.opts.name, this.opts);
+      this._modelGeo = m.geometry;
+      if (!m.geometry) pendingModel = m.pending;
+    }
+    const geometry = buildGeometry(this.type, this.opts, {
+      font: this._font,
+      geometry: this._modelGeo,
+    });
     const m = this._material;
     const material = new THREE.MeshStandardMaterial({
       color: new THREE.Color(resolve(m.color ?? '#8899ff', 0)),
@@ -218,7 +235,12 @@ class GeoOp {
       metalness: m.metalness ?? 0.1,
       flatShading: m.flatShading ?? false,
       wireframe: m.wireframe ?? false,
-      side: this.type === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
+      // imported models often have open shells or inconsistent winding, so
+      // they get both sides by default like planes do; .material({ doubleSide })
+      // overrides either way
+      side: (m.doubleSide ?? (this.type === 'plane' || this.type === 'model'))
+        ? THREE.DoubleSide
+        : THREE.FrontSide,
     });
     if (m.emissive) {
       material.emissive = new THREE.Color(resolve(m.emissive, 0));
@@ -250,12 +272,26 @@ class GeoOp {
     }
 
     const dummy = new THREE.Object3D();
+    // Replace a live mesh's geometry (async font/model, changed text3d
+    // string). An InstancedMesh caches bounds of its own for frustum culling,
+    // which have to be invalidated or the mesh stays culled at the old size —
+    // and a geometry that started out empty would never be drawn at all. Only
+    // an InstancedMesh, though: three picks that path by testing whether
+    // `boundingSphere` is defined at all, so giving a plain Mesh a null one
+    // sends it down a branch calling a method it doesn't have.
+    const swapGeometry = (g) => {
+      mesh.geometry.dispose();
+      mesh.geometry = g;
+      if (mesh.isInstancedMesh) {
+        mesh.boundingSphere = null;
+        mesh.boundingBox = null;
+      }
+    };
     // text3d with a fn for content rebuilds its geometry when the string
     // changes (e.g. a clock) — not every frame
     let lastText = this.type === 'text3d' ? String(resolve(this.opts.text ?? 'text', 0)) : null;
     const rebuildText = (s) => {
-      mesh.geometry.dispose();
-      mesh.geometry = buildGeometry('text3d', { ...this.opts, text: s }, this._font);
+      swapGeometry(buildGeometry('text3d', { ...this.opts, text: s }, { font: this._font }));
     };
     // async font arrived: swap the geometry in place (unless the patch was
     // cleared in the meantime)
@@ -263,6 +299,13 @@ class GeoOp {
       this._font = f;
       if (mesh.parent) rebuildText(lastText);
     }).catch(() => { /* already warned in resolveFont */ });
+    // same deal for a model file: the mesh (instanced or not) starts empty and
+    // picks up the real geometry once the file is parsed
+    pendingModel?.then((g) => {
+      if (!g || !mesh.parent) return;
+      this._modelGeo = g;
+      swapGeometry(g.clone());
+    }).catch(() => { /* already warned in ensureModel */ });
     const updater = (t) => {
       // colors as fns of t (e.g. a .select() signal cycling a palette)
       if (typeof m.color === 'function') material.color.set(m.color(t));
@@ -346,6 +389,22 @@ export function makeApi(engine) {
     cylinder: geo('cylinder'),
     icosa: geo('icosa'),
     text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
+
+    // An imported .obj/.fbx as a geometry op — chain .pos/.rotate/.scale/
+    // .noise/.instance/.material/.out() exactly like sphere() or box().
+    // Drag a model into the window to import it (the drop types the call),
+    // or run an empty model() for a file picker. name = filename, exact or
+    // case-insensitive substring. Every mesh in the file is merged into one
+    // geometry; its materials/textures are dropped in favour of .material().
+    // Options: center (default true) and fit (default 2 — scale the longest
+    // axis to this, so any file lands at a usable size; fit: 0 keeps the
+    // file's own units). Parsing is async and cached across re-runs: the
+    // mesh is empty for the first frames after a fresh import.
+    model(name, opts = {}) {
+      if (name !== null && typeof name === 'object') { opts = name; name = opts.name; }
+      if (name == null) engine.requestMediaPick('model', 'model');
+      return new GeoOp(engine, 'model', { ...opts, name: name != null ? String(name) : null });
+    },
 
     ambient(intensity = 0.3, color = 0xffffff) {
       const light = new THREE.AmbientLight(color, intensity);

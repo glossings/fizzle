@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTops } from './tops.js';
 import { AudioEngine } from './audio.js';
 import { mediaGet, mediaList } from './media.js';
+import { loadModelGeometry } from './models.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -39,6 +40,7 @@ export class Engine {
     this.audioEnabled = true;       // false = 'off' in the sidebar
     this.videos = new Map();        // camera captures by name, shared across re-runs
     this.media = new Map();         // imported media files (kind:name), shared across re-runs
+    this.models = new Map();        // parsed .obj/.fbx geometry, shared across re-runs
     this.pendingPick = null;        // an empty videofile()/... asked for a file picker
 
     this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
@@ -290,6 +292,45 @@ export class Engine {
     return m;
   }
 
+  // Imported .obj/.fbx geometry by name, matched like the media files. Parsing
+  // an FBX is slow enough that it must not happen on every ctrl+enter, so the
+  // merged geometry is cached here and survives re-runs; callers get a clone
+  // (clearPatch disposes whatever the mesh holds). The cache key carries the
+  // normalization options because those are baked into the vertices.
+  // Returns { geometry, pending } — geometry is null until the parse lands,
+  // pending resolves with the geometry (or null if it failed).
+  ensureModel(name, o = {}) {
+    const center = o.center !== false;
+    // fit omitted = 2 (the default framing); fit: 0/false/null = file's own units
+    const fit = o.fit === undefined ? 2 : Number(o.fit) || 0;
+    const key = `${String(name).toLowerCase()}|${center}|${fit}`;
+    let m = this.models.get(key);
+    if (m) return m;
+    m = { name: String(name), geometry: null, pending: null };
+    this.models.set(key, m);
+    m.pending = (async () => {
+      try {
+        const rec = await mediaGet(name, (n) => /\.(obj|fbx)$/i.test(n));
+        if (!rec) {
+          m.missing = true; // retried on the next run (clearPatch drops it)
+          const names = (await mediaList()).filter((n) => /\.(obj|fbx)$/i.test(n));
+          const listed = names.map((n) => `"${n}"`).join(', ');
+          console.warn(
+            `fizzle: model: nothing imported matching "${name}" — drop an .obj/.fbx into the window to import it. Imported models: ${listed || 'none'}`
+          );
+          return null;
+        }
+        m.geometry = await loadModelGeometry(rec.blob, rec.name, { center, fit });
+        return m.geometry;
+      } catch (e) {
+        m.missing = true; // a re-run retries — the file may have been re-dropped
+        console.warn(`fizzle: model "${name}": ${e.message ?? e}`);
+        return null;
+      }
+    })();
+    return m;
+  }
+
   // Rewind imported media: restartMedia() = everything, restartMedia('drums')
   // by name (substring). Bound to ctrl+r; also callable from a sketch, where
   // it runs on every execute.
@@ -353,6 +394,9 @@ export class Engine {
     // in since then resolves it
     for (const [key, m] of this.media) {
       if (m.missing) this.media.delete(key);
+    }
+    for (const [key, m] of this.models) {
+      if (m.missing) this.models.delete(key);
     }
   }
 
