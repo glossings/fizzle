@@ -219,6 +219,10 @@ can be sequenced: `.color(kick.counter().select(['#f09', '#0fc']))`.
 `transparent` only to override that, and `depthWrite: false` when a pile of
 overlapping transparent shapes pops as the camera turns.
 
+A property `.material()` doesn't know is an error rather than a shrug —
+`transmision` would otherwise just quietly do nothing, which looks exactly like
+the feature being broken.
+
 ### glass & coatings
 
 Naming any of the properties below upgrades the mesh to three's *physical*

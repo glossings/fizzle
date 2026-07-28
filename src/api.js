@@ -3,7 +3,7 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
-import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical } from './materials.js';
+import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TopOp } from './tops.js';
 import { sig, valueNoise, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
@@ -193,6 +193,9 @@ class InstanceHandle {
   material(o = {}) {
     const extra = Object.keys(o).filter((k) => k !== 'color');
     if (extra.length) {
+      // a misspelling is worth saying so, rather than explaining why the
+      // property the sketch didn't actually name belongs on the chain
+      checkMaterialKeys(o);
       throw new Error(
         `instance: ${extra.join('/')} is one material for the whole batch, not per-instance — put .material() on the chain (.color() is the exception, it varies per copy)`
       );
@@ -259,7 +262,12 @@ class GeoOp {
   // is still an explicit no-op.
   material(o) {
     if (o === undefined) this.engine.requestBrowse('material', 'textures');
-    else Object.assign(this._material, o);
+    else {
+      // checked here rather than at .out() so the error lands on the line that
+      // wrote the typo, and before a half-configured material is ever built
+      checkMaterialKeys(o);
+      Object.assign(this._material, o);
+    }
     return this;
   }
   color(c) { this._material.color = c; return this; }

@@ -55,6 +55,80 @@ const IRIDESCENCE_MIN_NM = 100;
 
 const PHYSICAL_KEYS = new Set([...PHYSICAL_SCALARS, ...PHYSICAL_COLORS, 'iridescenceThickness']);
 
+// The rest of .material()'s vocabulary, kept here so there's one list to check
+// a sketch against. Nothing reads a key it doesn't recognize and three ignores
+// unknown constructor keys, so a misspelling is otherwise perfectly silent —
+// the material just quietly isn't what you asked for. These two arrays are read
+// in api.js's GeoOp.out(); everything else in the set is read in this file.
+const BASE_KEYS = ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'];
+const RENDER_KEYS = ['flatShading', 'wireframe', 'doubleSide'];
+const MAP_KEYS = [
+  'pbr', 'arm',                                         // whole sets at once
+  'repeat', 'offset', 'uvRotate',                        // uv transform
+  'normalScale', 'aoIntensity', 'envIntensity',          // per-map strength
+  'displaceScale', 'displaceBias',
+];
+const BLEND_KEYS = ['opacity', 'transparent', 'depthWrite'];
+
+const MATERIAL_KEYS = new Set([
+  ...BASE_KEYS, ...RENDER_KEYS, ...MAP_KEYS, ...BLEND_KEYS, ...MAP_SLOTS, ...PHYSICAL_KEYS,
+]);
+
+// Levenshtein, bailing out once it's further off than we'd ever suggest.
+function editDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1]
+        : 1 + Math.min(prev[j - 1], prev[j], row[j - 1]);
+      best = Math.min(best, row[j]);
+    }
+    if (best > max) return max + 1;
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+// The known key `key` was most likely meant to be, or null if it's not close
+// to anything. The budget scales with length so `ior` can't match `pbr` while
+// `iridescenceThicknes` still finds its home.
+function nearestKey(key) {
+  const budget = Math.max(1, Math.min(4, Math.floor(key.length / 4)));
+  const lower = key.toLowerCase();
+  let best = null;
+  let bestDist = budget + 1;
+  for (const known of MATERIAL_KEYS) {
+    const d = editDistance(lower, known.toLowerCase(), budget);
+    if (d < bestDist) { bestDist = d; best = known; }
+  }
+  return best;
+}
+
+// Throws on anything .material() wouldn't act on. Loud rather than ignored:
+// the whole point of a property is the change it makes, so a typo that makes
+// no change is indistinguishable from the feature not working.
+export function checkMaterialKeys(o) {
+  const unknown = Object.keys(o).filter((k) => !MATERIAL_KEYS.has(k));
+  if (!unknown.length) return;
+  let suggested = false;
+  const described = unknown.map((k) => {
+    const near = nearestKey(k);
+    if (!near) return `"${k}"`;
+    suggested = true;
+    return `"${k}" — did you mean ${near}?`;
+  });
+  // nothing close enough to name means it's not a typo but a property that
+  // doesn't exist here, and then the list itself is the useful answer
+  const hint = suggested ? '' : ' (ctrl+hover .material() for the full list)';
+  throw new Error(
+    `material: no such ${unknown.length > 1 ? 'properties' : 'property'} ${described.join(', ')}${hint}`
+  );
+}
+
 // True if the material spec asks for anything only MeshPhysicalMaterial can do.
 export function isPhysical(m) {
   for (const k in m) if (PHYSICAL_KEYS.has(k)) return true;
