@@ -45,7 +45,7 @@ sphere({ radius: 1.2, res: 96 })
   .scale(1, 2, 1)
   .rotate(0, t => t * 0.3, 0)
   .noise({ amp: 0.4, freq: 2, octaves: 4, speed: 0.5 })
-  .instance(60, (i, n, t) => ({ pos: [Math.cos(i), 0, Math.sin(i)] }))
+  .instance(60, (x, i) => x.pos(Math.cos(i), 0, Math.sin(i)))
   .material({ color: '#4fd1c5', roughness: 0.3, metalness: 0.5 })
   .out()
 ```
@@ -103,10 +103,13 @@ cheap.
   control per-octave frequency/amplitude falloff, `speed` animates the field,
   `seed` offsets it (same settings, different shape).
   Normals are recomputed in the vertex shader so lighting stays correct.
-- `.instance(count, fn)` — renders as a single `InstancedMesh`. `fn(i, count, t)`
-  returns `{ pos: [x,y,z], rot: [x,y,z], scale: n | [x,y,z] }` per copy and runs
-  every frame, so instances animate. Each instance seeds the noise field from
-  its own position, so copies deform differently.
+- `.instance(count, fn)` — renders as a single `InstancedMesh`. `fn(x, i, count, t)`
+  hands you each copy as `x` and you transform it with the chain's own verbs —
+  `x.pos(...).rotate(...).scale(...)`, plus `.color(c)` to tint that copy. It
+  runs every frame, so instances animate. Each instance seeds the noise field
+  from its own position, so copies deform differently. Everything else
+  (`.noise()`, the rest of `.material()`) is one shader for the whole batch and
+  belongs on the chain.
 - `.material({ color, roughness, metalness, emissive, emissiveIntensity, flatShading, wireframe })`
   · `.color(c)` shorthand.
 - `.out()` — build it and add it to the scene. `.out('name')` builds it into

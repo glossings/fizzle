@@ -124,11 +124,10 @@ ambient(0.2)
 directional({ intensity: 1.4 }).pos(4, 6, 3).out()
 
 model('ship.obj')
-  .instance(40, (i, n, t) => ({
-    pos: [Math.cos((i / n) * Math.PI * 2) * 4, 0, Math.sin((i / n) * Math.PI * 2) * 4],
-    rot: [0, t * 0.5 + i, 0],
-    scale: 0.4,
-  }))
+  .instance(40, (x, i, n, t) => {
+    const a = (i / n) * Math.PI * 2
+    x.pos(Math.cos(a) * 4, 0, Math.sin(a) * 4).rotate(0, t * 0.5 + i, 0).scale(0.4)
+  })
   .material({ color: '#ffd166', roughness: 0.4 })
   .out()
 ```
@@ -180,26 +179,33 @@ icosa({ radius: 1.3, detail: 16 })
 ### .instance — many copies, one mesh
 
 `.instance(count, fn)` renders the chain as a single `InstancedMesh`.
-`fn(i, count, t)` returns `{ pos, rot, scale }` per copy and runs every frame,
-so instances animate. Each instance seeds the noise field from its own
-position, so copies deform differently.
+`fn(x, i, count, t)` hands you each copy as `x` and you transform it with the
+same verbs as the chain — `.pos` · `.rotate` · `.scale`, chainable, numbers or
+fns of `t`. It runs every frame, so instances animate. Each instance seeds the
+noise field from its own position, so copies deform differently.
 
 ```js
 ambient(0.2)
 directional({ intensity: 1.4 }).pos(4, 6, 3).out()
 
 box({ res: 4 })
-  .instance(80, (i, n, t) => {
+  .instance(80, (x, i, n, t) => {
     const a = (i / n) * Math.PI * 2
-    return {
-      pos: [Math.cos(a) * 3, Math.sin(t + i * 0.4) * 0.8, Math.sin(a) * 3],
-      rot: [0, a, 0],
-      scale: 0.35,
-    }
+    x.pos(Math.cos(a) * 3, Math.sin(t + i * 0.4) * 0.8, Math.sin(a) * 3)
+      .rotate(0, a, 0)
+      .scale(0.35)
   })
   .material({ color: '#ffd166', roughness: 0.4 })
   .out()
 ```
+
+`x.color(c)` tints one copy, multiplied with the chain's material color:
+`x.color(i % 2 ? '#ffd166' : '#4fd1c5')`.
+
+The batch is one mesh with one material, so that's where the per-copy story
+ends: `.noise()`, the rest of `.material()` and `.out()` are shared by every
+instance and belong on the chain — calling them on `x` says so rather than
+silently doing nothing.
 
 ### materials
 

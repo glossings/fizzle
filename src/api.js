@@ -112,7 +112,7 @@ function resolveFont(o) {
 //     .scale(1, 2, 1)
 //     .rotate(0, t => t * 0.3, 0)
 //     .noise({ amp: 0.4, freq: 2, octaves: 4, speed: 0.5 })
-//     .instance(50, (i, n, t) => ({ pos: [i - n / 2, 0, 0] }))
+//     .instance(50, (x, i, n) => x.pos(i - n / 2, 0, 0))
 //     .material({ color: '#4fd1c5', roughness: 0.3 })
 //     .out()
 //
@@ -166,6 +166,51 @@ function buildGeometry(type, o = {}, extra = {}) {
   }
 }
 
+// The stand-in for one copy handed to .instance()'s fn: the chain's transform
+// verbs, applied to a single instance. It's the same geometry, so the method
+// names are the same — but an InstancedMesh is one mesh with one material, so
+// only what lives in the per-instance matrix (plus instanceColor) can differ
+// between copies. The rest belongs on the chain and says so rather than
+// silently doing nothing. Reused across every instance and every frame, hence
+// reset() and the flat fields: this fn runs count times per frame.
+class InstanceHandle {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.px = this.py = this.pz = 0;
+    this.rx = this.ry = this.rz = 0;
+    this.sx = this.sy = this.sz = 1;
+    this.col = null;
+  }
+
+  pos(x = 0, y = 0, z = 0) { this.px = x; this.py = y; this.pz = z; return this; }
+  rotate(x = 0, y = 0, z = 0) { this.rx = x; this.ry = y; this.rz = z; return this; }
+  scale(x = 1, y, z) { this.sx = x; this.sy = y ?? x; this.sz = z ?? x; return this; }
+  // tints this copy: multiplied with the chain's .material() color
+  color(c) { this.col = c; return this; }
+
+  material(o = {}) {
+    const extra = Object.keys(o).filter((k) => k !== 'color');
+    if (extra.length) {
+      throw new Error(
+        `instance: ${extra.join('/')} is one material for the whole batch, not per-instance — put .material() on the chain (.color() is the exception, it varies per copy)`
+      );
+    }
+    if (o.color !== undefined) this.col = o.color;
+    return this;
+  }
+
+  noise() {
+    throw new Error('instance: .noise() is one shader for the whole batch — put it on the chain before .instance() (each copy already seeds the field from its own position)');
+  }
+  instance() {
+    throw new Error("instance: an instance can't be instanced — raise the count instead");
+  }
+  out() {
+    throw new Error('instance: .out() ends the chain, not a copy — call it after .instance()');
+  }
+}
+
 class GeoOp {
   constructor(engine, type, opts) {
     this.engine = engine;
@@ -199,10 +244,11 @@ class GeoOp {
     return this;
   }
 
-  // instance(count, fn) — fn(i, count, t) returns { pos, rot, scale } for
-  // each copy and is re-evaluated every frame, so instances can animate.
+  // instance(count, fn) — fn(x, i, count, t) transforms copy `i` through the
+  // same verbs as the chain (x.pos/.rotate/.scale/.color). It runs every
+  // frame, so instances animate.
   instance(count, fn) {
-    this._instance = { count, fn: fn ?? ((i) => ({ pos: [i * 2, 0, 0] })) };
+    this._instance = { count, fn: fn ?? ((x, i) => x.pos(i * 2, 0, 0)) };
     return this;
   }
 
@@ -272,6 +318,8 @@ class GeoOp {
     }
 
     const dummy = new THREE.Object3D();
+    const handle = inst ? new InstanceHandle() : null;
+    const instColor = inst ? new THREE.Color() : null;
     // Replace a live mesh's geometry (async font/model, changed text3d
     // string). An InstancedMesh caches bounds of its own for frustum culling,
     // which have to be invalidated or the mesh stays culled at the old size —
@@ -335,16 +383,29 @@ class GeoOp {
 
       if (inst) {
         for (let i = 0; i < inst.count; i++) {
-          const d = inst.fn(i, inst.count, t) ?? {};
-          dummy.position.set(...(d.pos ?? [0, 0, 0]));
-          const r = d.rot ?? [0, 0, 0];
-          dummy.rotation.set(r[0] ?? 0, r[1] ?? 0, r[2] ?? 0);
-          const s = d.scale ?? 1;
-          if (Array.isArray(s)) dummy.scale.set(...s); else dummy.scale.set(s, s, s);
+          handle.reset();
+          const d = inst.fn(handle, i, inst.count, t);
+          // the pre-handle signature was fn(i, n, t) returning { pos, rot,
+          // scale }: under this one its `i` is the handle, so the math quietly
+          // goes NaN. Name it instead of rendering nothing.
+          if (i === 0 && d && (d.pos || d.rot || d.scale)) {
+            throw new Error('instance: the layout fn is now (x, i, n, t) and transforms x directly — x.pos(...).rotate(...).scale(...) instead of returning { pos, rot, scale }');
+          }
+          dummy.position.set(resolve(handle.px, t), resolve(handle.py, t), resolve(handle.pz, t));
+          dummy.rotation.set(resolve(handle.rx, t), resolve(handle.ry, t), resolve(handle.rz, t));
+          dummy.scale.set(resolve(handle.sx, t), resolve(handle.sy, t), resolve(handle.sz, t));
           dummy.updateMatrix();
           mesh.setMatrixAt(i, dummy.matrix);
+          // setColorAt allocates instanceColor (all white) on first use, so
+          // copies that never tint keep the material's own color, and three
+          // rebuilds the program itself once the attribute shows up. Once the
+          // buffer exists every copy writes every frame, or a tint set on one
+          // frame would stick around after it stops being set.
+          if (handle.col !== null) mesh.setColorAt(i, instColor.set(resolve(handle.col, t)));
+          else if (mesh.instanceColor) mesh.setColorAt(i, instColor.setRGB(1, 1, 1));
         }
         mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       }
     };
 

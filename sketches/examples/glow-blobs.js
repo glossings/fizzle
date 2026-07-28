@@ -20,14 +20,12 @@ sphere({ radius: 1.4, res: 128 })
 box({ width: 0.5, height: 0.5, depth: 0.5, res: 12 })
   .scale(1, 2.2, 1)
   .noise({ amp: 0.15, freq: 3, octaves: 3, speed: 0.8 })
-  .instance(80, (i, n, t) => {
+  .instance(80, (x, i, n, t) => {
     const a = (i / n) * Math.PI * 2 + t * 0.1
     const r = 4 + Math.sin(i * 7.3) * 1.2
-    return {
-      pos: [Math.cos(a) * r, Math.sin(a * 3 + t * 0.5) * 1.5, Math.sin(a) * r],
-      rot: [t * 0.5 + i, a, 0],
-      scale: 0.4 + 0.3 * Math.sin(i + t * 2),
-    }
+    x.pos(Math.cos(a) * r, Math.sin(a * 3 + t * 0.5) * 1.5, Math.sin(a) * r)
+      .rotate(t * 0.5 + i, a, 0)
+      .scale(0.4 + 0.3 * Math.sin(i + t * 2))
   })
   .material({ color: '#4fd1c5', roughness: 0.4, metalness: 0.6 })
   .out()
