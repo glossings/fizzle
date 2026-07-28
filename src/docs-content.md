@@ -215,6 +215,113 @@ back faces too — on by default for `plane()` and `model()`. `.color(c)` is sho
 `.material({ color })`, and colors may be fns of `t` or signals, so a palette
 can be sequenced: `.color(kick.counter().select(['#f09', '#0fc']))`.
 
+### textured materials
+
+The same `.material()` takes texture maps. `pbr:` is the shorthand for a whole
+set of them at once:
+
+```js
+hdri('kloofendal_43d_clear_puresky_2k.hdr', { blur: 0.3 })
+
+sphere({ radius: 1.4, res: 128 })
+  .material({ pbr: 'rusty_metal_2k', repeat: 2 })
+  .out()
+```
+
+Two ways to get a set in:
+
+- **Run an empty `.material()`** — like an empty `videofile()`, it asks for
+  what's missing. It opens a browser onto [Poly Haven](https://polyhaven.com):
+  a few hundred CC0 materials, searchable by name and category. Pick one and
+  its maps download into this browser, then the `pbr:` lands **in that same
+  call** and the sketch re-runs. Nothing points at the network afterwards —
+  the files are local, so it keeps rendering offline and after the site
+  changes. `esc` cancels; **from disk…** picks your own files instead.
+- **Drag a folder of maps in** from anywhere else (ambientCG, cgbookcase, a
+  Substance export). Files keep a `folder/file.jpg` name, and the folder is
+  the handle: `.material({ pbr: 'rock_wall' })`.
+
+```js
+sphere({ radius: 1.4, res: 128 })
+  .material()   // ctrl+enter -> browse -> .material({ pbr: 'moss_2k', repeat: 2 })
+  .out()
+```
+
+Which image is which map is worked out from filenames, so the usual
+conventions all land — `diff`/`albedo`/`Color`/`_D` for color, `nor_gl` /
+`NormalGL` / `_N` for normals, `Roughness`/`_R`, `AmbientOcclusion`,
+`Displacement`/`height`, and `arm`/`orm` for the packed AO+roughness+metalness
+image. DirectX-convention normals (`NormalDX`) are used only when no OpenGL
+one shipped alongside.
+
+Individual slots take an imported image by name (exact, or case-insensitive
+substring, like every other file here), or mix with a set:
+
+```js
+plane({ width: 20, height: 20, res: 200 })
+  .rotate(-Math.PI / 2, 0, 0)
+  .material({ pbr: 'cobblestone_2k', repeat: 8, displaceScale: 0.4 })
+  .out()
+
+box({ res: 2 })
+  .material({ map: 'label.png', normalMap: 'scratches.png', roughness: 0.4 })
+  .out()
+```
+
+- **slots** — `map` (color), `normalMap`, `roughnessMap`, `metalnessMap`,
+  `aoMap`, `displacementMap`, and `arm` for one packed image filling the
+  middle three. A slot named outright wins over whatever `pbr:` resolved.
+- **tiling** — `repeat` (a number, or `[x, y]`), `offset`, `uvRotate`
+  (radians). These apply to every map on the material.
+- **tuning** — `normalScale` (relief strength), `aoIntensity`,
+  `displaceScale` / `displaceBias`, `envIntensity` (how hard the HDRI hits
+  this material).
+- `roughness` and `metalness` **multiply** their maps, so they default to 1
+  once one lands — name them only to push a material further
+  (`{ pbr: 'wood_2k', roughness: 0.3 }` for a varnished version).
+
+Displacement moves real vertices, so it needs vertices to move: `res: 128` or
+more on the shape, or nothing visible happens. It stacks with `.noise()` —
+the fbm displaces the surface and the height map roughens what it produces.
+
+Loading is asynchronous, like fonts and models: the first frames after a fresh
+import render untextured and the maps appear as they arrive. Re-runs come from
+cache and are textured immediately.
+
+### hdri — environment lighting
+
+`hdri(name?, { background, intensity, blur, rotation })` lights the scene with
+an imported `.hdr`/`.exr` panorama, which also becomes the backdrop. Run an
+empty `hdri()` to browse Poly Haven's HDRIs — the pick downloads and fills
+itself into that call — or drag a file in.
+
+This is what makes `metalness` mean anything: a metal surface is almost
+entirely reflection, and without an environment there is nothing to reflect —
+crank metalness under plain lights and you get black.
+
+```js
+hdri('kloofendal_43d_clear_puresky_2k.hdr', {
+  blur: 0.4,                    // soft sky, unchanged lighting
+  rotation: t => t * 0.05,      // drift the whole rig
+})
+
+icosa({ radius: 1.2, detail: 6 })
+  .noise({ amp: 0.15, freq: 2.5, speed: 0.3 })
+  .material({ color: '#ffffff', roughness: 0.15, metalness: 1 })
+  .out()
+```
+
+- `background: false` keeps the environment lighting but leaves `bg()`/`fog()`
+  in charge of what you see.
+- `blur` (0..1) softens the visible sky only; `intensity` scales the light,
+  `backgroundIntensity` just the sky.
+- `rotation` (radians) turns the lighting and the sky together;
+  `backgroundRotation` slides the sky under fixed lighting.
+- Everything but `background` takes a fn of `t` or a signal.
+
+Prefiltering an HDRI is slow, so it happens once per file and is cached across
+re-runs — the first `ctrl+enter` after importing one hitches, the rest don't.
+
 ## 3d text
 
 `text3d('hi', { size, depth, bevel, res, font, weight, center })` extrudes
@@ -511,13 +618,15 @@ video()
 
 ## media files
 
-Drag a video, image, audio or model file (or a handful) into the window: it's
-imported into the browser (IndexedDB — no upload, survives reloads) and a
-ready-made call lands at your cursor. Files are referenced by filename —
+Drag a video, image, audio, model or HDRI file (or a handful, or a whole
+folder) into the window: it's imported into the browser (IndexedDB — no
+upload, survives reloads) and a ready-made call lands at your cursor. Files
+are referenced by filename —
 exact, or case-insensitive substring, so `videofile('clip')` finds
 `clip.mp4`. Running an **empty** call (`videofile()`, `imagefile()`,
 `audiofile()`, `imageseq()`, `model()`) opens a file picker and fills the name
-in for you. An unmatched name lists what's imported in the console.
+in for you; an empty `hdri()` or `.material()` opens the Poly Haven browser
+the same way. An unmatched name lists what's imported in the console.
 
 - `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
   TOP. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
@@ -533,6 +642,15 @@ in for you. An unmatched name lists what's imported in the console.
   (see below), so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
 - `model(name?, { center, fit })` — an `.obj`/`.fbx` as a geometry op, not a
   TOP: it starts a chain like `sphere()` does (see **geometry**).
+- `hdri(name?, { ... })` — an `.hdr`/`.exr` panorama as environment lighting
+  (see **hdri**). An empty call browses Poly Haven rather than opening a file
+  picker, since there's no local file to point at yet; **from disk…** in that
+  browser is the file picker.
+- A **folder** of images whose names read as different maps of one material is
+  imported as a material rather than a pile of pictures, and typed out as a
+  textured shape (see **textured materials**). Files dropped inside a folder
+  keep a `folder/file.jpg` name, so a dozen materials' worth of
+  identically-named `Color.jpg`s stay apart.
 
 Files keep playing through re-runs (like camera streams), so livecoding
 doesn't restart your clip. To rewind:

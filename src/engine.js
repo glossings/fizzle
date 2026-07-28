@@ -4,6 +4,7 @@ import { renderTops } from './tops.js';
 import { AudioEngine } from './audio.js';
 import { mediaGet, mediaList } from './media.js';
 import { loadModelGeometry } from './models.js';
+import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -31,6 +32,7 @@ export class Engine {
     this.quality = 1;
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
+    this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
 
     this.bpm = 120;                 // tempo for beat(), set in the sidebar
 
@@ -41,6 +43,9 @@ export class Engine {
     this.videos = new Map();        // camera captures by name, shared across re-runs
     this.media = new Map();         // imported media files (kind:name), shared across re-runs
     this.models = new Map();        // parsed .obj/.fbx geometry, shared across re-runs
+    this.textures = new Map();      // decoded material maps by filename, shared across re-runs
+    this.pbrSets = new Map();       // prefix -> { slot: filename }, shared across re-runs
+    this.hdris = new Map();         // loaded HDRIs + their prefiltered env, shared across re-runs
     this.pendingPick = null;        // an empty videofile()/... asked for a file picker
 
     this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
@@ -331,6 +336,127 @@ export class Engine {
     return m;
   }
 
+  // An imported image as a material texture, by name (exact, else substring).
+  // Decoded once and cached across re-runs — but callers get a *clone*, because
+  // tiling and offset belong to the material using it, not to the file. three
+  // keys GPU uploads by Texture.source, which clones share, so ten materials
+  // tiling one image still cost one upload.
+  //
+  // Color space is the exception and so it keys the cache: a color map decodes
+  // as sRGB while roughness/normal/height stay linear, and that difference is
+  // baked into the upload's internal format — clones of one source can't
+  // disagree about it. Using the same file for both is rare enough to be worth
+  // a second decode when it happens.
+  // Returns { texture, pending }; texture is null until the decode lands.
+  ensureTexture(name, srgb = false) {
+    const key = `${String(name).toLowerCase()}|${srgb}`;
+    let t = this.textures.get(key);
+    if (t) return t;
+    t = { name: String(name), texture: null, pending: null };
+    this.textures.set(key, t);
+    t.pending = (async () => {
+      try {
+        const rec = await mediaGet(name, (n) => IMAGE_RE.test(n));
+        if (!rec) {
+          t.missing = true; // retried on the next run (clearPatch drops it)
+          throw new Error(
+            `nothing imported matching "${name}" — drop an image (or a material folder) into the window`
+          );
+        }
+        const img = new Image();
+        img.src = URL.createObjectURL(rec.blob);
+        await img.decode();
+        const tex = new THREE.Texture(img);
+        tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+        tex.needsUpdate = true;
+        t.texture = tex;
+        return tex;
+      } catch (e) {
+        t.missing = true;
+        console.warn(`fizzle: material map "${name}": ${e.message ?? e}`);
+        return null;
+      }
+    })();
+    return t;
+  }
+
+  // The maps of one PBR material: every imported file whose name starts with
+  // `prefix`, sorted into material slots by filename (see pbr.js). This is
+  // what .material({ pbr: 'rock_2k' }) resolves — 'rock_2k' being either a
+  // dropped folder or a Poly Haven download, both of which key their files
+  // 'rock_2k/diff.jpg' style. Resolves to {} (with a warning) if nothing
+  // matches, so a typo names itself instead of silently rendering untextured.
+  ensurePbrSet(prefix) {
+    const key = String(prefix).toLowerCase();
+    let s = this.pbrSets.get(key);
+    if (s) return s;
+    s = { prefix: String(prefix), maps: null, pending: null };
+    this.pbrSets.set(key, s);
+    s.pending = (async () => {
+      const all = await mediaList();
+      // prefix-first (a folder or download), then substring, matching how
+      // every other name lookup here behaves
+      let names = all.filter((n) => n.toLowerCase().startsWith(key));
+      if (!names.length) names = all.filter((n) => n.toLowerCase().includes(key));
+      s.maps = classifySet(names);
+      if (!Object.keys(s.maps).length) {
+        s.missing = true;
+        const sets = [...new Set(all.filter((n) => IMAGE_RE.test(n) && n.includes('/')).map((n) => n.slice(0, n.lastIndexOf('/'))))];
+        console.warn(
+          `fizzle: material: no maps matching pbr: "${prefix}" — browse materials in the sidebar, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
+        );
+      }
+      return s.maps;
+    })();
+    return s;
+  }
+
+  // An imported .hdr/.exr as image-based lighting. The equirect texture lights
+  // the scene through a prefiltered (PMREM) cubemap and doubles as the visible
+  // background; both are cached with the file, since prefiltering is far too
+  // slow to redo on every ctrl+enter.
+  // Returns { texture, env, pending } — null until the load lands.
+  ensureHdri(name) {
+    const key = String(name).toLowerCase();
+    let h = this.hdris.get(key);
+    if (h) return h;
+    h = { name: String(name), texture: null, env: null, pending: null };
+    this.hdris.set(key, h);
+    h.pending = (async () => {
+      try {
+        const rec = await mediaGet(name, (n) => HDRI_RE.test(n));
+        if (!rec) {
+          h.missing = true;
+          const names = (await mediaList()).filter((n) => HDRI_RE.test(n));
+          throw new Error(
+            `nothing imported matching "${name}" — browse HDRIs in the sidebar, or drop an .hdr/.exr in. Imported: ${names.map((n) => `"${n}"`).join(', ') || 'none'}`
+          );
+        }
+        // both parsers are big and most sketches never load an HDRI, so they
+        // arrive on first use rather than at page load (like the FBX one)
+        const loader = /\.exr$/i.test(rec.name)
+          ? new (await import('three/addons/loaders/EXRLoader.js')).EXRLoader()
+          : new (await import('three/addons/loaders/RGBELoader.js')).RGBELoader();
+        const url = URL.createObjectURL(rec.blob);
+        const tex = await loader.loadAsync(url);
+        URL.revokeObjectURL(url);
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+        const pmrem = (this._pmrem ??= new THREE.PMREMGenerator(this.renderer));
+        pmrem.compileEquirectangularShader();
+        h.texture = tex;
+        h.env = pmrem.fromEquirectangular(tex).texture;
+        return h;
+      } catch (e) {
+        h.missing = true;
+        console.warn(`fizzle: hdri "${name}": ${e.message ?? e}`);
+        return null;
+      }
+    })();
+    return h;
+  }
+
   // Rewind imported media: restartMedia() = everything, restartMedia('drums')
   // by name (substring). Bound to ctrl+r; also callable from a sketch, where
   // it runs on every execute.
@@ -350,6 +476,13 @@ export class Engine {
   // the user-gesture context of the ctrl+enter) and fills the call in.
   requestMediaPick(fn, kind, multiple = false) {
     this.pendingPick ??= { fn, kind, multiple };
+  }
+
+  // Same deal for an empty hdri() / .material(), except what opens is the Poly
+  // Haven browser rather than a file picker — there's no local file to point
+  // at yet, which is the whole reason the call is empty.
+  requestBrowse(fn, type) {
+    this.pendingPick ??= { fn, browse: type };
   }
 
   // Named geometry layers: geometry .out('name') moves the object onto its
@@ -378,8 +511,17 @@ export class Engine {
     }
     this.patch = [];
     this.updaters = [];
+    this.patchGen++;
     this.scene.fog = null;
     this.scene.background = new THREE.Color(0x0a0a0f);
+    // the HDRI itself stays cached; only the scene's use of it is patch state,
+    // so a sketch that drops its hdri() call goes back to plain lighting
+    this.scene.environment = null;
+    this.scene.environmentIntensity = 1;
+    this.scene.environmentRotation.set(0, 0, 0);
+    this.scene.backgroundRotation.set(0, 0, 0);
+    this.scene.backgroundBlurriness = 0;
+    this.scene.backgroundIntensity = 1;
 
     for (const node of this.topNodes) node.dispose();
     this.topNodes = [];
@@ -389,6 +531,10 @@ export class Engine {
 
     this.cameraProgrammed = false;
     this.controls.enabled = true;
+    // a picker request belongs to the run that made it: the code has moved on,
+    // and a request left over from a run whose empty call has since been filled
+    // in would pop the picker straight back open
+    this.pendingPick = null;
 
     // media that wasn't found gets another lookup next run — a file dropped
     // in since then resolves it
@@ -397,6 +543,15 @@ export class Engine {
     }
     for (const [key, m] of this.models) {
       if (m.missing) this.models.delete(key);
+    }
+    for (const [key, t] of this.textures) {
+      if (t.missing) this.textures.delete(key);
+    }
+    for (const [key, s] of this.pbrSets) {
+      if (s.missing) this.pbrSets.delete(key);
+    }
+    for (const [key, h] of this.hdris) {
+      if (h.missing) this.hdris.delete(key);
     }
   }
 

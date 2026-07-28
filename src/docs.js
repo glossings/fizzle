@@ -19,6 +19,8 @@ export const GLOBALS = {
   point: ['point({ color, intensity, distance, decay })', 'Point light. Chain .pos(x,y,z).out(); pos accepts fns of t.'],
   hemi: ['hemi({ sky, ground, intensity })', 'Hemisphere light. Chain .out().'],
 
+  hdri: ['hdri(name?, { background, intensity, blur, rotation })', "Image-based lighting from an imported .hdr/.exr: the environment lights every material in the scene and shows behind it. An empty hdri() opens the Poly Haven HDRI browser and writes your pick back into that call; you can also drag a file in. Metalness only comes alive with one — a metal surface has nothing to reflect otherwise. background: false keeps bg()/fog; blur (0..1) softens the visible sky without softening the light; rotation turns the light rig and sky together (backgroundRotation moves the sky alone). All but background accept fns of t — hdri('sky_2k.hdr', { rotation: t => t * 0.1 }) drifts the whole sky."],
+
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
   bg: ['bg(color)', 'Scene background color.'],
   fog: ['fog(color, near, far)', 'Scene fog.'],
@@ -54,7 +56,7 @@ export const METHODS = {
   translate: ['.translate(x, y, { wrap })', 'TOP: shift the image in UV space (1 = full frame).'],
   noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals; normals recomputed so lighting stays correct. amp = displacement distance, freq = spatial frequency; octaves stacks detail layers, lacunarity = frequency step per octave, gain = amplitude falloff per octave (low = smooth, high = crinkly). seed offsets the field for a different shape.'],
   instance: ['.instance(count, (x, i, n, t) => x.pos(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .pos/.rotate/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.'],
-  material: ['.material({ color, roughness, metalness, emissive, flatShading, wireframe, doubleSide })', 'PBR material settings. doubleSide renders back faces too — on by default for plane() and model(), off for the solid primitives.'],
+  material: ['.material({ color, roughness, metalness, emissive, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "PBR material settings. An empty .material() opens the Poly Haven material browser and writes your pick back into that call. Textures: pbr: 'rock_2k' takes a whole set of maps at once — a browsed material, or a folder dragged in. Individual slots take an imported image by name: map (color), normalMap, roughnessMap, metalnessMap, aoMap, displacementMap, or arm for one packed AO/rough/metal image. repeat tiles them (a number, or [x, y]), offset shifts them, uvRotate turns them. Tuning: normalScale, aoIntensity, displaceScale, envIntensity. roughness/metalness multiply their maps, so name them only to push a material further. doubleSide renders back faces too — on by default for plane() and model(), off for the solid primitives."],
   color: ['.color(c)', 'Shorthand for .material({ color }). Colors may be fns of t or signals — e.g. .color(kickCounter.select(palette)).'],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a TOP chain becomes the display output. With a name, publishes for input('name') instead: a TOP point (passthrough), a geometry as its own render layer, or a light lighting only that layer."],
 

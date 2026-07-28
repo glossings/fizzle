@@ -3,6 +3,7 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise } from './noise.js';
+import { applyMaps, applyMaterialScalars, applyHdri, hasMaps } from './materials.js';
 import { TopOp } from './tops.js';
 import { sig, valueNoise, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
@@ -252,7 +253,15 @@ class GeoOp {
     return this;
   }
 
-  material(o = {}) { Object.assign(this._material, o); return this; }
+  // A naked .material() means "I want a material and haven't got one yet":
+  // it opens the Poly Haven browser and fills the pick back into this very
+  // call, the same way an empty videofile() opens a picker. .material({})
+  // is still an explicit no-op.
+  material(o) {
+    if (o === undefined) this.engine.requestBrowse('material', 'textures');
+    else Object.assign(this._material, o);
+    return this;
+  }
   color(c) { this._material.color = c; return this; }
 
   out(name) {
@@ -275,8 +284,13 @@ class GeoOp {
       geometry: this._modelGeo,
     });
     const m = this._material;
+    const textured = hasMaps(m);
     const material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(resolve(m.color ?? '#8899ff', 0)),
+      // a color map is tinted by material.color, so a textured chain that
+      // didn't ask for a color starts white and shows the map as authored
+      color: new THREE.Color(resolve(m.color ?? (textured ? '#ffffff' : '#8899ff'), 0)),
+      // the roughness/metalness scalars multiply their maps, so they're reset
+      // to 1 if and when one actually lands (see applyMaps)
       roughness: m.roughness ?? 0.5,
       metalness: m.metalness ?? 0.1,
       flatShading: m.flatShading ?? false,
@@ -292,6 +306,7 @@ class GeoOp {
       material.emissive = new THREE.Color(resolve(m.emissive, 0));
       material.emissiveIntensity = m.emissiveIntensity ?? 1;
     }
+    applyMaterialScalars(material, m);
 
     let noiseUniforms = null;
     if (this._noise) {
@@ -414,6 +429,10 @@ class GeoOp {
     // input('name')) instead of the visible scene
     if (name != null) mesh.layers.set(this.engine.geoLayer(String(name)));
     this.engine.add(mesh, updater);
+    // after add(), so mesh.parent is already set: a cached map attaches on the
+    // spot, and mesh.parent is also the liveness test for one that arrives
+    // later — a patch cleared in the meantime has nowhere to put it
+    if (textured) applyMaps(this.engine, material, m, () => !!mesh.parent);
     return this;
   }
 }
@@ -500,6 +519,32 @@ export function makeApi(engine) {
         engine.controls.target.set(...tg);
         engine.camera.lookAt(...tg);
       });
+    },
+    // Image-based lighting from an imported .hdr/.exr: the environment lights
+    // every material in the scene (and is the only thing a metal surface has
+    // to reflect, so metalness only really comes alive with one) and shows
+    // behind it as the background. Run an empty hdri() to browse Poly Haven's
+    // HDRIs (the pick fills itself into the call), or drag a file in.
+    // Options: background (false keeps bg()/fog), intensity, blur (0..1, soft
+    // sky without softening the lighting), rotation (radians, turns the light
+    // rig and the sky together), backgroundRotation / backgroundIntensity to
+    // move the sky alone. All but `background` accept fns of t.
+    hdri(name, o = {}) {
+      if (name !== null && typeof name === 'object') { o = name; name = o.name; }
+      if (name == null) return engine.requestBrowse('hdri', 'hdris');
+      const h = engine.ensureHdri(String(name));
+      // the sketch's own intensity/rotation animate from the first frame even
+      // while the file is still decoding; applyHdri hands back the per-frame
+      // half so both paths share one updater
+      let tick = null;
+      const gen = engine.patchGen;
+      const attach = (loaded) => {
+        // a re-run since the load started owns the scene now — don't light it
+        if (loaded && engine.patchGen === gen) tick = applyHdri(engine, loaded, o);
+      };
+      if (h.env) attach(h);
+      else h.pending.then(attach);
+      engine.updaters.push((t) => tick?.(t, resolve));
     },
     bg(color) { engine.scene.background = new THREE.Color(color); },
     fog(color = 0x0a0a0f, near = 5, far = 30) {
