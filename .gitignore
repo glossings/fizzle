@@ -1,0 +1,7 @@
+node_modules/
+
+# Build output — regenerate with `npm run build`
+dist/
+
+# Personal sketches — saved locally by the dev server, not shared
+sketches/user/
