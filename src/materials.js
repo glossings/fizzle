@@ -116,6 +116,11 @@ function nearestKey(key) {
 export function checkMaterialKeys(o) {
   const unknown = Object.keys(o).filter((k) => !MATERIAL_KEYS.has(k));
   if (!unknown.length) return;
+  // shadows are a property of the object, not of its surface, so they'd never
+  // be found by the spell-checker below — and three's own names invite the try
+  if (unknown.some((k) => /^(cast|receive)?[Ss]hadow$/.test(k))) {
+    throw new Error('material: shadows are per-mesh, not per-material — .shadow(false) or .shadow({ cast, receive }) on the chain (both are on by default)');
+  }
   let suggested = false;
   const described = unknown.map((k) => {
     const near = nearestKey(k);

@@ -133,6 +133,10 @@ cheap.
 - `.material({ opacity, transparent, depthWrite })` — plain alpha blending.
   `opacity` turns transparency on by itself; `depthWrite: false` fixes the
   popping when transparent shapes overlap.
+- `.shadow(false)` / `.shadow({ cast, receive })` — geometry casts and receives
+  by default (it costs nothing until a light casts), so this is the opt-out. A
+  ceiling wants `{ cast: false }` or the light never gets into the room. See
+  **Shadows** below.
 - `.out()` — build it and add it to the scene. `.out('name')` builds it into
   its own named render layer instead — see **Geometry layers** below.
 
@@ -142,12 +146,43 @@ cheap.
 ambient(0.2)                                            // intensity, color?
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 point({ color: '#ff5f9e', intensity: 60 }).pos(t => Math.sin(t) * 5, 3, 0).out()
+spot({ intensity: 90, angle: 0.5, penumbra: 0.4 }).pos(0, 6, 4).target(0, 0, -6).out()
 hemi({ sky: '#8899ff', ground: '#332211' }).out()
 
 camera(0, 2, 8, [0, 0, 0])   // position, look-at target
 bg('#07070c')
 fog('#07070c', 8, 40)        // color, near, far
 ```
+
+`directional` and `spot` aim from `.pos()` at `.target()` (the origin without
+one); both take fns of `t`, so a beam can sweep.
+
+### Shadows
+
+```js
+directional({ intensity: 3, shadow: true }).pos(12, 8, 6).target(0, 0, -8).out()
+spot({ intensity: 90, angle: 0.5, shadow: { soft: 5, strength: 0.9 } }).pos(0, 6, 4).out()
+```
+
+`shadow: true` turns a `directional` / `spot` / `point` light into a caster;
+`ambient` and `hemi` have no direction and can't. Geometry casts and receives
+by default — nothing is compiled for it until some light casts — so the only
+thing a sketch usually has to say is `.shadow({ cast: false })` on a ceiling,
+which would otherwise seal the room. Glass (`transmission`) and blended
+(`opacity` < 1) surfaces don't cast unless asked: the depth pass can't tell
+they're see-through and would throw a solid black silhouette.
+
+The `shadow` object tunes it: `soft` (blur radius in texels — 0 is a hard noon
+edge, ~8 is overcast), `strength` (0..1), `map` (resolution, 2048), `near` /
+`far` (the light's view range; a `far` much larger than the scene wastes depth
+precision and stripes flat surfaces with acne), `bias` / `normalBias` if any
+survives, and for `directional`, `area` — half the width of the box it
+shadows, around the `.pos()` → `.target()` axis. Too big spreads the map's
+texels thin; too small and the shadow stops mid-floor. A `point` light casts in
+all six directions at once, which is six renders: the expensive one.
+
+`.noise()` displacement is shadowed as displaced — the shadow pass gets its own
+copy of the vertex shader. See `examples/dreamcore.js`.
 
 `camera()` with static numbers places the camera and leaves orbit controls
 live. If **any** argument is a function of time, the sketch drives the camera

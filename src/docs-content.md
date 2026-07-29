@@ -414,12 +414,52 @@ plane({ width: 24, height: 24, res: 128 })
 ```
 
 - `ambient(intensity, color?)` is added immediately (no `.out()` needed);
-  `directional` / `point` / `hemi` chain `.pos(x, y, z).out()`, and `.pos`
-  accepts fns of `t` for moving lights.
+  `directional` / `point` / `spot` / `hemi` chain `.pos(x, y, z).out()`, and
+  `.pos` accepts fns of `t` for moving lights.
+- `spot({ angle, penumbra })` is a cone from `.pos()` toward `.target()` —
+  `angle` is its half-width in radians, `penumbra` (0..1) how soft the rim is.
+  `directional` takes a `.target(x, y, z)` too; both aim at the origin without
+  one, and both animate.
 - `camera(x, y, z, [tx, ty, tz])` with static numbers places the camera and
   leaves orbit controls live. If **any** argument is a function of time, the
   sketch drives the camera and orbiting is disabled until you re-run without it.
 - `bg(color)` and `fog(color, near, far)` set the scene backdrop.
+
+### shadows
+
+Off until a light asks for them, on for every mesh once one does:
+
+```js
+directional({ intensity: 3, shadow: true }).pos(12, 8, 6).target(0, 0, -8).out()
+spot({ intensity: 90, angle: 0.5, shadow: { soft: 5 } }).pos(0, 6, 4).out()
+
+plane({ width: 40, height: 40, res: 1 }).rotate(-Math.PI / 2, 0, 0)
+  .shadow({ cast: false })                     // flat — only catches
+  .material({ color: '#8d879b', roughness: 0.8 }).out()
+torus({ radius: 1.4, tube: 0.4 }).pos(0, 2, 0).rotate(t => t * 0.4, 0, 0).out()
+```
+
+- `shadow: true` on `directional` / `spot` / `point`. Ambient and hemisphere
+  light comes from everywhere at once, so neither can cast.
+- Geometry **casts and receives by default**, because it's free until a light
+  casts. `.shadow(false)` opts a mesh out of both; `.shadow({ cast: false })`
+  or `{ receive: false }` picks one — a ceiling has to say `cast: false` or the
+  light never reaches the room, and a glowing lamp usually shouldn't block
+  itself. Glass (`transmission`) and blended (`opacity` < 1) surfaces are the
+  exception and don't cast by default: the depth pass can't tell they're
+  see-through, so they'd throw the solid black shadow of their outline.
+  `.shadow(true)` insists.
+- Tuning, all on the light's `shadow` object: `soft` (blur radius in texels —
+  0 hard-edged, ~8 overcast), `strength` (0..1, how dark), `map` (resolution,
+  2048 by default), `near`/`far` (the light's own view range — a `far` far
+  larger than the scene wastes depth precision and stripes flat surfaces),
+  and for `directional` only, `area`: half the width of the box it shadows,
+  measured around the `.pos()` → `.target()` axis. Too big and the map's
+  texels spread thin, too small and the shadow stops mid-floor.
+- A `point` light shadows in every direction at once — a cube map, so six
+  renders. It's the expensive one.
+- `.noise()` displacement is shadowed as displaced, not as the shape it started
+  from. Geometry sent to `.out('name')` casts within its own layer.
 
 ## textures: the TOP pipeline
 

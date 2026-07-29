@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
-import { applyNoise } from './noise.js';
+import { applyNoise, applyNoiseDepth } from './noise.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TopOp } from './tops.js';
 import { sig, valueNoise, setBpmSource } from './audio.js';
@@ -207,6 +207,9 @@ class InstanceHandle {
   noise() {
     throw new Error('instance: .noise() is one shader for the whole batch — put it on the chain before .instance() (each copy already seeds the field from its own position)');
   }
+  shadow() {
+    throw new Error('instance: the batch is one mesh, so it casts and receives as one — put .shadow() on the chain');
+  }
   instance() {
     throw new Error("instance: an instance can't be instanced — raise the count instead");
   }
@@ -226,11 +229,27 @@ class GeoOp {
     this._noise = null;
     this._instance = null;
     this._material = {};
+    this._shadow = null;      // null = whatever the material implies (see out())
   }
 
   pos(x = 0, y = 0, z = 0) { this._pos = [x, y, z]; return this; }
   rotate(x = 0, y = 0, z = 0) { this._rot = [x, y, z]; return this; }
   scale(x = 1, y, z) { this._scale = [x, y ?? x, z ?? x]; return this; }
+
+  // Every mesh casts and receives by default — it's free until some light is
+  // given shadow: true, and "I enabled shadows and nothing happened" is a worse
+  // default than a shadow you didn't want. .shadow(false) opts a mesh out of
+  // both; { cast, receive } picks one, e.g. a glowing lamp box that lights the
+  // room without blocking it, or a floor that only catches. Saying it either
+  // way also overrides the see-through exception in out().
+  shadow(v = true) {
+    if (v !== null && typeof v === 'object') {
+      this._shadow = { cast: v.cast ?? true, receive: v.receive ?? true };
+    } else {
+      this._shadow = { cast: !!v, receive: !!v };
+    }
+    return this;
+  }
 
   // amp: displacement amount · freq: spatial frequency · octaves: fbm
   // harmonics (1–8) · lacunarity/gain: per-octave freq/amp multipliers ·
@@ -349,6 +368,24 @@ class GeoOp {
     } else {
       mesh = new THREE.Mesh(geometry, material);
     }
+    // The depth pass has no idea a surface is see-through, so glass and blended
+    // shapes would throw the solid black shadow of their silhouette. They stay
+    // out of it unless the sketch asks for them by name.
+    const seeThrough =
+      (m.transmission != null && resolve(m.transmission, 0) > 0) ||
+      (m.opacity != null && resolve(m.opacity, 0) < 1);
+    const sh = this._shadow ?? { cast: !seeThrough, receive: true };
+    mesh.castShadow = sh.cast;
+    mesh.receiveShadow = sh.receive;
+    // A shadow pass renders its own depth material, which knows nothing about
+    // the displacement patched into the one above — so it gets the same patch,
+    // or the shape's shadow is the shadow of the sphere it started as.
+    if (noiseUniforms && mesh.castShadow) {
+      mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
+      applyNoiseDepth(mesh.customDepthMaterial, noiseUniforms);
+      mesh.customDistanceMaterial = new THREE.MeshDistanceMaterial();
+      applyNoiseDepth(mesh.customDistanceMaterial, noiseUniforms);
+    }
 
     const dummy = new THREE.Object3D();
     const handle = inst ? new InstanceHandle() : null;
@@ -458,14 +495,66 @@ class GeoOp {
   }
 }
 
+// shadow: true on a light, or shadow: { ... } to tune it. Every option below
+// is one three.js property; only the defaults are ours, sized for the 10–30
+// unit scenes these sketches work at rather than three's own.
+//   map        shadow map resolution in px (2048, 1024 for a point light —
+//              that one is a cube, so it costs six renders)
+//   soft       PCF sample spread in texels: 0 is hard-edged, ~8 is overcast
+//   strength   0..1, how dark the shadow gets
+//   bias       depth offset that kills self-shadowing acne (negative)
+//   normalBias same, along the normal — the one that helps on flat floors
+//   near/far   the light's own view range; anything outside casts nothing
+//   area       directional only: half-width of the shadowed box around the
+//              .pos() → .target() axis. Too big blurs detail away, too small
+//              clips the shadow off mid-floor.
+function applyShadow(light, o) {
+  if (!o) return;
+  if (!light.shadow) {
+    throw new Error(`${light.type}: this light has no direction to cast from — shadows come from directional(), spot() or point()`);
+  }
+  const c = o === true ? {} : o;
+  const s = light.shadow;
+  light.castShadow = true;
+  const map = c.map ?? (light.isPointLight ? 1024 : 2048);
+  s.mapSize.set(map, map);
+  s.radius = c.soft ?? 3;
+  s.intensity = c.strength ?? 1;
+  s.bias = c.bias ?? -0.0005;
+  s.normalBias = c.normalBias ?? 0.02;
+  s.camera.near = c.near ?? 0.5;
+  // three's own far is 500, which spends most of the depth buffer on empty
+  // space and stripes the floor with acne
+  s.camera.far = c.far ?? (light.isPointLight ? 60 : 120);
+  if (light.isDirectionalLight) {
+    const a = c.area ?? 15;
+    s.camera.left = -a;
+    s.camera.right = a;
+    s.camera.top = a;
+    s.camera.bottom = -a;
+  }
+  // a spot light re-derives fov (and far, from distance) from the light itself
+  s.camera.updateProjectionMatrix();
+}
+
 class LightOp {
   constructor(engine, light, opts = {}) {
     this.engine = engine;
     this.light = light;
     this.opts = opts;
     this._pos = [3, 4, 2];
+    this._target = null;
   }
   pos(x, y, z) { this._pos = [x, y, z]; return this; }
+  // Where a directional or spot light points; both aim at the origin without
+  // it. Components take fns of t like .pos, so the beam can sweep.
+  target(x = 0, y = 0, z = 0) {
+    if (!this.light.target) {
+      throw new Error(`${this.light.type}: shines every way at once — .target() is for directional() and spot()`);
+    }
+    this._target = [x, y, z];
+    return this;
+  }
   out(name) {
     // lights hit every layer by default (three culls lights by camera layer
     // mask); .out('name') restricts one to a single named geometry layer
@@ -477,14 +566,21 @@ class LightOp {
     // NaN — and a NaN light uniform blacks out every surface it touches rather
     // than merely failing to animate.
     const o = this.opts;
-    const dyn = ['intensity', 'color', 'sky', 'ground']
+    applyShadow(this.light, o.shadow);
+    const dyn = ['intensity', 'color', 'sky', 'ground', 'angle', 'penumbra', 'distance', 'decay']
       .filter((k) => typeof o[k] === 'function');
     const updater = (t) => {
       this.light.position.set(...resolve3(this._pos, t));
+      if (this._target) {
+        this.light.target.position.set(...resolve3(this._target, t));
+        // the target isn't in the scene graph, so nothing else refreshes it —
+        // and both the light's direction and its shadow camera read matrixWorld
+        this.light.target.updateMatrixWorld();
+      }
       for (const k of dyn) {
-        if (k === 'intensity') this.light.intensity = o.intensity(t);
-        else if (k === 'ground') this.light.groundColor.set(o.ground(t));
-        else this.light.color.set(o[k](t));
+        if (k === 'ground') this.light.groundColor.set(o.ground(t));
+        else if (k === 'color' || k === 'sky') this.light.color.set(o[k](t));
+        else this.light[k] = o[k](t);
       }
     };
     updater(0);
@@ -523,8 +619,10 @@ export function makeApi(engine) {
       return new GeoOp(engine, 'model', { ...opts, name: name != null ? String(name) : null });
     },
 
-    // every light arg below may be a fn of t; they're resolved once here so the
-    // constructor sees a number, and again per frame by LightOp's updater
+    // Every light arg below may be a fn of t; they're resolved once here so the
+    // constructor sees a number, and again per frame by LightOp's updater.
+    // directional/spot/point also take shadow: true (see applyShadow), and
+    // directional/spot aim with .target(x, y, z).
     ambient(intensity = 0.3, color = 0xffffff) {
       const light = new THREE.AmbientLight(resolve(color, 0), resolve(intensity, 0));
       light.layers.enableAll();
@@ -540,7 +638,16 @@ export function makeApi(engine) {
     },
     point(o = {}) {
       return new LightOp(engine, new THREE.PointLight(
-        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 20, 0), o.distance ?? 0, o.decay ?? 2), o);
+        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 20, 0),
+        resolve(o.distance ?? 0, 0), resolve(o.decay ?? 2, 0)), o);
+    },
+    // a cone from .pos() toward .target(): angle is its half-width in radians,
+    // penumbra (0..1) how soft the rim is
+    spot(o = {}) {
+      return new LightOp(engine, new THREE.SpotLight(
+        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 60, 0),
+        resolve(o.distance ?? 0, 0), resolve(o.angle ?? Math.PI / 6, 0),
+        resolve(o.penumbra ?? 0.4, 0), resolve(o.decay ?? 2, 0)), o);
     },
     hemi(o = {}) {
       return new LightOp(engine, new THREE.HemisphereLight(

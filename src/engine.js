@@ -15,6 +15,11 @@ export class Engine {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Always on: three only compiles the shadow path into a material once some
+    // light is actually casting, so a sketch with no shadow: light pays nothing
+    // for this. Type is three's PCF default — five Vogel-disk taps whose spread
+    // is the light's shadow radius, which is what makes `soft` a real dial.
+    this.renderer.shadowMap.enabled = true;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0a0f);
@@ -505,6 +510,10 @@ export class Engine {
       this.scene.remove(obj);
       obj.traverse?.((child) => {
         child.geometry?.dispose?.();
+        // a .noise() chain that casts shadows carries its own depth materials,
+        // which nothing else would reach
+        child.customDepthMaterial?.dispose();
+        child.customDistanceMaterial?.dispose();
         if (child.material) {
           const mats = Array.isArray(child.material) ? child.material : [child.material];
           mats.forEach((m) => m.dispose());

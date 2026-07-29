@@ -22,17 +22,7 @@ Euler by hand inside a sketch is miserable.
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
 
-## 2. Shadow maps
-
-No `castShadow` anywhere in the codebase — shadows are entirely absent. This is
-dreamcore's remaining gap: the dread is largely a harsh light source throwing
-long shadows down a corridor.
-
-Enable `renderer.shadowMap`, add opt-in flags on lights and geometry. Medium
-effort, mostly because shadows interact with the geometry-layer system in
-[src/tops.js](src/tops.js).
-
-## 3. `pixelsort()`
+## 2. `pixelsort()`
 
 A proper sort is an odd-even transposition network: dozens of full-res ping-pong
 passes per frame. The machinery exists (`blur` at
@@ -43,11 +33,11 @@ Needs a dedicated op with an internal iteration count —
 `.pixelsort({ iterations: 48, threshold, angle })`. At 32–64 passes it's
 expensive but viable at reduced resolution. Roughly a focused day.
 
-## 4. GPGPU particles
+## 3. GPGPU particles
 
 The one item here that's a project rather than a patch.
 
-`.instance(count, fn)` ([src/api.js:254](src/api.js#L254)) has two hard limits:
+`.instance(count, fn)` ([src/api.js:272](src/api.js#L272)) has two hard limits:
 
 1. **CPU-bound.** The callback runs per-instance per-frame in JS, then composes
    a matrix and writes 16 floats — realistically ~5–10k instances before it eats
@@ -87,10 +77,12 @@ Kept here so they don't get re-investigated:
   A better version would frame-difference to drive the displacement amount; the
   wiring already supports it.
 
-- **Dreamcore is ~80% there** without any of the above: fog, point lights,
-  `model()` for low-poly rooms, PBR tiled textures with `repeat` for mismatched
-  carpet, the `text` TOP, feedback trails, `pixellate` + `posterize` for a PS1
-  look, and high-frequency `noise()` comped over as film grain.
+- **Dreamcore is there** — see `examples/dreamcore.js`. Shadows (`shadow: true`
+  on a light, `.shadow()` to opt geometry out) were the missing piece; the rest
+  was already fog, point lights, `model()` for low-poly rooms, PBR tiled
+  textures with `repeat` for mismatched carpet, the `text` TOP, feedback trails,
+  `pixellate` + `posterize` for a PS1 look, and high-frequency `noise()` comped
+  over as film grain.
 
 - **`lookup`** ([src/tops.js:292](src/tops.js#L292)) is a 1D luma LUT — i.e. a
   palette grader, which is most of the "look" battle for both Frutiger Aero and

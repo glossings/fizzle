@@ -116,6 +116,18 @@ export const POSITION_CHUNK = /* glsl */ `
 vec3 transformed = displaced;
 `;
 
+// The same displacement for the shadow pass. Depth and distance materials shade
+// nothing, so only the position has to move — and their vertex shaders only
+// reach <beginnormal_vertex> under USE_DISPLACEMENTMAP, so this hangs off
+// <begin_vertex> (which is what it replaces: `vec3 transformed = position`).
+export const DEPTH_CHUNK = /* glsl */ `
+vec3 depthNoiseSeed = vec3(0.0);
+#ifdef USE_INSTANCING
+  depthNoiseSeed = instanceMatrix[3].xyz;
+#endif
+vec3 transformed = displacePoint(position, normalize(normal), depthNoiseSeed);
+`;
+
 // Patches a MeshStandardMaterial in place; `uniforms` must contain the
 // uTime/uAmp/... uniform objects so the engine can animate them per frame.
 export function applyNoise(material, uniforms) {
@@ -128,5 +140,19 @@ export function applyNoise(material, uniforms) {
   };
   // make sure three treats each noise config as a distinct shader program
   material.customProgramCacheKey = () => 'td-noise';
+  material.needsUpdate = true;
+}
+
+// Same, for the MeshDepth/MeshDistanceMaterial a shadow pass renders with —
+// share the uniform objects with applyNoise's and the shadow tracks the
+// displacement instead of being cast by the undeformed shape.
+export function applyNoiseDepth(material, uniforms) {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
+      .replace('#include <begin_vertex>', DEPTH_CHUNK);
+  };
+  material.customProgramCacheKey = () => 'td-noise-depth';
   material.needsUpdate = true;
 }
