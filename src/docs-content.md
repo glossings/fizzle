@@ -23,7 +23,7 @@ torusKnot({ radius: 1.1, tube: 0.32, res: 96 })
   .out()
 
 scene()
-  .comp(input().transform({ scale: 1.012, rotate: 0.004 }), 'over', 0.86)
+  .comp(input().transform({ scale: 1.012, rotate: 0.004 }), 'over', 0.68)
   .bloom({ threshold: 0.55, strength: 0.9 })
   .out()
 ```
@@ -117,7 +117,9 @@ browser, surviving reloads) with the call typed at your cursor. An empty
 case-insensitive substring, so `model('ship')` finds `ship_final_v2.fbx`.
 
 A model is a geometry op like any other — every chain method works on it,
-`.instance()` included:
+`.instance()` included. (`ship.obj` below is a starter file that comes with
+fizzle, so this runs before you've imported anything of your own — see
+**media files**.)
 
 ```js
 ambient(0.2)
@@ -250,7 +252,7 @@ something to reflect: an `hdri()` environment does far more for them than point
 lights do.
 
 ```js
-hdri('kloofendal_43d_clear_puresky_2k.hdr', { blur: 0.4 })
+hdri('kloofendal_43d_clear_puresky_1k.hdr', { blur: 0.4 })
 
 sphere({ radius: 1.3, res: 96 })
   .material({
@@ -270,10 +272,10 @@ The same `.material()` takes texture maps. `pbr:` is the shorthand for a whole
 set of them at once:
 
 ```js
-hdri('kloofendal_43d_clear_puresky_2k.hdr', { blur: 0.3 })
+hdri('kloofendal_43d_clear_puresky_1k.hdr', { blur: 0.3 })
 
 sphere({ radius: 1.4, res: 128 })
-  .material({ pbr: 'rusty_metal_2k', repeat: 2 })
+  .material({ pbr: 'cobblestone_floor_08_1k', repeat: 2 })
   .out()
 ```
 
@@ -291,6 +293,9 @@ Two ways to get a set in:
   the handle: `.material({ pbr: 'rock_wall' })`.
 
 ```js
+ambient(0.35)
+directional({ intensity: 1.6 }).pos(4, 6, 3).out()
+
 sphere({ radius: 1.4, res: 128 })
   .material()   // ctrl+enter -> browse -> .material({ pbr: 'moss_2k', repeat: 2 })
   .out()
@@ -307,13 +312,24 @@ Individual slots take an imported image by name (exact, or case-insensitive
 substring, like every other file here), or mix with a set:
 
 ```js
+ambient(0.3)
+directional({ intensity: 1.6 }).pos(4, 8, 6).out()
+camera(0, 3, 9)
+
 plane({ width: 20, height: 20, res: 200 })
   .rotate(-Math.PI / 2, 0, 0)
-  .material({ pbr: 'cobblestone_2k', repeat: 8, displaceScale: 0.4 })
+  .pos(0, -1.5, 0)
+  .material({ pbr: 'cobblestone_floor_08_1k', repeat: 8, displaceScale: 0.4 })
   .out()
 
 box({ res: 2 })
-  .material({ map: 'label.png', normalMap: 'scratches.png', roughness: 0.4 })
+  .scale(2)
+  .rotate(0, t => t * 0.3, 0)
+  .material({
+    map: 'cobblestone_floor_08_1k/diff.jpg',
+    normalMap: 'cobblestone_floor_08_1k/nor_gl.jpg',
+    roughness: 0.4,
+  })
   .out()
 ```
 
@@ -351,7 +367,7 @@ entirely reflection, and without an environment there is nothing to reflect —
 crank metalness under plain lights and you get black.
 
 ```js
-hdri('kloofendal_43d_clear_puresky_2k.hdr', {
+hdri('kloofendal_43d_clear_puresky_1k.hdr', {
   blur: 0.4,                    // soft sky, unchanged lighting
   rotation: t => t * 0.05,      // drift the whole rig
 })
@@ -573,9 +589,14 @@ brightness; `color` does the reverse.
 ```js
 noise({ freq: 3, channels: 3, speed: 0.3 })
   .blur([20, 6])
-  .comp(text('fizzle'), 'luminosity')   // the noise's colors, the text's shape
-  .out()
+  .comp(text('fizzle', { color: '#dddddd', bg: '#222222' }), 'luminosity')
+  .out()   // the noise's colors, the text's brightness
 ```
+
+The layer contributes brightness *only*, so its own extremes are worth
+avoiding: there is exactly one color at luminance 1 and one at 0, and asking
+for either takes the base's hue with it. A layer of pure white text on pure
+black comes back as pure white text on pure black — hence the grays above.
 
 Between them they're a luma/chroma split with no dedicated op: blur a picture
 into mush, comp the untouched original back over it in `luminosity`, and only
@@ -714,10 +735,10 @@ The other direction: any TOP chain can be a **map on a material**, wherever a
 filename goes. The chain re-renders every frame, so the surface is live.
 
 ```js
-ambient(0.25)
-directional({ intensity: 1.6 }).pos(3, 5, 4).out()
+ambient(0.5)
+directional({ intensity: 2.4 }).pos(3, 5, 4).out()
 
-box({ width: 3.2, height: 2, depth: 0.2, res: 2 })
+box({ width: 4.4, height: 2.8, depth: 0.25, res: 2 })
   .rotate(0, t => Math.sin(t * 0.4) * 0.6, 0)
   .material({
     map: noise({ freq: 3, octaves: 4, speed: 0.3, a: '#1a0533', b: '#4fd1c5' })
@@ -742,6 +763,9 @@ A bus works here like anywhere else, which is how you build a chain once and
 hang it on several surfaces — or just keep the wiring readable:
 
 ```js
+ambient(0.4)
+directional({ intensity: 1.4 }).pos(3, 5, 6).out()
+
 ramp({ type: 'angular', a: '#1a0533', b: '#ff5f9e' })
   .rotate(t => t * 0.3)
   .posterize(6)
@@ -751,10 +775,13 @@ plane({ width: 4, height: 2.5 }).pos(-2.5, 0, 0)
   .material({ map: input('feed') })
   .out()
 
-box({ res: 2 }).pos(2.5, 0, 0)
+box({ res: 2 }).scale(2).pos(2.5, 0, 0)
   .material({ map: input('feed').invert(), roughness: 0.3 })
   .out()
 ```
+
+A map is a surface, not a light: these are lit like anything else, and a
+mapped shape in an unlit scene is as black as an unmapped one.
 
 Chains this way are a **pre-pass**: they render at the top of the frame, before
 the 3D render that samples them. Anything that doesn't depend on the 3D render
@@ -765,11 +792,25 @@ rule `input()` follows, and it's a feedback loop worth having — a screen insid
 the scene showing the scene, one frame behind:
 
 ```js
+bg('#101a2e')
+ambient(0.35)
+directional({ intensity: 1.5 }).pos(3, 5, 6).out()
+
 plane({ width: 4, height: 3 })
   .pos(0, 1, -2)
   .material({ map: scene().transform({ scale: 0.98 }).hue(0.02) })
   .out()
+
+torus({ radius: 0.6, tube: 0.22, res: 48 })
+  .pos(t => Math.sin(t) * 1.6, 1, 0.6)
+  .rotate(t => t * 0.7, t => t * 0.4, 0)
+  .color('#ffd166')
+  .out()
 ```
+
+The screen has to have something to show, hence the torus in front of it: the
+loop only ever hands back what the camera saw last frame, so a scene whose
+only object *is* the screen stays black forever.
 
 A sketch can be entirely 3D and still use this — with no TOP `.out()` anywhere,
 the scene still displays as normal and only the map chains run.
@@ -811,6 +852,12 @@ you had open, restored) has no such gesture, so it says which key to press in
 the status bar and waits. An unmatched name lists what's imported in the
 console.
 
+**Starter files.** Three imports come with fizzle, so the examples above run
+before you've dropped anything in: `ship.obj`, the HDRI
+`kloofendal_43d_clear_puresky_1k.hdr`, and the material
+`cobblestone_floor_08_1k` (the latter two from Poly Haven, CC0). They resolve
+by name like anything else, and an import of the same name shadows them.
+
 - `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
   TOP. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
   soundtrack.
@@ -845,7 +892,10 @@ doesn't restart your clip. To rewind:
   rewinds. `videofile('clip.mp4', { restart: beat(8).sqr(0.05) })` restarts
   every 8 beats; `{ restart: audio().kicks() }` on every kick.
 
-```js
+No video or audio ships with fizzle, so this one is a template rather than a
+live block — drop your own files in and the names write themselves:
+
+```js static
 const kick = audiofile('drums.mp3').bandpass(30, 160).kicks()
 
 videofile('clip.mp4', { speed: 1, restart: beat(16).sqr(0.05) })

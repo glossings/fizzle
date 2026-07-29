@@ -16,6 +16,17 @@ import { SNOISE_GLSL } from './noise.js';
 //     .out()
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
+
+// A color literal has to reach the shader as the numbers it was written as:
+// TOPs work in display space from end to end (that's what the scene TOP's
+// tonemap pass establishes), and the final pass copies them to the canvas
+// unencoded. THREE.Color's default set() decodes sRGB into three's linear
+// working space, which nothing here re-encodes — so '#4fd1c5' would land on
+// screen as (20,164,143) instead of (79,209,197), and differently again from
+// the same hex in text(), which is drawn on a 2D canvas. LinearSRGBColorSpace
+// means "already in working space": no conversion.
+const setColor = (target, v, t) => target.setStyle(String(resolve(v, t)), THREE.LinearSRGBColorSpace);
+
 const setVec3 = (target, v, t) => {
   v = resolve(v, t);
   if (Array.isArray(v)) target.set(resolve(v[0], t), resolve(v[1], t), resolve(v[2], t));
@@ -94,8 +105,8 @@ const SPECS = {
       }`,
     update(u, p, t) {
       u.uMode.value = { linear: 0, radial: 1, angular: 2 }[p.type ?? 'linear'] ?? 0;
-      u.uColA.value.set(resolve(p.a ?? '#000000', t));
-      u.uColB.value.set(resolve(p.b ?? '#ffffff', t));
+      setColor(u.uColA.value, p.a ?? '#000000', t);
+      setColor(u.uColB.value, p.b ?? '#ffffff', t);
       u.uAngle.value = resolve(p.angle ?? 0, t);
       u.uPhase.value = resolve(p.phase ?? 0, t);
     },
@@ -114,8 +125,8 @@ const SPECS = {
       u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
       u.uRadius.value = resolve(p.radius ?? 0.25, t);
       u.uSoft.value = resolve(p.soft ?? 0.01, t);
-      u.uColA.value.set(resolve(p.color ?? '#ffffff', t));
-      u.uColB.value.set(resolve(p.bg ?? '#000000', t));
+      setColor(u.uColA.value, p.color ?? '#ffffff', t);
+      setColor(u.uColB.value, p.bg ?? '#000000', t);
     },
   },
 
@@ -154,8 +165,8 @@ const SPECS = {
       u.uSpeed.value = resolve(p.speed ?? 0.3, t);
       u.uSeed.value = resolve(p.seed ?? 0, t);
       u.uChannels.value = Math.min(4, Math.max(1, Math.round(resolve(p.channels ?? 1, t))));
-      u.uColA.value.set(resolve(p.a ?? '#000000', t));
-      u.uColB.value.set(resolve(p.b ?? '#ffffff', t));
+      setColor(u.uColA.value, p.a ?? '#000000', t);
+      setColor(u.uColB.value, p.b ?? '#ffffff', t);
     },
   },
 
@@ -526,7 +537,7 @@ function inferUniform(v) {
   if (Array.isArray(v)) {
     return { value: v.length === 3 ? new THREE.Vector3(...v) : new THREE.Vector2(...v) };
   }
-  return { value: new THREE.Color(v) };
+  return { value: new THREE.Color().setStyle(v, THREE.LinearSRGBColorSpace) };
 }
 
 function makeMaterial(spec) {
@@ -553,6 +564,13 @@ function makeMaterial(spec) {
     uniforms,
     depthTest: false,
     depthWrite: false,
+    // These passes do their own color management (MAT_TONEMAP *is* the ACES
+    // pass), and three prepends its tone mapping chunk to any toneMapped
+    // ShaderMaterial drawn straight to the canvas — where its RRTAndODTFit
+    // collides with ours and the shader fails to compile. Rendering to a target
+    // skips the chunk, so the same material would compile there and nowhere
+    // else: black canvas, no error but the console.
+    toneMapped: false,
   });
 }
 
@@ -1044,6 +1062,7 @@ export class TopOp {
           uniforms,
           depthTest: false,
           depthWrite: false,
+          toneMapped: false,
         });
       }
       const out = this._rt(ctx);

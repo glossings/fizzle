@@ -38,17 +38,57 @@ async function tx(mode, fn) {
 export const mediaPut = (file, name = file.name) =>
   tx('readwrite', (s) => s.put({ name: String(name), type: file.type, blob: file }));
 export const mediaDelete = (name) => tx('readwrite', (s) => s.delete(name));
-export const mediaList = () => tx('readonly', (s) => s.getAllKeys());
+
+// The starter files served from public/media/. They're named and looked up
+// exactly like imported ones, so a fresh install can run the examples with
+// nothing dropped in yet — and an import of the same name shadows them.
+// The material keeps Poly Haven's own 'slug_1k/map.jpg' layout, which is what
+// a download through the asset browser produces, so a sketch reads the same
+// either way.
+const BUNDLED = [
+  'ship.obj',
+  'kloofendal_43d_clear_puresky_1k.hdr',
+  'cobblestone_floor_08_1k/diff.jpg',
+  'cobblestone_floor_08_1k/nor_gl.jpg',
+  'cobblestone_floor_08_1k/arm.jpg',
+  'cobblestone_floor_08_1k/disp.jpg',
+];
+
+const bundledCache = new Map();
+function bundledGet(name) {
+  let rec = bundledCache.get(name);
+  if (!rec) {
+    rec = fetch(`${import.meta.env.BASE_URL}media/${name}`).then(async (r) => {
+      if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+      const blob = await r.blob();
+      return { name, type: blob.type, blob };
+    });
+    rec.catch(() => bundledCache.delete(name)); // a failed fetch retries next run
+    bundledCache.set(name, rec);
+  }
+  return rec;
+}
+
+// Imported files first, so a name that exists both ways resolves to the one
+// that was dropped in.
+export const mediaList = async () => {
+  const keys = await tx('readonly', (s) => s.getAllKeys());
+  return [...keys, ...BUNDLED.filter((n) => !keys.includes(n))];
+};
 
 // `accept` narrows the search to filenames it approves of, so a substring
 // lookup for a model can't land on the image of the same name
 export async function mediaGet(name, accept) {
   const ok = (n) => !accept || accept(n);
-  const exact = await tx('readonly', (s) => s.get(String(name)));
+  const get = (key) => tx('readonly', (s) => s.get(key));
+  const exact = await get(String(name));
   if (exact && ok(exact.name)) return exact;
   const n = String(name).toLowerCase();
   const match = (await mediaList()).find((k) => k.toLowerCase().includes(n) && ok(k));
-  return match ? tx('readonly', (s) => s.get(match)) : null;
+  if (!match) return null;
+  // mediaList() also lists the bundled files, which have no IndexedDB record —
+  // those are fetched from public/media/ instead
+  return (await get(match)) ?? bundledGet(match);
 }
 
 export function classifyFile(file) {

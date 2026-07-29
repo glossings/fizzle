@@ -13,6 +13,8 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { apiCompletions, apiHover, GLOBALS, METHODS } from './docs.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
+import { initPolyhaven } from './polyhaven.js';
+import { mediaPut, pickFiles } from './media.js';
 import CONTENT from './docs-content.md?raw';
 
 // --- preview engine --------------------------------------------------------
@@ -36,9 +38,10 @@ new ResizeObserver(() => engine.resize()).observe(canvas);
 
 const statusEl = document.getElementById('preview-status');
 const pauseBtn = document.getElementById('preview-pause');
+const polyhaven = initPolyhaven();
 let activeEx = null;
 
-function runExample(code, exEl) {
+function runExample(code, exEl, ctx) {
   engine.paused = false;
   pauseBtn.textContent = '⏸';
   const err = engine.run(code, api);
@@ -51,6 +54,57 @@ function runExample(code, exEl) {
   } else {
     statusEl.textContent = '✓ running';
     statusEl.className = 'ok';
+  }
+  if (!err && engine.pendingPick && ctx) handlePick(ctx);
+}
+
+// An empty videofile()/model()/… asks for a file picker, an empty
+// hdri()/.material() for the Poly Haven browser — same as in the app, and
+// served the same way here, writing the choice back into the block that asked
+// for it. A run is always a click or a ctrl+enter, so the user activation a
+// file dialog needs is already in hand.
+let picking = false;
+
+async function handlePick({ view, rerun }) {
+  // a picker already open owns the gesture; the run that queued this one has
+  // been superseded anyway
+  if (picking) return;
+  const req = engine.pendingPick;
+  engine.pendingPick = null;
+  // a block that autoran on page load has no activation to spend on a dialog
+  if (navigator.userActivation && !navigator.userActivation.isActive) {
+    statusEl.textContent = `${req.fn}() has nothing to show yet — press ctrl+enter in the block to pick something`;
+    statusEl.className = 'err';
+    return;
+  }
+  picking = true;
+  let pick = null;
+  try {
+    if (req.browse) {
+      const chosen = await polyhaven.open(req.browse);
+      const q = chosen && JSON.stringify(chosen.handle);
+      if (chosen) pick = chosen.type === 'textures' ? `{ pbr: ${q}, repeat: 2 }` : q;
+    } else {
+      const files = await pickFiles(req.kind, req.multiple);
+      for (const f of files) await mediaPut(f);
+      const q = (f) => JSON.stringify(f.name);
+      if (files.length) pick = req.multiple ? `[${files.map(q).join(', ')}]` : q(files[0]);
+    }
+  } catch (e) {
+    statusEl.textContent = String(e.message ?? e);
+    statusEl.className = 'err';
+  } finally {
+    picking = false;
+  }
+  if (pick == null) return;
+  // fill the arguments into the empty call that asked, then run it again
+  const doc = view.state.doc.toString();
+  for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${req.fn}\\(\\s*\\)`, 'g'))) {
+    const lineStart = doc.lastIndexOf('\n', m.index) + 1;
+    if (doc.slice(lineStart, m.index).includes('//')) continue;
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${req.fn}(${pick})` } });
+    rerun();
+    return;
   }
 }
 
@@ -73,10 +127,13 @@ function makeExample(code, autorun) {
   const ex = document.createElement('div');
   ex.className = 'ex';
 
+  // the block runs itself: also how a filled-in pick re-runs (see handlePick)
+  const rerun = () => runExample(view.state.doc.toString(), ex, { view, rerun });
+
   const runKeys = Prec.highest(
     keymap.of([
-      { key: 'Ctrl-Enter', run: (v) => { runExample(v.state.doc.toString(), ex); return true; } },
-      { key: 'Shift-Enter', run: (v) => { runExample(v.state.doc.toString(), ex); return true; } },
+      { key: 'Ctrl-Enter', run: () => { rerun(); return true; } },
+      { key: 'Shift-Enter', run: () => { rerun(); return true; } },
       { key: 'Tab', run: acceptCompletion },
       { key: 'Tab', run: indentMore, shift: indentLess },
     ])
@@ -100,7 +157,7 @@ function makeExample(code, autorun) {
   const runBtn = document.createElement('button');
   runBtn.textContent = '▶';
   runBtn.title = 'run in the preview (ctrl+enter)';
-  runBtn.addEventListener('click', () => runExample(view.state.doc.toString(), ex));
+  runBtn.addEventListener('click', rerun);
   const openBtn = document.createElement('button');
   openBtn.textContent = '⧉';
   openBtn.title = 'open in the app editor';
@@ -111,7 +168,7 @@ function makeExample(code, autorun) {
   btns.append(runBtn, openBtn);
   ex.appendChild(btns);
 
-  if (autorun) queueMicrotask(() => runExample(code, ex));
+  if (autorun) queueMicrotask(rerun);
   return ex;
 }
 
@@ -143,7 +200,9 @@ function renderMarkdown(md, root) {
       while (i < lines.length && !/^```/.test(lines[i])) codeLines.push(lines[i++]);
       i++; // closing fence
       const code = codeLines.join('\n');
-      if (fence[1] === 'js') {
+      // ```js — a live editor; ```js static — a snippet that can't run here
+      // (it names files only you have), so it renders as plain code
+      if (fence[1] === 'js' && !fence[2].includes('static')) {
         root.appendChild(makeExample(code, fence[2].includes('autorun')));
       } else {
         const pre = document.createElement('pre');

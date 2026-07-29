@@ -12,6 +12,9 @@
 
 import { mediaPut, mediaList, pickFiles } from './media.js';
 import { commonPrefix } from './pbr.js';
+// the browser carries its own styles, so both pages that can open it — the app
+// and the docs — get them by importing the module
+import './polyhaven.css';
 
 const API = 'https://api.polyhaven.com';
 const LS_INDEX = 'td-polyhaven-index'; // asset lists, refetched daily

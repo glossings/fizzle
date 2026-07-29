@@ -412,7 +412,7 @@ export class Engine {
         s.missing = true;
         const sets = [...new Set(all.filter((n) => IMAGE_RE.test(n) && n.includes('/')).map((n) => n.slice(0, n.lastIndexOf('/'))))];
         console.warn(
-          `fizzle: material: no maps matching pbr: "${prefix}" — browse materials in the sidebar, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
+          `fizzle: material: no maps matching pbr: "${prefix}" — run an empty .material() to browse Poly Haven, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
         );
       }
       return s.maps;
@@ -438,14 +438,14 @@ export class Engine {
           h.missing = true;
           const names = (await mediaList()).filter((n) => HDRI_RE.test(n));
           throw new Error(
-            `nothing imported matching "${name}" — browse HDRIs in the sidebar, or drop an .hdr/.exr in. Imported: ${names.map((n) => `"${n}"`).join(', ') || 'none'}`
+            `nothing imported matching "${name}" — run an empty hdri() to browse Poly Haven, or drop an .hdr/.exr in. Imported: ${names.map((n) => `"${n}"`).join(', ') || 'none'}`
           );
         }
         // both parsers are big and most sketches never load an HDRI, so they
         // arrive on first use rather than at page load (like the FBX one)
         const loader = /\.exr$/i.test(rec.name)
           ? new (await import('three/addons/loaders/EXRLoader.js')).EXRLoader()
-          : new (await import('three/addons/loaders/RGBELoader.js')).RGBELoader();
+          : new (await import('three/addons/loaders/HDRLoader.js')).HDRLoader();
         const url = URL.createObjectURL(rec.blob);
         const tex = await loader.loadAsync(url);
         URL.revokeObjectURL(url);
