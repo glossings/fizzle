@@ -47,3 +47,26 @@ Euler by hand inside a sketch is miserable.
 [ ] Add a `path()` helper wrapping `THREE.CatmullRomCurve3`, exposing
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
+
+## `box().noise()` comes apart at the edges
+
+Displacement is `p + n * d * uAmp` along the vertex normal
+([src/noise.js:82](src/noise.js#L82)). `BoxGeometry`
+([src/api.js:136](src/api.js#L136)) stores each of the 6 faces separately, so
+the corner at (0.5, 0.5, 0.5) is three vertices with normals +X, +Y and +Z.
+Same position means the same `d`, but three different directions — the faces
+slide apart and the box reads as falling to pieces rather than deforming. Gap
+size scales with `amp`. Sphere and torus are fine: their duplicated seam
+vertices share a normal, so the copies move together.
+
+[ ] Bake an averaged displacement direction at build time — weld by position,
+  `computeVertexNormals`, scatter the result back over the original vertex
+  order as a `dispNormal` attribute — and displace along that in
+  `NORMAL_CHUNK`/`DEPTH_CHUNK` while `normal` stays as-is for the tangent
+  basis. Seam copies then share one direction. UVs survive, so texture maps and
+  PBR are unaffected, and geometry without split normals is unchanged.
+
+  The cheap alternatives are both worse: `mergeVertices` after stripping
+  normals/uvs destroys the texture coordinates, and displacing along
+  `normalize(position)` fixes the box but changes what noise feels like on
+  everything else.
