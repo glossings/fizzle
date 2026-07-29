@@ -20,7 +20,7 @@ const FLOOR_W = 54, FLOOR_L = 198
 const loopZ = (offset, run, t) => ((offset + t * SPEED) % run + run) % run - run + 16
 
 bg('#e7b9d4')
-fog('#e7b9d4', 8, 54)
+fog({ color: '#e7b9d4', near: 8, far: 54 })
 
 camera(
   t => Math.sin(t * 0.31) * 1.3,
@@ -41,7 +41,7 @@ directional({
   shadow: { area: 40, soft: 2.5, far: 120, strength: 0.94 },
 }).pos(30, 11, 6).target(-4, 0, -18).out()
 
-ambient(0.2, '#cbd8ff')
+ambient({ intensity: 0.2, color: '#cbd8ff' })
 hemi({ sky: '#ffd6ee', ground: '#5d4f6e', intensity: 0.7 }).out()
 
 // --- room ---

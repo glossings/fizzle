@@ -494,6 +494,8 @@ const SPECS = {
 
 const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, black: 3 };
 
+// First spelling of each mode is the canonical one — that's the set docs and
+// completion offer (BLEND_MODE_NAMES); the rest are aliases.
 const BLEND_MODES = {
   over: 0, normal: 0,
   add: 1,
@@ -501,18 +503,22 @@ const BLEND_MODES = {
   mult: 3, multiply: 3,
   screen: 4,
   overlay: 5,
-  hardlight: 6, hardLight: 6,
-  softlight: 7, softLight: 7,
+  hardLight: 6, hardlight: 6,
+  softLight: 7, softlight: 7,
   darken: 8,
   lighten: 9,
-  diff: 10, difference: 10,
+  difference: 10, diff: 10,
   exclusion: 11,
   dodge: 12, colorDodge: 12,
   burn: 13, colorBurn: 13,
-  div: 14, divide: 14,
-  lum: 15, luminosity: 15,
+  divide: 14, div: 14,
+  luminosity: 15, lum: 15,
   color: 16,
 };
+
+export const BLEND_MODE_NAMES = Object.keys(BLEND_MODES).filter(
+  (name, i, all) => all.findIndex((n) => BLEND_MODES[n] === BLEND_MODES[name]) === i
+);
 
 // ---------------------------------------------------------------------------
 // pass plumbing
@@ -791,7 +797,11 @@ export class TopOp {
     if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
     return this._n('displace', { ...o, amount }, [this._top(map, 'displace')]);
   }
-  comp(layer, mode = 'over', opacity = 1) { return this._n('comp', { mode, opacity }, [this._top(layer, 'comp')]); }
+  // options object in the mode slot: .comp(layer, { mode, opacity })
+  comp(layer, mode = 'over', opacity = 1) {
+    if (typeof mode === 'object' && mode !== null) ({ mode = 'over', opacity = 1 } = mode);
+    return this._n('comp', { mode, opacity }, [this._top(layer, 'comp')]);
+  }
   // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
   // apply fn only where the mask is bright: dry→wet blend by mask luma.
   // Both the mask and the fn's return may be fns of the chain so far.

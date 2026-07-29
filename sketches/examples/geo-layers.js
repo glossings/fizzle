@@ -3,7 +3,7 @@
 // Each layer gets its own treatment before they comp back together.
 
 bg('#000008')
-ambient(0.35)
+ambient({ intensity: 0.35 })
 point({ color: '#ffffff', intensity: 70 }).pos(4, 4, 4).out()
 point({ color: '#7788ff', intensity: 40 }).pos(-4, -1, 3).out()
 

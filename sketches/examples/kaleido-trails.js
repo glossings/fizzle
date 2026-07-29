@@ -1,7 +1,7 @@
 // kaleidoscope + video feedback trails over a noisy torus knot
 
 bg('#050508')
-ambient(0.2)
+ambient({ intensity: 0.2 })
 point({ color: '#77ddff', intensity: 50 }).pos(3, 4, 2).out()
 point({ color: '#ff9955', intensity: 35 }).pos(-4, -2, -3).out()
 

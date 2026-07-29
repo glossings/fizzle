@@ -3,8 +3,8 @@
 // click any color swatch (or type #) for a color picker
 
 bg('#07070c')
-fog('#07070c', 8, 40)
-ambient(0.15)
+fog({ color: '#07070c', near: 8, far: 40 })
+ambient({ intensity: 0.15 })
 directional({ intensity: 1.4 }).pos(4, 6, 3).out()
 point({ color: '#ff5f9e', intensity: 60 }).pos(t => Math.sin(t) * 6, 3, -4).out()
 point({ color: '#4fd1ff', intensity: 40 }).pos(-5, -2, 5).out()

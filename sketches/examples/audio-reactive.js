@@ -3,7 +3,7 @@
 // a fn of t goes. Play some music at your machine.
 
 bg('#05050a')
-ambient(0.25)
+ambient({ intensity: 0.25 })
 point({ color: '#88bbff', intensity: 60 }).pos(4, 4, 3).out()
 point({ color: '#ff7f9e', intensity: 40 }).pos(-4, 1, 2).out()
 

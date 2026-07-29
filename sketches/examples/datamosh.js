@@ -32,8 +32,8 @@ const keyframe = t => (t % (KEEP + DROP) < KEEP ? 1 : 0)
 // --- the shot ---
 
 bg('#04040a')
-fog('#04040a', 4, 42)
-ambient(0.2)
+fog({ color: '#04040a', near: 4, far: 42 })
+ambient({ intensity: 0.2 })
 
 camera(
   t => sway(t, 0),

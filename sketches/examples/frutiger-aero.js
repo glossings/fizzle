@@ -5,7 +5,7 @@
 // three's physical material; everything else stays on the cheaper standard one.
 
 bg('#6fd3ec')
-ambient(0.5, '#d6f2ff')
+ambient({ intensity: 0.5, color: '#d6f2ff' })
 hemi({ sky: '#bfefff', ground: '#3fae7a', intensity: 1.1 }).out()
 directional({ intensity: 2.2 }).pos(5, 8, 4).out()
 point({ color: '#7fffd4', intensity: 90 }).pos(-6, -2, 4).out()

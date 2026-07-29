@@ -2,7 +2,7 @@
 // overlays its *own* edges — here tinted magenta and added on top
 
 bg('#04040a')
-ambient(0.3)
+ambient({ intensity: 0.3 })
 point({ color: '#88aaff', intensity: 60 }).pos(4, 3, 3).out()
 point({ color: '#ffaa66', intensity: 40 }).pos(-3, -2, 4).out()
 

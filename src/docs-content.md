@@ -13,7 +13,7 @@ the full app in a new tab. Try it:
 
 ```js autorun
 bg('#05060a')
-ambient(0.25)
+ambient({ intensity: 0.25 })
 directional({ intensity: 1.6 }).pos(4, 6, 3).out()
 
 torusKnot({ radius: 1.1, tube: 0.32, res: 96 })
@@ -77,7 +77,7 @@ value or `t => ...` for an animated one. Parameters are re-evaluated every
 frame, so animation uses the same syntax as static values.
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).pos(3, 5, 2).out()
 
 sphere({ radius: 1, res: 64 })
@@ -122,7 +122,7 @@ fizzle, so this runs before you've imported anything of your own — see
 **media files**.)
 
 ```js
-ambient(0.2)
+ambient({ intensity: 0.2 })
 directional({ intensity: 1.4 }).pos(4, 6, 3).out()
 
 model('ship.obj')
@@ -161,7 +161,7 @@ GPU fbm simplex displacement along vertex normals; normals are recomputed in
 the vertex shader so lighting stays correct.
 
 ```js
-ambient(0.15)
+ambient({ intensity: 0.15 })
 directional({ intensity: 0.8 }).pos(-3, 4, 5).out()
 point({ color: '#ff5f9e', intensity: 80 }).pos(t => Math.sin(t) * 4, 3, 2).out()
 
@@ -187,7 +187,7 @@ fns of `t`. It runs every frame, so instances animate. Each instance seeds the
 noise field from its own position, so copies deform differently.
 
 ```js
-ambient(0.2)
+ambient({ intensity: 0.2 })
 directional({ intensity: 1.4 }).pos(4, 6, 3).out()
 
 box({ res: 4 })
@@ -293,7 +293,7 @@ Two ways to get a set in:
   the handle: `.material({ pbr: 'rock_wall' })`.
 
 ```js
-ambient(0.35)
+ambient({ intensity: 0.35 })
 directional({ intensity: 1.6 }).pos(4, 6, 3).out()
 
 sphere({ radius: 1.4, res: 128 })
@@ -312,7 +312,7 @@ Individual slots take an imported image by name (exact, or case-insensitive
 substring, like every other file here), or mix with a set:
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.6 }).pos(4, 8, 6).out()
 camera(0, 3, 9)
 
@@ -399,7 +399,7 @@ Fonts automatically. Use `'google:Name'` to skip the local lookup, or a
 helvetiker until they arrive, then swap in.
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.6 }).pos(2, 4, 6).out()
 
 text3d('fizzle', { size: 1.2, depth: 0.3, bevel: 0.03 })
@@ -416,8 +416,8 @@ through the dev server, so it needs `npm run dev`, not a static build.)
 
 ```js
 bg('#07070c')
-fog('#07070c', 6, 30)
-ambient(0.1)
+fog({ color: '#07070c', near: 6, far: 30 })
+ambient({ intensity: 0.1 })
 hemi({ sky: '#333366', ground: '#221100' }).out()
 point({ color: '#4fd1c5', intensity: 70 }).pos(t => Math.cos(t) * 4, 2, t => Math.sin(t) * 4).out()
 camera(t => Math.sin(t * 0.15) * 9, 4, t => Math.cos(t * 0.15) * 9)
@@ -429,9 +429,13 @@ plane({ width: 24, height: 24, res: 128 })
   .out()
 ```
 
-- `ambient(intensity, color?)` is added immediately (no `.out()` needed);
-  `directional` / `point` / `spot` / `hemi` chain `.pos(x, y, z).out()`, and
-  `.pos` accepts fns of `t` for moving lights.
+- Every light is configured the same way — `ambient({ intensity })`,
+  `directional({ intensity, color })`, `point({ intensity, distance, decay })`
+  — and every value takes a fn of `t`.
+- `directional` / `point` / `spot` / `hemi` chain `.pos(x, y, z).out()`, and
+  `.pos` accepts fns of `t` for moving lights. `ambient` is the exception: it
+  arrives evenly from everywhere, so it has no position and adds itself without
+  an `.out()`.
 - `spot({ angle, penumbra })` is a cone from `.pos()` toward `.target()` —
   `angle` is its half-width in radians, `penumbra` (0..1) how soft the rim is.
   `directional` takes a `.target(x, y, z)` too; both aim at the origin without
@@ -439,7 +443,7 @@ plane({ width: 24, height: 24, res: 128 })
 - `camera(x, y, z, [tx, ty, tz])` with static numbers places the camera and
   leaves orbit controls live. If **any** argument is a function of time, the
   sketch drives the camera and orbiting is disabled until you re-run without it.
-- `bg(color)` and `fog(color, near, far)` set the scene backdrop.
+- `bg(color)` and `fog({ color, near, far })` set the scene backdrop.
 
 ### shadows
 
@@ -484,7 +488,7 @@ textures, evaluated as a graph each frame; end a chain with `.out()` to make
 it the display output. With no TOP `.out()`, the scene renders directly.
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 torus({ radius: 1.2, tube: 0.4, res: 64 }).rotate(t => t * 0.5, t => t * 0.3, 0).color('#ff5f9e').out()
 
@@ -577,7 +581,9 @@ circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
 
 ## compositing
 
-`.comp(layer, mode, opacity)` composites `layer` over the chain. Modes:
+`.comp(layer, { mode, opacity })` composites `layer` over the chain (positional
+`.comp(layer, mode, opacity)` works too, and is the shorter one to type mid-set).
+Modes:
 `over` `add` `sub` `mult` `divide` `screen` `overlay` `hardLight` `softLight`
 `darken` `lighten` `difference` `exclusion` `dodge` `burn` `luminosity`
 `color`.
@@ -682,7 +688,7 @@ bus anywhere — including in a completely separate chain, so networks don't
 have to be a single expression.
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 icosa({ radius: 1.2 }).noise({ amp: 0.3, freq: 2, speed: 0.4 }).color('#8899ff').out()
 
@@ -718,7 +724,7 @@ comp cleanly with `add`/`screen`/`lighten`. Lights hit every layer by default;
 a light's own `.out('name')` restricts it to one layer.
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.4 }).pos(4, 6, 3).out()
 
 torusKnot({ res: 96 }).rotate(0, t => t * 0.5, 0).color('#8899ff').out('knot')
@@ -735,7 +741,7 @@ The other direction: any TOP chain can be a **map on a material**, wherever a
 filename goes. The chain re-renders every frame, so the surface is live.
 
 ```js
-ambient(0.5)
+ambient({ intensity: 0.5 })
 directional({ intensity: 2.4 }).pos(3, 5, 4).out()
 
 box({ width: 4.4, height: 2.8, depth: 0.25, res: 2 })
@@ -763,7 +769,7 @@ A bus works here like anywhere else, which is how you build a chain once and
 hang it on several surfaces — or just keep the wiring readable:
 
 ```js
-ambient(0.4)
+ambient({ intensity: 0.4 })
 directional({ intensity: 1.4 }).pos(3, 5, 6).out()
 
 ramp({ type: 'angular', a: '#1a0533', b: '#ff5f9e' })
@@ -793,7 +799,7 @@ the scene showing the scene, one frame behind:
 
 ```js
 bg('#101a2e')
-ambient(0.35)
+ambient({ intensity: 0.35 })
 directional({ intensity: 1.5 }).pos(3, 5, 6).out()
 
 plane({ width: 4, height: 3 })
@@ -914,7 +920,7 @@ into any parameter. First use starts capture (browser permission prompt).
 const kick = audio().bandpass(30, 160).kicks()
 const bass = audio().lowpass(150).smooth(0.03, 0.2)
 
-ambient(0.2)
+ambient({ intensity: 0.2 })
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 
 icosa({ radius: 1 })
@@ -987,7 +993,7 @@ per trigger:
 ```js
 const hit = beat(1).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())
 
-ambient(0.25)
+ambient({ intensity: 0.25 })
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 
 sphere({ res: 96 })
@@ -1007,7 +1013,7 @@ LFOs don't need it — `t => Math.sin(t)` is already idiomatic everywhere.
 - `onFrame((t, dt) => ...)` — register a raw per-frame callback.
 
 ```js
-ambient(0.3)
+ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).pos(4, 6, 3).out()
 
 // THREE for math the API doesn't wrap: lerp between two colors over time

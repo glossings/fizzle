@@ -545,7 +545,13 @@ class LightOp {
     this._pos = [3, 4, 2];
     this._target = null;
   }
-  pos(x, y, z) { this._pos = [x, y, z]; return this; }
+  pos(x, y, z) {
+    if (this.light.isAmbientLight) {
+      throw new Error('ambient: arrives evenly from every direction, so it has nowhere to be — hemi(), directional() or point() light from somewhere');
+    }
+    this._pos = [x, y, z];
+    return this;
+  }
   // Where a directional or spot light points; both aim at the origin without
   // it. Components take fns of t like .pos, so the beam can sweep.
   target(x = 0, y = 0, z = 0) {
@@ -560,6 +566,9 @@ class LightOp {
     // mask); .out('name') restricts one to a single named geometry layer
     if (name != null) this.light.layers.set(this.engine.geoLayer(String(name)));
     else this.light.layers.enableAll();
+    // ambient() adds itself, so calling .out() on one only re-layers it
+    if (this._added) return this;
+    this._added = true;
     // intensity and colour animate like everything else in the API. They have
     // to be driven from here: three folds intensity into the light's colour
     // uniform with multiplyScalar(), so a raw fn left on light.intensity gives
@@ -569,8 +578,11 @@ class LightOp {
     applyShadow(this.light, o.shadow);
     const dyn = ['intensity', 'color', 'sky', 'ground', 'angle', 'penumbra', 'distance', 'decay']
       .filter((k) => typeof o[k] === 'function');
+    // an ambient light has no position to write, so a static one needs no
+    // updater at all
+    const placed = !this.light.isAmbientLight;
     const updater = (t) => {
-      this.light.position.set(...resolve3(this._pos, t));
+      if (placed) this.light.position.set(...resolve3(this._pos, t));
       if (this._target) {
         this.light.target.position.set(...resolve3(this._target, t));
         // the target isn't in the scene graph, so nothing else refreshes it —
@@ -584,7 +596,7 @@ class LightOp {
       }
     };
     updater(0);
-    this.engine.add(this.light, updater);
+    this.engine.add(this.light, placed || dyn.length ? updater : undefined);
     return this;
   }
 }
@@ -623,14 +635,15 @@ export function makeApi(engine) {
     // constructor sees a number, and again per frame by LightOp's updater.
     // directional/spot/point also take shadow: true (see applyShadow), and
     // directional/spot aim with .target(x, y, z).
+    //
+    // ambient is the one with nowhere to be and nothing to aim at, so it adds
+    // itself rather than waiting for an .out() that would have nothing to say;
+    // .out('name') still works, to light a single layer. Positional
+    // ambient(intensity, color) predates the config form.
     ambient(intensity = 0.3, color = 0xffffff) {
+      if (typeof intensity === 'object' && intensity !== null) ({ intensity = 0.3, color = 0xffffff } = intensity);
       const light = new THREE.AmbientLight(resolve(color, 0), resolve(intensity, 0));
-      light.layers.enableAll();
-      const dyn = typeof intensity === 'function' || typeof color === 'function';
-      engine.add(light, dyn ? (t) => {
-        light.intensity = resolve(intensity, t);
-        light.color.set(resolve(color, t));
-      } : undefined);
+      return new LightOp(engine, light, { intensity, color }).out();
     },
     directional(o = {}) {
       return new LightOp(engine, new THREE.DirectionalLight(
@@ -700,7 +713,12 @@ export function makeApi(engine) {
       engine.updaters.push((t) => tick?.(t, resolve));
     },
     bg(color) { engine.scene.background = new THREE.Color(color); },
+    // positional fog(color, near, far) predates the config form; a THREE.Color
+    // in the first slot is still a color, not a config
     fog(color = 0x0a0a0f, near = 5, far = 30) {
+      if (typeof color === 'object' && color !== null && !color.isColor) {
+        ({ color = 0x0a0a0f, near = 5, far = 30 } = color);
+      }
       engine.scene.fog = new THREE.Fog(color, near, far);
     },
 
@@ -713,10 +731,8 @@ export function makeApi(engine) {
     // Pairs with .mask(m, fn): scene().mask(depth(), s => s.blur(8)).
     depth: (o) => new TopOp(engine, 'depth', o ?? {}),
     // input() = last frame's display output; input('name') = the buffer
-    // published by .out('name'). ('in' is a JS reserved word, hence 'input';
-    // feedback() is a legacy alias kept for older sketches.)
+    // published by .out('name'). ('in' is a JS reserved word, hence 'input'.)
     input: (name) => new TopOp(engine, 'in', name != null ? { name: String(name) } : {}),
-    feedback: (name) => new TopOp(engine, 'in', name != null ? { name: String(name) } : {}),
     ramp: (o) => new TopOp(engine, 'ramp', o ?? {}),
     circle: (o) => new TopOp(engine, 'circle', o ?? {}),
     noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),

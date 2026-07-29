@@ -1,4 +1,5 @@
 import { MATERIAL_GROUPS, MATERIAL_DOCS } from './materials.js';
+import { BLEND_MODE_NAMES } from './tops.js';
 
 // One docs table drives both autocomplete and ctrl+hover tooltips.
 // [0] signature — shown next to the completion, and as the tooltip header
@@ -23,7 +24,7 @@ export const GLOBALS = {
   icosa: ['icosa({ radius, detail })', 'Icosahedron geometry op — even triangle distribution, ideal for noise blobs.'],
   model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx — chain .pos/.rotate/.scale/.noise/.instance/.material/.out() like any other shape.\nDrag a model in to import it (stored in the browser, survives reloads); an empty call opens a picker. name = filename, exact or substring.\nEvery mesh in the file merges into one geometry and its own materials are dropped, so shade it with .material()."],
 
-  ambient: ['ambient(intensity, color?)', 'Ambient light, added immediately (no .out() needed). Both args accept fns of t. Has no direction, so it casts no shadows.'],
+  ambient: ['ambient({ intensity, color })', "Ambient light — an even fill from every direction at once, so it casts no shadows and has nowhere to be. The one light that adds itself: .out() is optional, and only worth chaining to light a single layer.\nPositional ambient(intensity, color) also works."],
   directional: ['directional({ color, intensity, shadow })', 'Directional light — parallel rays, like the sun. Chain .pos(x,y,z).target(x,y,z).out(); pos, target, color and intensity take fns of t.'],
   point: ['point({ color, intensity, distance, decay, shadow })', "Point light — a bare bulb, throwing light every way at once. Chain .pos(x,y,z).out(); pos, color and intensity take fns of t.\nintensity: t => 30 * (0.8 + 0.2 * rand(13)(t)) is a fluorescent buzz."],
   spot: ['spot({ color, intensity, angle, penumbra, distance, decay, shadow })', 'Spot light — a cone from .pos(x,y,z) toward .target(x,y,z) (the origin without one). The natural partner for shadow: true, since a cone of light is a cone of shadow.'],
@@ -33,12 +34,11 @@ export const GLOBALS = {
 
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
   bg: ['bg(color)', 'Scene background color.'],
-  fog: ['fog(color, near, far)', 'Scene fog.'],
+  fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. depth() picks the same range up by default. Positional fog(color, near, far) also works.'],
 
   scene: ['scene()', 'TOP source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
   depth: ['depth({ near, far }) | depth({ focus, range })', "TOP source: the same 3D render as scene(), as a grayscale distance map — black near, white far, empty space white. Give it a focus instead and it measures distance from that plane, a ready-made depth-of-field mask.\nMostly you hand it to .mask(m, fn) to treat the image by distance: .mask(depth(), s => s.blur(8)) blurs the far, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, .mask(depth(), s => s.comp(ramp({ a: '#8a97a8', b: '#8a97a8' }), 'over')) is haze."],
   input: ['input(name?)', "TOP source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a TOP chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
-  feedback: ['feedback(name?)', 'Legacy alias of input().'],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'TOP generator: two-color gradient.'],
   circle: ['circle({ radius, soft, center, color, bg })', 'TOP generator: soft-edged disc.'],
   video: ['video(name?)', "TOP generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera, and the console lists the available sources on start. Permission prompt on first use; black until the stream is live."],
@@ -117,7 +117,7 @@ export const METHODS = {
   remap: ['.remap(mapTop)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(rampTop)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. .lookup(ramp({ a: 'black', b: 'red' })). Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount: 0.1, mid: 0.5 })', "Texture: push each pixel sideways by what the map says there, reading the offset from its red and green. Positional .displace(map, amount) also works, and the map can be a fn of the chain so far.\nA grayscale map moves everything along the diagonal — noise({ channels: 2 }) for a wobble that goes both ways."],
-  comp: [".comp(layer, mode, opacity)", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
+  comp: [".comp(layer, { mode, opacity })", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
   blur: ['.blur(radius)', 'TOP: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'TOP: brightpass + half-res gaussian glow.'],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe, and each distinct one renders its own pass — like comping that many .out()s. x left→right, y bottom→top, i = y*nx + x.'],
@@ -199,6 +199,10 @@ METHOD_CONFIG.material = new Map(
   )
 );
 
+// Same escape hatch for .comp({ mode }): seventeen blend modes don't fit in a
+// signature, and tops.js owns the list that resolves them.
+METHOD_CONFIG.comp.get('mode').values = BLEND_MODE_NAMES;
+
 // ...so the tooltip owes you the other thirty. Third slot of an entry: named
 // groups listed under the prose, derived from the same set that rejects a typo
 // rather than typed out again beside it.
@@ -260,6 +264,15 @@ const GLOBAL_KEY_DOCS = {
   model: {
     center: "Sit the geometry's bounding box on the origin. Default true; false keeps the file's own placement.",
     fit: "Scale the longest axis to this many world units. Default 2, so anything lands usable. fit: 0 keeps the file's units, whatever they turn out to be.",
+  },
+  ambient: {
+    color: 'Light color. Default white. Takes a fn of t.',
+    intensity: "Brightness. Default 0.3 — this is the floor everything sits at, so it's the dial between a lit room and a single lamp in the dark.",
+  },
+  fog: {
+    color: 'What distant geometry fades to. Default #0a0a0f. Usually the same as bg().',
+    near: 'World distance at which the fade starts. Default 5.',
+    far: 'World distance at which geometry is fully fog. Default 30.',
   },
   directional: {
     color: 'Light color. Default white. Takes a fn of t.',
@@ -431,6 +444,10 @@ const METHOD_KEY_DOCS = {
     amount: 'How far pixels move, in UV. Default 0.1. Negative pulls the other way.',
     mid: 'The map value that means no movement. Default 0.5 for mid-gray maps; use 0 for a dark map you only want to push one way.',
   },
+  comp: {
+    mode: "Blend mode. Default 'over'. add and screen are the ones that drop a black background; luminosity/color are the non-separable pair that split luma from chroma.",
+    opacity: 'How much of the blended result mixes back in, 0..1. Default 1. Takes a fn of t.',
+  },
   bloom: {
     threshold: 'How bright a pixel must be before it glows. Default 0.7. Drop it to bloom the whole image.',
     strength: 'How much glow is added back on top. Default 1.',
@@ -499,8 +516,8 @@ const names = (s) => s.trim().split(/\s+/);
 
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder icosa model text3d',
-  light: 'directional point spot hemi',
-  top: 'scene depth input feedback ramp circle video videofile imagefile imageseq noise text',
+  light: 'ambient directional point spot hemi',
+  top: 'scene depth input ramp circle video videofile imagefile imageseq noise text',
   signal: 'beat audio audiofile rand sig',
 };
 

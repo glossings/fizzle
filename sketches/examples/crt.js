@@ -1,7 +1,7 @@
 // CRT: phosphor cells, scanlines, colour fringing, and a barrel-warped tube face
 
 bg('#04060a')
-ambient(0.25)
+ambient({ intensity: 0.25 })
 point({ color: '#66ffcc', intensity: 45 }).pos(3, 3, 4).out()
 point({ color: '#ff4488', intensity: 25 }).pos(-3, -2, 2).out()
 

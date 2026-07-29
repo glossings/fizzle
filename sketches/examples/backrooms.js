@@ -140,7 +140,7 @@ camera(
 // fluorescent light is flat and everywhere, so nearly all of it is ambient;
 // the two points only shape the corridor, one at the camera and one further
 // along so light spills around the corner you haven't turned yet
-ambient(0.58, '#d8c98f')
+ambient({ intensity: 0.58, color: '#d8c98f' })
 
 const buzz = rand(13, 4)
 point({ color: '#fff6d6', intensity: (t) => 12 * (0.82 + 0.24 * buzz(t)), distance: 26, decay: 1.3 })
@@ -167,7 +167,7 @@ scene()
 // seed = 4211                       // any other number is a different maze
 // W * H * 0.25 in the braid loop    // 0.05 = claustrophobic, 0.8 = an empty hall
 // LEN / 2.3                         // smaller = faster walk
-// ambient(0.58, ...)                // the main dial for how lit the place is
+// ambient({ intensity: 0.58 })      // the main dial for how lit the place is
 // point intensity 12 / 9            // higher = more torch beam, less office
 // .comp(text('CAM 01', { size: 26, pos: [0.08, 0.92], align: 'left', bg: '#000000' }), 'screen')
 // route.getTangentAt(u)             // the curve knows which way you're facing

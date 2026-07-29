@@ -2,7 +2,7 @@
 // text3d content can be a fn of t — geometry rebuilds only when the string changes
 
 bg('#0a0a12')
-ambient(0.25)
+ambient({ intensity: 0.25 })
 directional({ intensity: 1.6 }).pos(3, 5, 4).out()
 point({ color: '#ff5f9e', intensity: 60 }).pos(t => Math.sin(t * 0.7) * 5, 2, 3).out()
 point({ color: '#4fd1ff', intensity: 40 }).pos(-4, -1, 4).out()

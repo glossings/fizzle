@@ -4,7 +4,7 @@
 // chains, and 'trail' closes a loop pre-bloom so glow never compounds into it.
 
 bg('#000005')
-ambient(0.25)
+ambient({ intensity: 0.25 })
 directional({ intensity: 2 }).pos(3, 5, 4).out()
 point({ color: '#ff5f9e', intensity: 50 }).pos(-4, 2, 3).out()
 

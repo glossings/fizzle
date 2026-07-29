@@ -7,10 +7,10 @@
 // samples them, so all of this is the current frame, not a frame behind.
 
 bg('#04040a')
-fog('#04040a', 9, 34)
+fog({ color: '#04040a', near: 9, far: 34 })
 camera(0, 1.2, 8)
 
-ambient(0.15)
+ambient({ intensity: 0.15 })
 point({ color: '#ffffff', intensity: 90 }).pos(0, 2.2, 3.2).out()
 point({ color: '#7fd7ff', intensity: 40 }).pos(-4, 1.5, 2).out()
 

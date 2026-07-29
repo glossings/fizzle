@@ -1,8 +1,8 @@
 // programmed camera orbiting an evolving noise terrain
 
 bg('#0a0c18')
-fog('#0a0c18', 6, 45)
-ambient(0.25)
+fog({ color: '#0a0c18', near: 6, far: 45 })
+ambient({ intensity: 0.25 })
 directional({ color: '#ffd9a0', intensity: 1.6 }).pos(10, 6, -4).out()
 
 plane({ width: 90, height: 90, res: 220 })

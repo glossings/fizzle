@@ -8,9 +8,9 @@
 // depth is atmospheric haze. Both are one line.
 
 bg('#06060b')
-fog('#06060b', 5, 34)          // depth() picks this range up automatically
+fog({ color: '#06060b', near: 5, far: 34 })          // depth() picks this range up automatically
 
-ambient(0.1, '#8fa2c8')
+ambient({ intensity: 0.1, color: '#8fa2c8' })
 
 // three ceiling lamps sliding toward the camera on a loop, so the corridor
 // never ends. Same z fn drives the lights and the fixtures.
