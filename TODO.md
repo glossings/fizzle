@@ -9,80 +9,21 @@ chain-instancing look from "partly reachable" to "basically there."
 
 ---
 
-## 1. Instance orientation + `path()`
+## General
+
+[ ] Check user-friendliness of the cov
+[ ] Are we able to add autocomplete for parameters within the config of a method?
+
+## Instance orientation + `path()`
 
 `InstanceHandle` ([src/api.js:177](src/api.js#L177)) exposes only
 `pos`/`rotate`/`scale`, and `rotate` is Euler XYZ. Wrapping chain links around a
 curve needs a Frenet frame (tangent/normal/binormal), and converting that to
 Euler by hand inside a sketch is miserable.
 
-- Add `x.lookAt(x, y, z)` and `x.quat(q)` to the handle — ~15 lines, makes the
+[ ] Add `x.lookAt(x, y, z)` and `x.quat(q)` to the handle — ~15 lines, makes the
   "evil 3D chains" look immediately tractable.
-- Add a `path()` helper wrapping `THREE.CatmullRomCurve3`, exposing
+
+[ ] Add a `path()` helper wrapping `THREE.CatmullRomCurve3`, exposing
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
-
-## 2. `pixelsort()`
-
-A proper sort is an odd-even transposition network: dozens of full-res ping-pong
-passes per frame. The machinery exists (`blur` at
-[src/tops.js:788](src/tops.js#L788) is already multi-pass) but there's no way to
-express *N iterations of the same pass* from a sketch.
-
-Needs a dedicated op with an internal iteration count —
-`.pixelsort({ iterations: 48, threshold, angle })`. At 32–64 passes it's
-expensive but viable at reduced resolution. Roughly a focused day.
-
-## 3. GPGPU particles
-
-The one item here that's a project rather than a patch.
-
-`.instance(count, fn)` ([src/api.js:272](src/api.js#L272)) has two hard limits:
-
-1. **CPU-bound.** The callback runs per-instance per-frame in JS, then composes
-   a matrix and writes 16 floats — realistically ~5–10k instances before it eats
-   the frame budget. native tools do millions.
-2. **Stateless.** `fn(x, i, count, t)` is a pure function of time. No
-   integration, no velocity, no forces, no birth/death, no collisions. Faking
-   state via `onFrame` + a closure runs straight back into limit 1.
-
-The full-scale version means particle state in float textures, a sim pass ping-ponging
-position/velocity, and a vertex shader sampling that texture to render.
-
-The encouraging part: **the TOP graph is already the right substrate.**
-Ping-pong render targets, named buses, per-frame graph evaluation — it's all
-there. The natural design is "particles are a texture": a sim chain publishes
-state to a named bus, and a `points('bus')` renderer draws it. Conceptually
-clean and idiomatic to what's already built.
-
-Needs RGBA32F targets instead of the current `HalfFloatType`
-([src/tops.js:571](src/tops.js#L571)) for position precision, plus a
-points/sprite render path that doesn't exist yet.
-
----
-
-## Notes on things that already work
-
-Kept here so they don't get re-investigated:
-
-- **Datamosh** is there — see `examples/datamosh.js`. No codec motion vectors,
-  so they're estimated: direction from `slope()`, magnitude from differencing
-  the render against a lagged copy of itself, both `pixellate`d to a block
-  grid. `.mask()` then applies vector + residual only to blocks that moved,
-  which is what makes still areas freeze while moving ones melt. The keyframe
-  drop is `.when()` switching the accumulator back to the live render.
-
-  Worth knowing: a delayed copy of a buffer only exists *inside* a loop —
-  `input('name')` read from another chain is a same-frame patch cord, so the
-  lag line has to read itself.
-
-- **Dreamcore is there** — see `examples/dreamcore.js`. Shadows (`shadow: true`
-  on a light, `.shadow()` to opt geometry out) were the missing piece; the rest
-  was already fog, point lights, `model()` for low-poly rooms, PBR tiled
-  textures with `repeat` for mismatched carpet, the `text` TOP, feedback trails,
-  `pixellate` + `posterize` for a PS1 look, and high-frequency `noise()` comped
-  over as film grain.
-
-- **`lookup`** ([src/tops.js:292](src/tops.js#L292)) is a 1D luma LUT — i.e. a
-  palette grader, which is most of the "look" battle for both Frutiger Aero and
-  dreamcore.
