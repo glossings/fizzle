@@ -14,10 +14,10 @@ export const GLOBALS = {
   icosa: ['icosa({ radius, detail })', 'Icosahedron geometry op — even triangle distribution, ideal for noise blobs.'],
   model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx — chain .pos/.rotate/.scale/.noise/.instance/.material/.out() like any other shape. Drag a model into the window to import it (stored in the browser, survives reloads); an empty call opens a file picker. name = filename, exact or case-insensitive substring. All meshes in the file merge into one geometry and the file's own materials are dropped — shade it with .material(). center: true and fit: 2 (scale the longest axis to 2) by default so any file lands at a usable size; fit: 0 keeps the file's units. Parsing is cached across re-runs."],
 
-  ambient: ['ambient(intensity, color?)', 'Ambient light, added immediately (no .out() needed).'],
-  directional: ['directional({ color, intensity })', 'Directional light. Chain .pos(x,y,z).out().'],
-  point: ['point({ color, intensity, distance, decay })', 'Point light. Chain .pos(x,y,z).out(); pos accepts fns of t.'],
-  hemi: ['hemi({ sky, ground, intensity })', 'Hemisphere light. Chain .out().'],
+  ambient: ['ambient(intensity, color?)', 'Ambient light, added immediately (no .out() needed). Both args accept fns of t.'],
+  directional: ['directional({ color, intensity })', 'Directional light. Chain .pos(x,y,z).out(); pos, color and intensity accept fns of t.'],
+  point: ['point({ color, intensity, distance, decay })', "Point light. Chain .pos(x,y,z).out(); pos, color and intensity accept fns of t — intensity: t => 30 * (0.8 + 0.2 * rand(13)(t)) is a fluorescent buzz. distance is the cutoff radius (0 = never), decay the falloff exponent (2 is physical inverse-square and reads like a torch; ~1.3 spreads it down a corridor)."],
+  hemi: ['hemi({ sky, ground, intensity })', 'Hemisphere light. Chain .out(); sky, ground and intensity accept fns of t.'],
 
   hdri: ['hdri(name?, { background, intensity, blur, rotation })', "Image-based lighting from an imported .hdr/.exr: the environment lights every material in the scene and shows behind it. An empty hdri() opens the Poly Haven HDRI browser and writes your pick back into that call; you can also drag a file in. Metalness only comes alive with one — a metal surface has nothing to reflect otherwise. background: false keeps bg()/fog; blur (0..1) softens the visible sky without softening the light; rotation turns the light rig and sky together (backgroundRotation moves the sky alone). All but background accept fns of t — hdri('sky_2k.hdr', { rotation: t => t * 0.1 }) drifts the whole sky."],
 

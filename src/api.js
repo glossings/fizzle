@@ -459,9 +459,10 @@ class GeoOp {
 }
 
 class LightOp {
-  constructor(engine, light) {
+  constructor(engine, light, opts = {}) {
     this.engine = engine;
     this.light = light;
+    this.opts = opts;
     this._pos = [3, 4, 2];
   }
   pos(x, y, z) { this._pos = [x, y, z]; return this; }
@@ -470,7 +471,22 @@ class LightOp {
     // mask); .out('name') restricts one to a single named geometry layer
     if (name != null) this.light.layers.set(this.engine.geoLayer(String(name)));
     else this.light.layers.enableAll();
-    const updater = (t) => this.light.position.set(...resolve3(this._pos, t));
+    // intensity and colour animate like everything else in the API. They have
+    // to be driven from here: three folds intensity into the light's colour
+    // uniform with multiplyScalar(), so a raw fn left on light.intensity gives
+    // NaN — and a NaN light uniform blacks out every surface it touches rather
+    // than merely failing to animate.
+    const o = this.opts;
+    const dyn = ['intensity', 'color', 'sky', 'ground']
+      .filter((k) => typeof o[k] === 'function');
+    const updater = (t) => {
+      this.light.position.set(...resolve3(this._pos, t));
+      for (const k of dyn) {
+        if (k === 'intensity') this.light.intensity = o.intensity(t);
+        else if (k === 'ground') this.light.groundColor.set(o.ground(t));
+        else this.light.color.set(o[k](t));
+      }
+    };
     updater(0);
     this.engine.add(this.light, updater);
     return this;
@@ -507,19 +523,28 @@ export function makeApi(engine) {
       return new GeoOp(engine, 'model', { ...opts, name: name != null ? String(name) : null });
     },
 
+    // every light arg below may be a fn of t; they're resolved once here so the
+    // constructor sees a number, and again per frame by LightOp's updater
     ambient(intensity = 0.3, color = 0xffffff) {
-      const light = new THREE.AmbientLight(color, intensity);
+      const light = new THREE.AmbientLight(resolve(color, 0), resolve(intensity, 0));
       light.layers.enableAll();
-      engine.add(light);
+      const dyn = typeof intensity === 'function' || typeof color === 'function';
+      engine.add(light, dyn ? (t) => {
+        light.intensity = resolve(intensity, t);
+        light.color.set(resolve(color, t));
+      } : undefined);
     },
     directional(o = {}) {
-      return new LightOp(engine, new THREE.DirectionalLight(o.color ?? 0xffffff, o.intensity ?? 1.5));
+      return new LightOp(engine, new THREE.DirectionalLight(
+        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 1.5, 0)), o);
     },
     point(o = {}) {
-      return new LightOp(engine, new THREE.PointLight(o.color ?? 0xffffff, o.intensity ?? 20, o.distance ?? 0, o.decay ?? 2));
+      return new LightOp(engine, new THREE.PointLight(
+        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 20, 0), o.distance ?? 0, o.decay ?? 2), o);
     },
     hemi(o = {}) {
-      return new LightOp(engine, new THREE.HemisphereLight(o.sky ?? 0x8899ff, o.ground ?? 0x332211, o.intensity ?? 0.6));
+      return new LightOp(engine, new THREE.HemisphereLight(
+        resolve(o.sky ?? 0x8899ff, 0), resolve(o.ground ?? 0x332211, 0), resolve(o.intensity ?? 0.6, 0)), o);
     },
 
     // static args: place the camera, orbit controls stay live.
