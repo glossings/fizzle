@@ -10,7 +10,8 @@ import { acceptCompletion } from '@codemirror/autocomplete';
 import { indentMore, indentLess } from '@codemirror/commands';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { apiCompletions, apiHover, GLOBALS, METHODS } from './docs.js';
+import { configSections, infoNodes, GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG } from './docs.js';
+import { apiCompletions, apiHover } from './complete.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { initPolyhaven } from './polyhaven.js';
@@ -291,24 +292,38 @@ function referenceSection(root) {
   root.appendChild(search);
 
   const groups = [
-    ['globals', GLOBALS],
-    ['chain methods', METHODS],
+    ['globals', GLOBALS, GLOBAL_CONFIG],
+    ['chain methods', METHODS, METHOD_CONFIG],
   ];
   const rows = [];
-  for (const [title, table] of groups) {
+  for (const [title, table, config] of groups) {
     const h3 = document.createElement('h3');
     h3.id = slug(`ref ${title}`);
     h3.textContent = title;
     root.appendChild(h3);
     const t = document.createElement('table');
     t.className = 'ref';
-    for (const [name, [sig, info]] of Object.entries(table)) {
+    for (const [name, [sig, info, extra]] of Object.entries(table)) {
       const tr = t.insertRow();
-      tr.dataset.text = `${name} ${sig} ${info}`.toLowerCase();
+      // the keys the signature is too short to list, so the page and the
+      // completion popup describe the same call
+      const sections = configSections(config[name]);
+      const keys = sections?.map(([s, list]) => `${s}: ${list.join(' ')}`).join('\n') ?? '';
+      tr.dataset.text = `${name} ${sig} ${info} ${keys}`.toLowerCase();
       const td1 = tr.insertCell();
       td1.innerHTML = `<code class="ref-sig">${esc(sig)}</code>`;
       const td2 = tr.insertCell();
-      td2.textContent = info;
+      // the grid below lists every key, so the tooltip's "and these others too"
+      // summary is just the same names twice here
+      td2.append(...infoNodes(info, sections ? null : extra));
+      if (sections) {
+        const dl = document.createElement('div');
+        dl.className = 'ref-keys';
+        for (const [section, list] of sections) {
+          dl.innerHTML += `<span>${esc(section)}</span><code>${esc(list.join(' '))}</code>`;
+        }
+        td2.appendChild(dl);
+      }
       rows.push(tr);
     }
     root.appendChild(t);

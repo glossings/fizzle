@@ -11,10 +11,11 @@ chain-instancing look from "partly reachable" to "basically there."
 
 ## General
 
-[ ] Check user-friendliness of the cov
-[ ] Are we able to add autocomplete for parameters within the config of a method?
-[ ] Some tooltips (like `material`) are really long and a little out of hand. It should be very fast for the user to grok them and understand what they need to type (and if they are going to be super long, they should be scrollable)
+[ ] Check user-friendliness of the code
 [ ] Do we expect `text3d('Glossing', { font: "arial" }).out()` (or "Arial"?) to work?
+  Completion can't help here yet — `font:` is the one string slot with no list
+  behind it (installed fonts need `queryLocalFonts` permission, Google Fonts a
+  network call). A curated list of the ~20 fonts worth naming live would do it.
 
 ## See-through shadows
 

@@ -6,7 +6,7 @@ import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/comm
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
-import { apiCompletions, apiHover } from './docs.js';
+import { apiCompletions, apiHover } from './complete.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show editor · ctrl+p sidebar

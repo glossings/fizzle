@@ -105,11 +105,43 @@ html, body {
   font-weight: 600;
   margin-bottom: 3px;
 }
+/* the opening paragraph stays put; the rest is dimmed below a rule, and
+   scrolls rather than growing off the top of the screen */
+.td-doc-more {
+  max-height: 13em;
+  overflow-y: auto;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(216, 220, 230, 0.75);
+}
+.td-doc-more p { margin: 0 0 6px; }
+.td-doc-more > :last-child { margin-bottom: 0; }
+.td-doc-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.td-doc-list li { margin: 3px 0; padding-left: 11px; text-indent: -11px; }
+.td-doc-list li::before { content: '· '; color: rgba(255, 255, 255, 0.4); }
+/* the keys the signature had no room for: group name, then the names */
+.td-doc-keys li { color: #a9b4c8; }
+.td-doc-sec {
+  color: rgba(255, 255, 255, 0.42);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  margin-right: 6px;
+}
+/* CodeMirror mounts tooltips inside .cm-editor, which sits in a
+   pointer-events: none #editor — so without this they're click-through and the
+   wheel scrolls the code behind them instead of the popup. */
 .cm-tooltip {
+  pointer-events: auto;
   background: rgba(12, 14, 22, 0.96) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-radius: 6px;
 }
+/* and don't hand the scroll back to the editor on hitting either end */
+.cm-tooltip .td-doc-more,
+.cm-tooltip.cm-tooltip-autocomplete > ul { overscroll-behavior: contain; }
+.cm-tooltip.cm-completionInfo { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
 .cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected] {
   background: rgba(90, 120, 255, 0.35) !important;
 }

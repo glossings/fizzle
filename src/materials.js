@@ -31,22 +31,14 @@ export function applyMaterialScalars(material, m) {
 // a .material() is what upgrades the mesh to a physical material (see
 // isPhysical); a sketch that never mentions them pays nothing, since physical
 // is the more expensive shader and transmission costs a second scene render.
+// (what each one does is in MATERIAL_DOCS below, which the editor reads out on
+// ctrl+hover — the annotations that used to live here, where only I could see
+// them, are more use to whoever's typing the key)
 const PHYSICAL_SCALARS = [
-  'transmission',       // 0..1 — how much light passes through (glass, bubbles)
-  'thickness',          // volume behind the surface, in world units; 0 = thin shell
-  'ior',                // index of refraction, 1.0 (air) .. 2.4 (diamond); glass ~1.5
-  'dispersion',         // splits the refraction into rainbow fringes (needs thickness)
-  'attenuationDistance',// how far light travels through the volume before it's tinted out
-  'clearcoat',          // 0..1 — a second specular lobe over the base, like lacquer
-  'clearcoatRoughness',
-  'iridescence',        // 0..1 — thin-film interference (soap bubble, oil slick)
-  'iridescenceIOR',
-  'sheen',              // 0..1 — retroreflective fuzz, for cloth
-  'sheenRoughness',
-  'specularIntensity',
-  'reflectivity',       // dielectric reflection strength when metalness is 0
-  'anisotropy',         // 0..1 — stretches highlights (brushed metal, hair)
-  'anisotropyRotation',
+  'transmission', 'thickness', 'ior', 'dispersion', 'attenuationDistance',
+  'clearcoat', 'clearcoatRoughness', 'iridescence', 'iridescenceIOR',
+  'sheen', 'sheenRoughness', 'specularIntensity', 'reflectivity',
+  'anisotropy', 'anisotropyRotation',
 ];
 const PHYSICAL_COLORS = ['attenuationColor', 'sheenColor', 'specularColor'];
 
@@ -65,16 +57,81 @@ const PHYSICAL_KEYS = new Set([...PHYSICAL_SCALARS, ...PHYSICAL_COLORS, 'iridesc
 const BASE_KEYS = ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'];
 const RENDER_KEYS = ['flatShading', 'wireframe', 'doubleSide'];
 const MAP_KEYS = [
-  'pbr', 'arm',                                         // whole sets at once
-  'repeat', 'offset', 'uvRotate',                        // uv transform
-  'normalScale', 'aoIntensity', 'envIntensity',          // per-map strength
+  'pbr', 'arm',
+  'repeat', 'offset', 'uvRotate',
+  'normalScale', 'aoIntensity', 'envIntensity',
   'displaceScale', 'displaceBias',
 ];
 const BLEND_KEYS = ['opacity', 'transparent', 'depthWrite'];
 
-const MATERIAL_KEYS = new Set([
-  ...BASE_KEYS, ...RENDER_KEYS, ...MAP_KEYS, ...BLEND_KEYS, ...MAP_SLOTS, ...PHYSICAL_KEYS,
-]);
+// One line per key, because 45 names in a tooltip tell you nothing about which
+// one you want. Read out on ctrl+hover and in the completion popup, so this is
+// the documentation — keep it to a sentence that fits over the cursor.
+export const MATERIAL_DOCS = {
+  color: 'Base color. Any CSS color name, hex string, or fn of t.',
+  roughness: '0 mirror-smooth .. 1 fully diffuse. Multiplies roughnessMap if there is one.',
+  metalness: '0 dielectric .. 1 metal. Metal has nothing to reflect without an hdri().',
+  emissive: 'Color the surface gives off on its own — unlit, so it glows in shadow.',
+  emissiveIntensity: 'How hard emissive glows. Push past 1 to feed bloom().',
+
+  map: 'Base color texture: an imported image name, a live TOP chain, or a THREE.Texture.',
+  normalMap: 'Tangent-space normals (OpenGL convention) — surface detail without geometry.',
+  roughnessMap: 'Per-pixel roughness, read from green. roughness multiplies it.',
+  metalnessMap: 'Per-pixel metalness, read from blue. metalness multiplies it.',
+  aoMap: 'Baked contact shadow, read from the red channel — darkens creases and corners. Scale it with aoIntensity.',
+  displacementMap: 'Moves vertices for real — needs res on the geometry to have vertices to move.',
+  pbr: "Fills every map slot at once — color, normal, roughness, metal, displacement — from one imported set. The value is the folder name: pbr: 'rock_2k'. An empty .material() opens a browser to download one.",
+  arm: 'One packed image feeding aoMap/roughnessMap/metalnessMap from its R/G/B channels.',
+  repeat: 'Tile every map. A number, or [x, y].',
+  offset: 'Shift every map in UV space. A number, or [x, y].',
+  uvRotate: 'Rotate every map about its center, in radians.',
+  normalScale: 'Strength of normalMap. A number, or [x, y] to skew the relief.',
+  aoIntensity: 'Strength of aoMap.',
+  envIntensity: 'How hard the hdri() environment hits this surface. Works with no maps at all.',
+  displaceScale: 'World-unit distance displacementMap moves a vertex.',
+  displaceBias: 'The map value that counts as no displacement (mid-gray is 0.5).',
+
+  opacity: '0..1. Turns transparency on by itself, and stops the mesh casting a shadow.',
+  transparent: 'Force blending on or off, overriding what opacity implies.',
+  depthWrite: 'false trades the depth sort for order-independent blending — for a pile of bubbles.',
+
+  transmission: '0..1 — light passes through (glass, water). Costs a second scene render.',
+  thickness: 'Volume behind the surface, in world units. 0 is a thin shell with no refraction.',
+  ior: 'Index of refraction: 1.0 air, ~1.5 glass, 2.4 diamond.',
+  dispersion: 'Splits the refraction into rainbow fringes. Needs thickness to have anything to split.',
+  attenuationDistance: "How far light travels through the volume before it's tinted out.",
+  attenuationColor: 'What the volume tints light on the way through — the color of thick glass.',
+  clearcoat: '0..1 — a second specular lobe over the base, like lacquer on a car.',
+  clearcoatRoughness: 'How blurred the clearcoat reflection is, independent of the base roughness.',
+  iridescence: '0..1 — thin-film interference: soap bubble, oil slick, beetle shell.',
+  iridescenceIOR: 'Refractive index of the iridescent film.',
+  iridescenceThickness: 'Film thickness in nanometres; ~100..800 walks the whole hue cycle.',
+  sheen: '0..1 — retroreflective fuzz at grazing angles, for cloth and velvet.',
+  sheenColor: 'Color of that fuzz, often the opposite of the base color.',
+  sheenRoughness: 'How tight the sheen lobe is.',
+  specularIntensity: 'Strength of the dielectric reflection.',
+  specularColor: 'Tints that reflection.',
+  reflectivity: 'Dielectric reflection strength when metalness is 0.',
+  anisotropy: '0..1 — stretches highlights in one direction: brushed metal, hair, vinyl.',
+  anisotropyRotation: 'Direction of that stretch, in radians.',
+
+  flatShading: 'Face normals instead of smoothed ones — faceted, low-poly look.',
+  wireframe: 'Draw edges only.',
+  doubleSide: 'Render back faces too. On by default for plane() and model(), off for solids.',
+};
+
+// Grouped, because 45 keys is too many to read as one list: the sections are
+// what autocomplete shows after `.material({`, and the flattened set is what
+// checkMaterialKeys tests against — so offering and checking can't disagree.
+export const MATERIAL_GROUPS = [
+  ['base', BASE_KEYS],
+  ['maps', [...MAP_SLOTS, ...MAP_KEYS]],
+  ['blending', BLEND_KEYS],
+  ['glass & coatings', [...PHYSICAL_KEYS]],
+  ['render', RENDER_KEYS],
+];
+
+const MATERIAL_KEYS = new Set(MATERIAL_GROUPS.flatMap(([, keys]) => keys));
 
 // Levenshtein, bailing out once it's further off than we'd ever suggest.
 function editDistance(a, b, max) {

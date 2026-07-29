@@ -187,11 +187,40 @@ pre.static {
    app stylesheet; docs pages carry their own copy) */
 .td-doc { max-width: 380px; padding: 7px 10px; font-size: 12px; line-height: 1.5; color: #d8dce6; }
 .td-doc-sig { color: var(--accent); font-weight: 600; margin-bottom: 3px; }
+.td-doc-more {
+  max-height: 13em; overflow-y: auto; margin-top: 5px; padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12); color: rgba(216, 220, 230, 0.75);
+}
+/* #content-scoped, or the page's own ul/li/p rules outrank them by id */
+#content .td-doc-more p { margin: 0 0 6px; }
+#content .td-doc-more > :last-child { margin-bottom: 0; }
+#content .td-doc-list { list-style: none; margin: 0 0 6px; padding: 0; }
+#content .td-doc-list li { margin: 3px 0; padding-left: 11px; text-indent: -11px; }
+#content .td-doc-list li::before { content: '· '; color: rgba(255, 255, 255, 0.4); }
+#content .td-doc-keys li { color: #a9b4c8; }
+.td-doc-sec {
+  color: var(--dim); text-transform: uppercase; font-size: 10px;
+  letter-spacing: 0.08em; margin-right: 6px;
+}
+/* reference rows are these same blocks without the tooltip's dimming */
+#content table.ref td p { margin: 0 0 8px; }
+#content table.ref td > :last-child { margin-bottom: 0; }
+/* the full key list under a reference row whose signature is too short for it */
+.ref-keys {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px;
+  margin-top: 6px; font-size: 12px;
+}
+.ref-keys span { color: var(--muted, rgba(255, 255, 255, 0.45)); text-align: right; white-space: nowrap; }
+.ref-keys code { word-break: break-word; }
 .cm-tooltip {
+  pointer-events: auto;
   background: rgba(12, 14, 22, 0.96) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-radius: 6px;
 }
+.cm-tooltip .td-doc-more,
+.cm-tooltip.cm-tooltip-autocomplete > ul { overscroll-behavior: contain; }
+.cm-tooltip.cm-completionInfo { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
 .cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected] { background: rgba(90, 120, 255, 0.35) !important; }
 .cm-tooltip .cm-completionDetail { color: rgba(255, 255, 255, 0.45); font-style: normal; margin-left: 8px; }
 
