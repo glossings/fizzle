@@ -27,11 +27,13 @@ import {
   GLOBAL_KIND, METHOD_KINDS, CALLBACK_KIND, docDom, keyEntry,
 } from './docs.js';
 
+// no detail: the info panel's own header is the signature, and printing it on
+// the row too just says it twice
 const globalOptions = Object.entries(GLOBALS).map(([label, entry]) => ({
-  label, type: 'function', detail: entry[0], info: () => docDom(entry),
+  label, type: 'function', info: () => docDom(entry),
 }));
 const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
-  label, type: 'method', detail: entry[0], info: () => docDom(entry),
+  label, type: 'method', info: () => docDom(entry),
 }));
 
 // one filtered method list per chain kind, built once
