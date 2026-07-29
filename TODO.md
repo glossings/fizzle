@@ -65,17 +65,16 @@ points/sprite render path that doesn't exist yet.
 
 Kept here so they don't get re-investigated:
 
-- **Datamosh** is closer than it looks. No real codec motion vectors, but the
-  perceptual signature — previous frame smeared along a motion estimate — is
-  reachable today with the named-bus system:
+- **Datamosh** is there — see `examples/datamosh.js`. No codec motion vectors,
+  so they're estimated: direction from `slope()`, magnitude from differencing
+  the render against a lagged copy of itself, both `pixellate`d to a block
+  grid. `.mask()` then applies vector + residual only to blocks that moved,
+  which is what makes still areas freeze while moving ones melt. The keyframe
+  drop is `.when()` switching the accumulator back to the live render.
 
-  ```js
-  scene().out('src')
-  input().displace(s => s.slope(), 0.03).comp(input('src'), 'over', 0.08).out()
-  ```
-
-  A better version would frame-difference to drive the displacement amount; the
-  wiring already supports it.
+  Worth knowing: a delayed copy of a buffer only exists *inside* a loop —
+  `input('name')` read from another chain is a same-frame patch cord, so the
+  lag line has to read itself.
 
 - **Dreamcore is there** — see `examples/dreamcore.js`. Shadows (`shadow: true`
   on a light, `.shadow()` to opt geometry out) were the missing piece; the rest
