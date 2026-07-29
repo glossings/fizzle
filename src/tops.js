@@ -296,6 +296,34 @@ const SPECS = {
     },
   },
 
+  // ascii() — one glyph per cell, picked by the cell's luma. tex1 is the glyph
+  // atlas built in _render: uCount cells in a row, dark→bright, each glyph
+  // inset by uPad so a filled one can't bleed into its neighbor.
+  ascii: {
+    extras: { uGrid: [80, 24], uCount: 10, uPad: [0, 0], uColor: '#ffffff', uBg: '#000000', uTint: 1 },
+    frag: `
+      void main() {
+        vec2 cell = floor(vUv * uGrid);
+        vec2 local = fract(vUv * uGrid);
+        // average the cell instead of point-sampling it: the glyph stands in
+        // for everything under it, and one tap would report whatever detail
+        // happened to land on the center
+        vec3 src = vec3(0.0);
+        for (int y = 0; y < 3; y++) {
+          for (int x = 0; x < 3; x++) {
+            src += texture2D(tex0, (cell + (vec2(float(x), float(y)) + 0.5) / 3.0) / uGrid).rgb;
+          }
+        }
+        src /= 9.0;
+        float l = clamp(dot(src, LUMA), 0.0, 1.0);
+        float idx = min(floor(l * uCount), uCount - 1.0);
+        vec2 a = vec2((idx + uPad.x + local.x * (1.0 - 2.0 * uPad.x)) / uCount,
+                      uPad.y + local.y * (1.0 - 2.0 * uPad.y));
+        float g = texture2D(tex1, a).r;
+        gl_FragColor = vec4(mix(uBg, uTint > 0.5 ? src : uColor, g), 1.0);
+      }`,
+  },
+
   remap: {
     frag: `void main() { gl_FragColor = texture2D(tex0, texture2D(tex1, vUv).rg); }`,
   },
@@ -698,6 +726,58 @@ function cssFont(spec, weight = 400) {
   return entry;
 }
 
+// ascii() vocabularies, ordered dark→bright — the ordering *is* the mapping,
+// so a set that isn't sorted by ink coverage reads as noise. Each starts with
+// a space so black stays empty. A `chars` that isn't one of these names is
+// taken literally, which is the escape hatch for any set not listed.
+const ASCII_SETS = {
+  ascii: ' .:-=+*#%@',
+  dense: " .'`^\",:;Il!i~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
+  blocks: ' ░▒▓█',
+  numbers: ' 1743256908',
+  letters: ' ilcvxsoenaghkbdmwqCXKOBMW',
+  binary: ' 01',
+  dots: ' .·•',
+};
+export const ASCII_SET_NAMES = Object.keys(ASCII_SETS);
+
+const ASCII_FONT = 'ui-monospace, Menlo, monospace';
+const ASCII_GLYPH_PX = 48;
+
+// The vocabulary drawn once into a strip of equal cells, white on black, for
+// the pass to index by luma. The cell is the widest advance in the set by the
+// line height — that ratio is what keeps the glyphs unstretched on screen, so
+// it comes back out as `aspect` for the row count to use.
+function asciiAtlas(chars, font, weight) {
+  const canvas = document.createElement('canvas');
+  const g = canvas.getContext('2d');
+  const face = `${weight} ${ASCII_GLYPH_PX}px ${font}`;
+  g.font = face;
+  const cw = Math.ceil(Math.max(1, ...chars.map((c) => g.measureText(c).width)));
+  const ch = Math.ceil(ASCII_GLYPH_PX * 1.2);
+  const pad = 2;
+  canvas.width = (cw + pad * 2) * chars.length;
+  canvas.height = ch + pad * 2;
+  g.font = face;                     // resizing the canvas resets the context
+  g.fillStyle = '#000000';
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  g.fillStyle = '#ffffff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  chars.forEach((c, i) => g.fillText(c, i * (cw + pad * 2) + pad + cw / 2, pad + ch / 2));
+  const tex = new THREE.CanvasTexture(canvas);
+  // mip levels would blend the whole strip together horizontally, so one glyph
+  // would fade into the next as the cells get small
+  tex.generateMipmaps = false;
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  return {
+    tex,
+    count: chars.length,
+    aspect: cw / ch,
+    pad: [pad / (cw + pad * 2), pad / (ch + pad * 2)],
+  };
+}
+
 // Structural identity for tile-variant dedupe: the fn builds a fresh chain per
 // cell, so node identity can't be compared — kind + params (fns by source and
 // sampled outputs) + input signatures can. Cached on the node; chains are
@@ -780,6 +860,7 @@ export class TopOp {
   hue(v = 0) { return this._n('adjust', { hue: v }); }
   posterize(steps = 4) { return this._n('posterize', { steps }); }
   pixellate(x = 100, y) { return this._n('pixellate', { x, y }); }
+  ascii(o = {}) { return this._n('ascii', o); }
   transform(o = {}) { return this._n('transform', o); }
   warp(o = {}) { return this._n('warp', o); }
   // .chroma(amount) splits horizontally; { radial: true } makes it lens-like
@@ -1056,6 +1137,43 @@ export class TopOp {
       return out.texture;
     }
 
+    // the atlas is rebuilt only when the vocabulary or face changes, so a
+    // chars/font of t costs nothing on the frames it stays put
+    if (this.kind === 'ascii') {
+      const p = this.params;
+      const set = resolve(p.chars ?? 'ascii', ctx.t);
+      const chars = Array.isArray(set)
+        ? set.map(String)
+        : Array.from(Object.hasOwn(ASCII_SETS, set) ? ASCII_SETS[set] : String(set));
+      if (!chars.length) chars.push(' ');
+      const weight = p.weight ?? 400;
+      const ff = cssFont(String(p.font ?? ASCII_FONT), weight);
+      const sig = [chars.join(''), ff.family, ff.loaded, weight].join('\x1f');
+      if (sig !== this._atlasSig) {
+        this._atlasSig = sig;
+        this._atlas?.tex.dispose();
+        this._atlas = asciiAtlas(chars, ff.family, weight);
+      }
+      const atlas = this._atlas;
+      const cols = Math.max(1, Math.round(resolve(p.cols ?? 80, ctx.t)));
+      // no rows given: pick the count that leaves each cell the same shape as
+      // the glyph in it, so the characters come out unstretched
+      const rows = p.rows != null
+        ? Math.max(1, Math.round(resolve(p.rows, ctx.t)))
+        : Math.max(1, Math.round((cols * atlas.aspect) / ctx.aspect));
+      this.mat ??= makeMaterial(SPECS.ascii);
+      const out = this._rt(ctx);
+      runPass(ctx, this.mat, ins[0], atlas.tex, out, (u) => {
+        u.uGrid.value.set(cols, rows);
+        u.uCount.value = atlas.count;
+        u.uPad.value.set(atlas.pad[0], atlas.pad[1]);
+        u.uTint.value = p.color == null ? 1 : 0;
+        if (p.color != null) setColor(u.uColor.value, p.color, ctx.t);
+        setColor(u.uBg.value, p.bg ?? '#000000', ctx.t);
+      });
+      return out.texture;
+    }
+
     if (this.kind === 'tile') {
       const { nx, ny, map } = this.params;
       if (!this._lut) {
@@ -1110,6 +1228,7 @@ export class TopOp {
     for (const key of ['_tgt_main', '_tgt_auxA', '_tgt_auxB']) this[key]?.dispose();
     this._lut?.dispose();
     this._ctex?.dispose();
+    this._atlas?.tex.dispose();
     this.mat?.dispose();
   }
 }

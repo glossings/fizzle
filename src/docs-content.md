@@ -538,6 +538,15 @@ geometry.
 - `.contrast(v)` · `.saturation(v)` · `.gamma(v)` — 1 = unchanged. Or combined: `.levels({ contrast, saturation, gamma, hue })`.
 - `.hue(v)` — hue rotation in turns: `.hue(0.5)` flips the palette, `.hue(t => t * 0.1)` drifts it.
 - `.posterize(steps)` — quantize values · `.pixellate(x, y?)` — quantize position.
+- `.ascii({ chars, cols, rows, color, bg, font, weight })` — quantize *both*:
+  the frame becomes a grid of characters, each cell drawn with the glyph whose
+  ink matches its average brightness. `chars` is the vocabulary, ordered
+  dark→bright — a set name (`'ascii'`, `'dense'`, `'blocks'`, `'numbers'`,
+  `'letters'`, `'binary'`, `'dots'`) or any string of your own, since anything
+  unrecognized is taken literally. Cells keep the color underneath them unless
+  you pass a `color`, and `rows` follows from `cols` so the glyphs stay
+  unstretched. What lands in which cell is a luma lookup, so contrast is the
+  real control: `.levels({ contrast: 1.6 })` first if the set looks unused.
 - `.threshold(level, { soft })` — luma → black/white mask · `.invert()`.
 - `.blur(radius)` — separable gaussian, radius in texels. `[x, y]` gives a
   radius per axis — `.blur([8, 0])` smears along the scanline and nowhere else
@@ -553,6 +562,13 @@ noise({ freq: 3, speed: 0.4 })
   .edge({ strength: 2 })
   .mul([0.4, 1.6, 1.2])
   .bloom({ threshold: 0.3, strength: 1.2 })
+  .out()
+```
+
+```js
+scene()
+  .levels({ contrast: 1.5 })
+  .ascii({ cols: 110, chars: ' .:-=+*#%@', color: '#33ff66' })
   .out()
 ```
 

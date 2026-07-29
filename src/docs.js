@@ -1,5 +1,5 @@
 import { MATERIAL_GROUPS, MATERIAL_DOCS } from './materials.js';
-import { BLEND_MODE_NAMES } from './tops.js';
+import { BLEND_MODE_NAMES, ASCII_SET_NAMES } from './tops.js';
 
 // One docs table drives both autocomplete and ctrl+hover tooltips.
 // [0] signature — shown next to the completion, and as the tooltip header
@@ -108,6 +108,7 @@ export const METHODS = {
   gamma: ['.gamma(v)', 'TOP: gamma curve (1 = unchanged).'],
   posterize: ['.posterize(steps)', 'TOP: quantize values to n levels per channel.'],
   pixellate: ['.pixellate(x, y?)', 'TOP: quantize position into cells (square cells if y omitted).'],
+  ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. Cells keep the color of the image under them until you name one.\nchars is a set name — 'ascii', 'dense', 'blocks', 'numbers', 'letters', 'binary', 'dots' — or any string of your own, ordered dark→bright. Contrast decides how much of the set gets used, so .levels() ahead of it is the real dial."],
   transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })", 'TOP: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v).'],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch, and it takes a fn of t."],
@@ -202,6 +203,11 @@ METHOD_CONFIG.material = new Map(
 // Same escape hatch for .comp({ mode }): seventeen blend modes don't fit in a
 // signature, and tops.js owns the list that resolves them.
 METHOD_CONFIG.comp.get('mode').values = BLEND_MODE_NAMES;
+
+// .ascii({ chars }) takes either a named set or a literal vocabulary, so the
+// names are a starting point rather than the whole domain — offered from the
+// table that resolves them, and free to be typed over.
+METHOD_CONFIG.ascii.get('chars').values = ASCII_SET_NAMES;
 
 // ...so the tooltip owes you the other thirty. Third slot of an entry: named
 // groups listed under the prose, derived from the same set that rejects a typo
@@ -440,6 +446,15 @@ const METHOD_KEY_DOCS = {
   threshold: {
     soft: 'Width of the ramp either side of the cut. Default 0, a hard black-and-white edge.',
   },
+  ascii: {
+    chars: "The vocabulary, ordered dark→bright — an unsorted set reads as noise. A set name, or any string of your own, which is what an unrecognized one is taken as. Default 'ascii' ( .:-=+*#%@).",
+    cols: 'How many characters across the frame. Default 80.',
+    rows: 'How many down. Default: whatever keeps each cell the same shape as the glyph in it, so the characters come out unstretched — set it yourself and they stretch to fit.',
+    color: 'One ink color for every character — a green here is the terminal look. Default: none, so each cell takes the color of the image under it.',
+    bg: 'What fills a cell where the glyph has no ink. Default black.',
+    font: "Any CSS family name, 'google:Name', or a font URL. Default a monospace stack. A proportional face works, but every glyph is fitted to the widest in the set.",
+    weight: 'CSS weight, 100..900. Default 400. Heavier ink brightens the whole image, since every glyph carries more of it.',
+  },
   displace: {
     amount: 'How far pixels move, in UV. Default 0.1. Negative pulls the other way.',
     mid: 'The map value that means no movement. Default 0.5 for mid-gray maps; use 0 for a dark map you only want to push one way.',
@@ -526,7 +541,7 @@ const methodKinds = {
   light: 'pos target out',
   inst: 'pos rotate scale color material',
   top: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
-        posterize pixellate transform warp chroma translate rotate scale threshold invert
+        posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
         remap lookup displace comp mask blur bloom when tile out`,
   signal: `add mul pow round floor ceil abs gte lte counter select sin tri saw sqr beat hold
            kicks smooth lowpass highpass bandpass`,
