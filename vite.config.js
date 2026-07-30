@@ -127,6 +127,20 @@ export default defineConfig({
         main: path.resolve('index.html'),
         docs: path.resolve('docs.html'),
       },
+      output: {
+        // Both pages use both libraries, so they'd share one chunk anyway —
+        // but Rollup names a shared chunk after whichever module pulled it in
+        // (giving a 1.7 MB file called `polyhaven`) and folds our own shared
+        // source into it, so editing one app module re-hashes the whole thing.
+        // Split by library instead: the names say what they are, and a code
+        // change no longer invalidates three.js in every visitor's cache.
+        manualChunks(id) {
+          // core three only: the addons under examples/ include the .exr/.fbx
+          // loaders, which are dynamically imported and should stay that way
+          if (id.includes('node_modules/three/') && !id.includes('/examples/')) return 'three';
+          if (/node_modules\/(@?codemirror|@lezer)\//.test(id)) return 'codemirror';
+        },
+      },
     },
   },
   resolve: {

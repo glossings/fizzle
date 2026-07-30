@@ -64,4 +64,18 @@ to zoom.
 - [src/docs-page.js](src/docs-page.js) + [src/docs-content.md](src/docs-content.md) — the interactive docs page ([docs.html](docs.html))
 - [src/sidebar.js](src/sidebar.js) — settings + sketch palette
 - [vite.config.js](vite.config.js) — dev-server API for `sketches/user/`
+- [api/gfont/[family].js](api/gfont/[family].js) — the same Google Fonts proxy as a serverless function, for the hosted build
 - [sketches/examples/](sketches/examples/) — bundled example sketches
+
+## License
+
+fizzle is licensed under the **GNU Affero General Public License v3.0**
+(AGPL-3.0-only) — see [LICENSE](LICENSE).
+
+In plain terms: you can use it, study it, share it, and modify it freely. Make
+whatever visuals you like with it and sell them — your work is yours, the
+license doesn't touch it. The one condition is on the *code*: if you distribute
+a modified version, or run one as a network service, you have to make your
+source available under the same license. That's deliberate — it keeps fizzle
+open for artists and hobbyists while stopping anyone from quietly rolling it
+into a closed, proprietary product.

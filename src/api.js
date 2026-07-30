@@ -54,9 +54,12 @@ async function loadLocalFont(spec, weight) {
 }
 
 async function loadGoogleFont(spec, weight) {
+  // /api/gfont is served by the dev server (vite.config.js) and by a
+  // serverless function on the hosted build; a bare static build has neither,
+  // and answers with a page
   const buf = await fetchFontFile(
     `/api/gfont/${encodeURIComponent(spec)}?weight=${weight === 'bold' ? 700 : 400}`,
-    'the Google Fonts proxy needs the dev server'
+    'no Google Fonts proxy here — this build has no /api/gfont'
   );
   return fontLoader.parse(new TTFLoader().parse(buf));
 }

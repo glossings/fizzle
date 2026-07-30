@@ -61,8 +61,9 @@ re-render live while you drag.
 
 **Sketches:** the sidebar (`ctrl + p`) saves sketches as plain `.js` files in
 `sketches/user/` via the dev server, so the folder can be committed to git.
-Without the dev server (a static build) they fall back to localStorage. The
-last opened sketch is restored on reload.
+Where there's no such server — the hosted site, or a static build — they fall
+back to localStorage, saved in this browser only; the sidebar says which of the
+two is live. The last opened sketch is restored on reload either way.
 
 **Sharing:** every run mirrors the code into the URL hash (compressed), so the
 address bar is always a shareable link — copy it, or use the sidebar's
@@ -409,8 +410,10 @@ text3d('fizzle', { size: 1.2, depth: 0.3, bevel: 0.03 })
 ```
 
 Content can be a fn of `t`; the geometry rebuilds only when the string
-changes, so clocks and counters are cheap. (The Google Fonts fetch goes
-through the dev server, so it needs `npm run dev`, not a static build.)
+changes, so clocks and counters are cheap. (The Google Fonts fetch is proxied
+by `/api/gfont` — the dev server serves it under `npm run dev`, the hosted site
+serves it as a function. A plain static build has neither, so `font:` there is
+limited to installed fonts and font URLs.)
 
 ## lights, camera, scene
 

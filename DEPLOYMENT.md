@@ -1,7 +1,8 @@
 # Deployment plan
 
-Not done yet — this is a plan for hosting fizzle publicly, Hydra-style: the site
-serves the code, every sketch runs in the visitor's browser.
+Hosting fizzle publicly, Hydra-style: the site serves the code, every sketch
+runs in the visitor's browser. The code side is done — what's left is pressing
+the button on an account.
 
 ## Why this is mostly already true
 
@@ -13,11 +14,15 @@ Hydra-shaped — deflate-compressed source in the URL hash,
 
 Build weight, for reference:
 
-| | size |
-|---|---|
-| vendor chunk (three + CodeMirror) | 1.7 MB, ~450 KB gzipped |
-| `public/media/` (HDR + ship.obj) | 2.1 MB |
-| everything else | ~200 KB |
+| | eager | gzipped |
+|---|---|---|
+| `three-*` (core) | 725 KB | 185 KB |
+| `codemirror-*` | 500 KB | 167 KB |
+| `polyhaven-*` (shared app source + three addons) | 518 KB | 167 KB |
+| per-page entry | ~58 KB | ~21 KB |
+
+Plus `public/media/` (HDR + ship.obj) at 2.1 MB, fetched only by the sketches
+that use them, and the `.exr`/`.fbx`/`.obj` loaders, which stay dynamic.
 
 ## What breaks without the dev server
 
@@ -49,54 +54,47 @@ with zero config and no function at all — `import.meta.env.BASE_URL` is alread
 used correctly in [src/media.js:61](src/media.js#L61), so a `/fizzle/` subpath
 deploy works as-is.
 
-## Steps
+## Done
 
-**1. `api/gfont/[family].js`** — port of the `gfontApi()` middleware at
-[vite.config.js:83-118](vite.config.js#L83-L118). Same logic; the in-process
-`Map` goes away (functions are stateless) and the CDN caches instead via
-`Cache-Control`, which is the better cache anyway.
+- **[api/gfont/[family].js](api/gfont/[family].js)** — port of the `gfontApi()`
+  middleware at [vite.config.js:83-118](vite.config.js#L83-L118). Same logic;
+  the in-process `Map` is gone (functions are stateless) and the CDN caches
+  instead via `Cache-Control: immutable`, which is the better cache anyway.
+  Verified against the live Google endpoint: `Inter`/700 returns a 326 KB TTF,
+  an unknown family 404s, a malformed one 400s.
+- **[vercel.json](vercel.json)** — `cleanUrls` so `/docs` serves `docs.html`
+  (the build has two entries, [vite.config.js:126-129](vite.config.js#L126-L129)),
+  plus immutable cache headers on the content-hashed `/assets/*`.
+- **Dev-server-only error messages**, both false once hosted:
+  [src/api.js:56-63](src/api.js#L56-L63) now names the missing proxy rather
+  than the missing dev server, and `src/docs-content.md` covers all three cases
+  (dev server / hosted / bare static build) for both sketch storage and fonts.
+- **Chunk splitting.** `three` core and `codemirror` are their own chunks now
+  ([vite.config.js:130-143](vite.config.js#L130-L143)). Before, Rollup put both
+  plus our shared app source into one 1.7 MB chunk named after whichever module
+  pulled it in, so editing any shared module re-hashed all of three.js in every
+  visitor's cache. Eager bytes are unchanged; only the cache granularity is.
+  The addons under `three/examples/` are deliberately excluded so the `.exr`,
+  `.fbx` and `.obj` loaders stay dynamically imported. (The residual
+  `polyhaven-*` chunk is still misnamed — it's the shared app source, and it is
+  genuinely shared, so the name is cosmetic.)
 
-```js
-export default async function handler(req, res) {
-  const { family = '', weight: w = '' } = req.query;
-  const weight = /^[1-9]00$/.test(w) ? w : '400';
-  if (!/^[\w .+-]{1,60}$/.test(family)) return res.status(400).send('bad family name');
+## To do — the account side
 
-  const css = async (fam) => {
-    const r = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}`, {
-      headers: { 'User-Agent': 'curl/8' },
-    });
-    return r.ok ? r.text() : null;
-  };
-  // exact weight first; fonts missing that weight 404, so retry plain
-  const text = (await css(`${family}:wght@${weight}`)) ?? (await css(family));
-  const ttf = text?.match(/url\((https:[^)]+\.ttf)\)/)?.[1];
-  if (!ttf) return res.status(404).send(`no font "${family}" on Google Fonts`);
-
-  res.setHeader('Content-Type', 'font/ttf');
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  res.send(Buffer.from(await (await fetch(ttf)).arrayBuffer()));
-}
-```
-
-**2. `vercel.json`** — `cleanUrls: true` so `/docs` serves `docs.html` (the
-build has two entries, see [vite.config.js:126-129](vite.config.js#L126-L129)).
-Optionally immutable cache headers on `/assets/*`, which are content-hashed.
-
-**3. Fix two dev-server-only error messages.** Both become false once hosted:
-
-- [src/api.js:58-60](src/api.js#L58-L60) — "the Google Fonts proxy needs the dev
-  server"; should report the upstream failure instead.
-- `src/docs-content.md:64` — needs a sentence covering the hosted build, not
-  just dev vs. static.
-
-Total: roughly 60 lines.
+1. Import `glossings/fizzle` at vercel.com/new. Auto-detection gets the Vite
+   preset right; nothing to configure.
+2. Check `/api/gfont/Inter?weight=700` on the preview URL, then run a sketch
+   with `text3d('x', { font: 'google:Inter' })` — the font swaps in a frame or
+   two after the mesh appears.
+3. Check `/docs` (not `/docs.html`) loads and its previews render.
+4. Point a domain at it, if there's one to point.
+5. Add the URL to the README, and to the GitHub repo's About field.
 
 ## Optional, not blocking
 
 - **Export sketches.** localStorage is a fragile home for someone's collection
   on a public site. An export-all-to-`.zip` button is cheap insurance, though
   share links cover most of the need.
-- **Fix chunk splitting.** The 1.7 MB vendor chunk is named `polyhaven-*` —
-  Rollup attributed shared vendor code to the wrong entry, so the docs page
-  likely pulls all of three.js for nothing. A `manualChunks` tweak fixes it.
+- **A hosted-only nudge.** The hosted sidebar could say "sketches live in this
+  browser — copy a share link to keep one" next to the localStorage label,
+  since that's the one real surprise for a visitor who doesn't read docs.
