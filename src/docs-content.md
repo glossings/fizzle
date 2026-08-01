@@ -50,6 +50,7 @@ a chain ends in `.out()`.
 | `ctrl + h` | hide / show the editor |
 | `ctrl + p` | toggle the sidebar (settings & sketches) |
 | `ctrl + hover` | pop docs for the API name under the cursor |
+| `F1` | open / close the projector window |
 | `Tab` | accept the highlighted completion |
 | drag / scroll | orbit / zoom the camera |
 
@@ -58,6 +59,36 @@ level, chain methods after a `.` — and each completion carries its signature
 and a doc line. Every `#rgb`/`#rrggbb` in the code gets a clickable swatch
 that opens the native color picker; picks write back into the code and
 re-render live while you drag.
+
+**Projector (`F1`):** a second window with nothing in it but the visuals and
+the code — no sidebar, no status line, no scrollbars — meant to be dragged onto
+a projector or second display while you keep working in the main window. It
+mirrors: the code follows your typing and scrolls to your cursor, and the
+picture is the same framebuffer, so there's no second render to pay for. The
+code is laid over the picture and clipped to it, so it can never spill onto a
+letterbox bar or off the edge of a recording. Nothing in it is clickable.
+`F1` puts it away — from your window or from the projector's, where `escape`
+does the same.
+
+Press **`f`** in that window (or double-click it) for fullscreen — a pop-up
+always gets a location bar, and fullscreen is the only way to be rid of it.
+That's the state you actually want on the projector.
+
+While it's open, `ctrl + h` hides the code **on the projector** rather than in
+your window — you're typing on the laptop, so that's the one copy the keyboard
+can't otherwise reach, and it's what lets you drop the audience to pure visuals
+mid-set without losing your place. With no projector open it hides your own
+editor, as before.
+
+**`resolution(width, height)`** pins the render to an exact size and shape
+instead of the browser window. Your window shows it letterboxed — scaled to
+fit, centered, black around it — and the projector window takes the same aspect
+ratio, so full-screening that one on a display of the same shape fills it edge
+to edge with nothing cropped and no bars. `resolution(1920, 1080)` before a set
+is the whole setup: the projector window opens at exactly that size (shrunk to
+fit your screen if it has to). Quality in the sidebar still scales the pixels
+underneath without touching the shape, and dropping the call goes back to
+filling the window.
 
 **Sketches:** the sidebar (`ctrl + p`) saves sketches as plain `.js` files in
 `sketches/user/` via the dev server, so the folder can be committed to git.

@@ -716,6 +716,18 @@ export function makeApi(engine) {
       engine.updaters.push((t) => tick?.(t, resolve));
     },
     bg(color) { engine.scene.background = new THREE.Color(color); },
+    // Pins the render to an exact pixel size and shape. The main window shows
+    // it letterboxed — scaled to fit, centered, black around it — while the
+    // projector window (F1) takes the same aspect ratio, so full-screening
+    // that one on a display of the same shape fills it edge to edge. Without
+    // a call the render fills the browser window, as it always has.
+    // resolution(1920, 1080), resolution({ width, height }), or one number for
+    // a square. Sidebar quality still scales the pixels underneath.
+    resolution(width, height) {
+      if (width !== null && typeof width === 'object') ({ width, height } = width);
+      const px = (n) => Math.max(1, Math.round(n));
+      engine.resolution = width == null ? null : [px(width), px(height ?? width)];
+    },
     // positional fog(color, near, far) predates the config form; a THREE.Color
     // in the first slot is still a color, not a config
     fog(color = 0x0a0a0f, near = 5, far = 30) {

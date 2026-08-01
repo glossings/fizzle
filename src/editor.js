@@ -9,10 +9,14 @@ import { colorPicker } from './colorpicker.js';
 import { apiCompletions, apiHover } from './complete.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
-//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show editor · ctrl+p sidebar
-//   ctrl+r restart media files
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia }) {
-  const toggleEditor = () => {
+//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+p sidebar
+//   ctrl+r restart media files · F1 projector window
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange }) {
+  // With the projector up, ctrl+h is about what the *audience* sees: you're
+  // typing on the laptop, so the projector is the one window whose code you
+  // can't reach any other way. Without one it hides your own editor, as ever.
+  const toggleCode = () => {
+    if (onToggleProjectorCode?.()) return;
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden')) view.focus();
   };
@@ -22,9 +26,10 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
       { key: 'Shift-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
       { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
-      { key: 'Ctrl-h', run: () => { toggleEditor(); return true; } },
+      { key: 'Ctrl-h', run: () => { toggleCode(); return true; } },
       { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
       { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
+      { key: 'F1', run: () => { onToggleProjector?.(); return true; } },
       // completions accept with Tab, not Enter; Enter just newlines through
       // an open popup. Tab indents when no popup is showing.
       { key: 'Tab', run: acceptCompletion },
@@ -52,16 +57,25 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       oneDark,
       EditorView.lineWrapping,
       colorPicker(onLiveChange),
+      // the projector window replays these to stay in step with what's typed
+      EditorView.updateListener.of((u) => {
+        if (u.docChanged || u.selectionSet) onChange?.(u);
+      }),
     ],
   });
 
   // same bindings when the canvas has focus; skip anything the editor already
   // handled (its keymap calls preventDefault before this bubbles up)
   window.addEventListener('keydown', (e) => {
-    if (!e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    if (e.defaultPrevented) return;
+    if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      return onToggleProjector?.();
+    }
+    if (!e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }
     else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
-    else if (e.key === 'h') { e.preventDefault(); toggleEditor(); }
+    else if (e.key === 'h') { e.preventDefault(); toggleCode(); }
     else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
   });

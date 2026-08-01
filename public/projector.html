@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>fizzle — projector</title>
+  <style>html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }</style>
+</head>
+<!-- Shell for the projector window (F1). It carries no script of its own: the
+     main window opens it and builds the mirror inside it directly, and the
+     marker below is how it knows the real document has replaced about:blank.
+     It exists at all so the pop-up's location bar reads this site rather than
+     "about:blank" — a scripted window always shows one. -->
+<body data-fizzle="projector"></body>
+</html>

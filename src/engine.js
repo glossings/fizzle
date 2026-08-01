@@ -35,6 +35,8 @@ export class Engine {
     this.paused = false;
     this.frames = 0;      // total frames rendered, for the fps readout
     this.quality = 1;
+    this.resolution = null; // [w, h] from resolution(); null = fill the window
+    this._resKey = '';      // what resize() last applied, so a re-run is a no-op
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
@@ -68,15 +70,42 @@ export class Engine {
   }
 
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.renderer.setSize(w, h);
-    this.camera.aspect = w / h;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const canvas = this.renderer.domElement;
+    if (this.resolution) {
+      // Render at exactly the size asked for and letterbox the *element* into
+      // the window — the bars are page background, not pixels, so the drawing
+      // buffer the projector mirrors is pure image at the target shape.
+      const [w, h] = this.resolution;
+      this.renderer.setPixelRatio(this.quality);
+      this.renderer.setSize(w, h, false); // false: the style is ours below
+      const fit = Math.min(vw / w, vh / h);
+      canvas.style.width = `${Math.round(w * fit)}px`;
+      canvas.style.height = `${Math.round(h * fit)}px`;
+      canvas.style.margin = 'auto'; // with inset: 0, that centers it
+      this.camera.aspect = w / h;
+    } else {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.quality);
+      this.renderer.setSize(vw, vh);
+      canvas.style.margin = '';
+      this.camera.aspect = vw / vh;
+    }
     this.camera.updateProjectionMatrix();
+  }
+
+  // A sketch's resolution() — or the absence of one, after clearPatch reset it
+  // — only lands once the whole run has had its say, so a re-run at the same
+  // size never touches the renderer and never churns the TOP buffers.
+  syncResolution() {
+    const key = this.resolution?.join('x') ?? '';
+    if (key === this._resKey) return;
+    this._resKey = key;
+    this.resize();
+    window.dispatchEvent(new CustomEvent('fizzle-resolution', { detail: this.resolution }));
   }
 
   setQuality(scale) {
     this.quality = scale;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * scale);
     this.resize();
   }
 
@@ -543,6 +572,8 @@ export class Engine {
 
     this.cameraProgrammed = false;
     this.controls.enabled = true;
+    // dropping the resolution() call goes back to filling the window
+    this.resolution = null;
     // a picker request belongs to the run that made it: the code has moved on,
     // and a request left over from a run whose empty call has since been filled
     // in would pop the picker straight back open
@@ -575,6 +606,7 @@ export class Engine {
     const values = names.map((n) => api[n]);
     try {
       new Function(...names, `"use strict";\n${code}`)(...values);
+      this.syncResolution(); // before the settle below, so the aspect is right
       // settle the new patch at current sketch time (matters when paused)
       for (const fn of this.updaters) {
         try { fn(this.time, 0); } catch (e) { /* surfaced on next frame if persistent */ }
@@ -582,6 +614,7 @@ export class Engine {
       return null;
     } catch (err) {
       this.clearPatch();
+      this.syncResolution();
       return err;
     }
   }

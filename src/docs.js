@@ -34,6 +34,7 @@ export const GLOBALS = {
 
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
   bg: ['bg(color)', 'Scene background color.'],
+  resolution: ['resolution(width, height)', "Pin the render to an exact pixel size and shape instead of the browser window. The main window letterboxes it — scaled to fit, centered, black around it — while the projector window (F1) takes that same aspect ratio, so full-screening the projector on a display of the same shape fills it edge to edge.\nresolution({ width, height }) and a single number for a square also work; drop the call to go back to filling the window. Sidebar quality scales the pixels underneath without changing the shape, so resolution(1920, 1080) at med renders 1440×810 and still presents 16:9."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. depth() picks the same range up by default. Positional fog(color, near, far) also works.'],
 
   scene: ['scene()', 'TOP source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
@@ -274,6 +275,10 @@ const GLOBAL_KEY_DOCS = {
   ambient: {
     color: 'Light color. Default white. Takes a fn of t.',
     intensity: "Brightness. Default 0.3 — this is the floor everything sits at, so it's the dial between a lit room and a single lamp in the dark.",
+  },
+  resolution: {
+    width: 'Render width in pixels. No call at all = the browser window.',
+    height: 'Render height in pixels. Defaults to width, i.e. a square.',
   },
   fog: {
     color: 'What distant geometry fades to. Default #0a0a0f. Usually the same as bg().',

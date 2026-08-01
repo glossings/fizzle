@@ -5,9 +5,11 @@ import { initSidebar } from './sidebar.js';
 import { codeToHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
+import { initProjector } from './projector.js';
 import DEFAULT_SKETCH from '../sketches/examples/glow-blobs.js?raw';
 
 const engine = new Engine(document.getElementById('gl'));
+const projector = initProjector(document.getElementById('gl'), () => engine.resolution);
 const api = makeApi(engine);
 const status = document.getElementById('status');
 // the asset browser an empty hdri() / .material() opens; builds its DOM lazily
@@ -120,6 +122,24 @@ async function handleMediaPick() {
   if (!pick) return;
   fillCall(req.fn, pick.args);
   flash(`imported ${pick.label}`); // after the re-run, so it isn't overwritten
+}
+
+// F1: a second window with only the visuals and the code, for the projector
+function toggleProjector() {
+  const state = projector.toggle(view.state);
+  if (state === 'open') flash('📽 projector open — f there for fullscreen, ctrl+h hides its code, not yours');
+  else if (state === 'closed') flash('projector closed');
+  else {
+    status.textContent = 'the browser blocked the projector window — allow pop-ups for this site';
+    status.className = 'show';
+  }
+}
+
+// ctrl+h: the projector's code while there is one, otherwise the local editor
+function toggleProjectorCode() {
+  const state = projector.toggleCode();
+  if (state) flash(state === 'hidden' ? '📽 code hidden on the projector' : '📽 code shown on the projector');
+  return !!state;
 }
 
 function togglePause() {
@@ -266,6 +286,9 @@ initDrop();
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
     onToggleSidebar: sidebar.toggle,
     onRestartMedia: () => { engine.restartMedia(); flash('⏮ media restarted'); },
+    onToggleProjector: toggleProjector,
+    onToggleProjectorCode: toggleProjectorCode,
+    onChange: (u) => projector.sync(u),
   });
   run(initial);
 })();

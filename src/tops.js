@@ -1026,7 +1026,10 @@ export class TopOp {
       // size: CSS-pixel font size (size: 100 looks like 100px on screen,
       // whatever the retina/quality scale); <= 1 = fraction of screen height
       const size = resolve(p.size ?? 0.15, ctx.t);
-      const fontPx = size <= 1 ? size * ctx.h : size * (ctx.h / window.innerHeight);
+      // > 1 is CSS pixels, so it measures against how tall the canvas is
+      // *displayed* — which resolution() decouples from the window height
+      const shownH = ctx.renderer.domElement.clientHeight || window.innerHeight;
+      const fontPx = size <= 1 ? size * ctx.h : size * (ctx.h / shownH);
       const color = String(resolve(p.color ?? '#ffffff', ctx.t));
       const bg = String(resolve(p.bg ?? '#000000', ctx.t));
       const pos = p.pos ?? [0.5, 0.5];
