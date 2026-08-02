@@ -478,6 +478,15 @@ Fonts automatically. Use `'google:Name'` to skip the local lookup, or a
 `.ttf`/`.otf`/`.typeface.json` URL for a specific file. Async fonts render as
 helvetiker until they arrive, then swap in.
 
+The permission prompt only opens off a keypress, so a sketch restored on page
+load says `press ctrl+enter to allow font access` rather than failing quietly.
+Where the local lookup can't answer — Firefox and Safari have no such API, and
+macOS ships Helvetica, Avenir, Courier and Lucida Grande as `.ttc` collections
+that can't be parsed — the common system faces fall back to their
+metric-compatible Google twins: Arial and Helvetica to Arimo, Times New Roman
+to Tinos, Courier New to Cousine, Georgia to Gelasio, Calibri to Carlito,
+Cambria to Caladea. Same widths, so the line breaks land in the same places.
+
 ```js
 ambient({ intensity: 0.3 })
 directional({ intensity: 1.6 }).pos(2, 4, 6).out()

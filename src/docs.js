@@ -213,6 +213,23 @@ METHOD_CONFIG.comp.get('mode').values = BLEND_MODE_NAMES;
 // table that resolves them, and free to be typed over.
 METHOD_CONFIG.ascii.get('chars').values = ASCII_SET_NAMES;
 
+// `font:` accepts any installed family, any Google family and any URL — far
+// too many to list, and none of them nameable from memory mid-set. So this is
+// a shortlist rather than a domain: the seven system faces that resolve
+// everywhere (api.js keeps metric-compatible stand-ins for exactly these) and
+// a spread of Google families worth reaching for — mono, display, pixel,
+// serif — one of which is usually closer than whatever you'd have typed.
+const FONT_NAMES = [
+  'arial', 'helvetica', 'times new roman', 'courier new', 'georgia', 'calibri', 'cambria',
+  'google:Inter', 'google:Roboto Mono', 'google:Space Mono', 'google:VT323',
+  'google:Press Start 2P', 'google:Silkscreen', 'google:Major Mono Display',
+  'google:Anton', 'google:Bebas Neue', 'google:Archivo Black', 'google:Orbitron',
+  'google:Rubik Glitch', 'google:Playfair Display', 'google:DM Serif Display',
+];
+for (const keys of [GLOBAL_CONFIG.text, GLOBAL_CONFIG.text3d, METHOD_CONFIG.ascii]) {
+  keys.get('font').values = FONT_NAMES;
+}
+
 // ...so the tooltip owes you the other thirty. Third slot of an entry: named
 // groups listed under the prose, derived from the same set that rejects a typo
 // rather than typed out again beside it.
@@ -373,7 +390,7 @@ const GLOBAL_KEY_DOCS = {
     depth: 'How far the letters extrude along Z. Default 0.25.',
     bevel: 'Rounding on the front edge. Default 0.02; 0 gives a hard flat extrude.',
     res: 'Curve segments per glyph. Default 8 — raise it for large smooth type.',
-    font: "A font name, 'google:Name', or a .ttf/.otf/.typeface.json URL. Renders in helvetiker until the real one arrives.",
+    font: "A font name, 'google:Name', or a .ttf/.otf/.typeface.json URL. Renders in helvetiker until the real one arrives. A bare name tries your installed fonts first — Chrome and Edge only, behind a one-time permission prompt — then Google Fonts; arial, helvetica, times new roman, courier new, georgia, calibri and cambria also have metric-compatible stand-ins, so they set the same way in any browser.",
     weight: "'bold' selects the bold built-in when no font is named.",
     center: 'Center the text on the origin. Default true.',
   },

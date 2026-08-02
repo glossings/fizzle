@@ -20,28 +20,6 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 
 [ ] Check user-friendliness of the code
 
-## Installed fonts don't work
-
-`{ font: 'arial' }` always fails. `loadLocalFont`
-([src/api.js:48](src/api.js#L48)) guards on `navigator.queryLocalFonts`, but the
-API is `window.queryLocalFonts()` — a bare global. So the guard is always
-`undefined`, the local path never runs, and it falls through to Google Fonts,
-which has no Arial. Verified: `Arial.ttf` parses fine through opentype.js 2.0
-once the bytes arrive.
-
-[ ] Use the global instead of the `navigator` property.
-[ ] Handle the permission prompt's user-activation requirement — reuse the
-  pattern at [src/main.js:120](src/main.js#L120) ("press ctrl+enter to allow
-  font access") instead of surfacing a bare SecurityError.
-[ ] `.ttc` collections throw `Unsupported OpenType signature ttcf` in
-  opentype.js — that's Helvetica, Avenir, Courier, HelveticaNeue, LucidaGrande.
-  Warn by name, not "not installed".
-[ ] Metric-compatible Google fallbacks so named system fonts also work in
-  Firefox/Safari and on the deployed build: Arial/Helvetica→Arimo, Times New
-  Roman→Tinos, Courier New→Cousine, Georgia→Gelasio, Calibri→Carlito,
-  Cambria→Caladea.
-[ ] Completion for `font:` — a curated list of the ~20 worth naming live.
-
 ## Texture-driven parameters
 
 Every TOP param takes a number or a fn of `t`, never a TOP. Letting a TOP stand

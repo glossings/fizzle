@@ -24,7 +24,8 @@ const FONTS = {
 //  - a URL to .typeface.json, .ttf or .otf (parsed at runtime, no conversion)
 //  - a bare name: tried against installed fonts first (Chrome's Local Font
 //    Access API — permission prompt, needs a user gesture), then fetched from
-//    Google Fonts via the dev-server proxy
+//    Google Fonts via the dev-server proxy, then from the metric-compatible
+//    clone of that face (Arial → Arimo), so system names work off Chrome too
 //  - 'google:Name' to skip the local lookup
 // Loads are async: the mesh builds with helvetiker and swaps when ready.
 // Cache persists across re-runs so the swap happens once.
@@ -44,9 +45,28 @@ async function fetchFontFile(spec, missingHint = 'is the file actually there?') 
   return buf;
 }
 
+// The Local Font Access API is a bare global — there is no
+// `navigator.queryLocalFonts`, so guarding on one skips this path everywhere.
+async function localFontList() {
+  if (typeof window.queryLocalFonts !== 'function') throw new Error('no local font access in this browser');
+  try {
+    return await window.queryLocalFonts();
+  } catch (e) {
+    // The permission prompt needs transient user activation and a sketch
+    // restored on page load has none. Name the key that supplies one, the way
+    // an empty videofile() does (main.js), instead of a bare SecurityError.
+    if (e.name === 'SecurityError') {
+      const err = new Error('press ctrl+enter to allow font access');
+      err.needsGesture = true;
+      throw err;
+    }
+    if (e.name === 'NotAllowedError') throw new Error('font access denied — re-allow it in the site settings');
+    throw e;
+  }
+}
+
 async function loadLocalFont(spec, weight) {
-  if (!navigator.queryLocalFonts) throw new Error('no local font access in this browser');
-  const fonts = await navigator.queryLocalFonts();
+  const fonts = await localFontList();
   const name = spec.toLowerCase();
   const matches = fonts.filter(
     (f) => f.family.toLowerCase() === name || f.fullName.toLowerCase() === name || f.postscriptName.toLowerCase() === name
@@ -54,8 +74,31 @@ async function loadLocalFont(spec, weight) {
   if (!matches.length) throw new Error(`not installed`);
   const style = new RegExp(weight === 'bold' ? 'bold' : 'regular|normal|book|roman', 'i');
   const pick = matches.find((f) => style.test(f.style)) ?? matches[0];
-  return fontLoader.parse(new TTFLoader().parse(await (await pick.blob()).arrayBuffer()));
+  const buf = await (await pick.blob()).arrayBuffer();
+  // A .ttc packs several faces into one file — on macOS that's Helvetica,
+  // Avenir, Courier, Helvetica Neue and Lucida Grande — and opentype.js stops
+  // at the signature. Say which font, not "not installed".
+  if (new TextDecoder().decode(buf.slice(0, 4)) === 'ttcf') {
+    throw new Error(`"${pick.family}" is installed as a .ttc collection, which can't be read here`);
+  }
+  return fontLoader.parse(new TTFLoader().parse(buf));
 }
+
+// Google's metric-compatible clones: same advance widths and cap heights as
+// the system faces they stand in for, so a sketch naming one still sets the
+// same way in Firefox/Safari, on a static build, or when the installed file
+// turns out to be a .ttc.
+const METRIC_FALLBACK = {
+  arial: 'Arimo',
+  helvetica: 'Arimo',
+  times: 'Tinos',
+  'times new roman': 'Tinos',
+  courier: 'Cousine',
+  'courier new': 'Cousine',
+  georgia: 'Gelasio',
+  calibri: 'Carlito',
+  cambria: 'Caladea',
+};
 
 async function loadGoogleFont(spec, weight) {
   // /api/gfont is served by the dev server (vite.config.js) and by a
@@ -77,18 +120,26 @@ async function loadFontSpec(spec, weight) {
     return fontLoader.parse(new TTFLoader().parse(await fetchFontFile(spec)));
   }
   if (/^google:/i.test(spec)) return loadGoogleFont(spec.slice(7), weight);
-  // bare name: installed fonts first, then Google Fonts
-  let localErr = null;
-  try {
-    return await loadLocalFont(spec, weight);
-  } catch (e) {
-    localErr = e;
+  // bare name: installed fonts first, then Google Fonts under that name, then
+  // the metric-compatible clone of the system faces Google doesn't carry
+  const stand = METRIC_FALLBACK[spec.toLowerCase()];
+  const tries = [() => loadLocalFont(spec, weight), () => loadGoogleFont(spec, weight)];
+  if (stand) tries.push(() => loadGoogleFont(stand, weight));
+  const errs = [];
+  for (const attempt of tries) {
+    try {
+      return await attempt();
+    } catch (e) {
+      errs.push(e);
+    }
   }
-  try {
-    return await loadGoogleFont(spec, weight);
-  } catch (gErr) {
-    throw new Error(`font "${spec}": ${localErr.message}, and Google Fonts failed (${gErr.message})`);
-  }
+  // a missing gesture is the only one of these the sketch can act on, so it
+  // takes the status bar rather than trailing a paragraph of network failures
+  const gesture = errs.find((e) => e.needsGesture);
+  if (gesture) throw new Error(`font "${spec}": ${gesture.message}`);
+  // the stand-in fails the same way its family name did, so say it once
+  const remote = [...new Set(errs.slice(1).map((e) => e.message))].join('; ');
+  throw new Error(`font "${spec}": ${errs[0].message}, and Google Fonts failed (${remote})`);
 }
 
 function resolveFont(o) {
