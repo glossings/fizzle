@@ -6,7 +6,7 @@ import { codeToHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
-import DEFAULT_SKETCH from '../sketches/examples/glow-blobs.js?raw';
+import DEFAULT_SKETCH from '../sketches/examples/welcome.js?raw';
 
 const engine = new Engine(document.getElementById('gl'));
 const projector = initProjector(document.getElementById('gl'), () => engine.resolution);

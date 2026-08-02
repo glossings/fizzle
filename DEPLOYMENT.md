@@ -81,13 +81,31 @@ deploy works as-is.
 
 ## To do — the account side
 
+Target: **fizzle.glossing.dev**, as its own Vercel project. Not a route inside
+`glossing-website` — that's an Astro site, this is Vite plus a serverless
+function, and a subdomain keeps the two deploying independently.
+
 1. Import `glossings/fizzle` at vercel.com/new. Auto-detection gets the Vite
-   preset right; nothing to configure.
+   preset right; nothing to configure. The `api/` directory is picked up as a
+   function by convention, no `functions` block needed.
 2. Check `/api/gfont/Inter?weight=700` on the preview URL, then run a sketch
    with `text3d('x', { font: 'google:Inter' })` — the font swaps in a frame or
    two after the mesh appears.
 3. Check `/docs` (not `/docs.html`) loads and its previews render.
-4. Point a domain at it, if there's one to point.
+4. Add `fizzle.glossing.dev` under the project's Domains, then create the
+   `CNAME` Vercel asks for. The zone is not on Vercel's nameservers, so the
+   record will not appear on its own — add it wherever the zone is hosted
+   (`dig NS glossing.dev` if in doubt). If that provider offers proxying, the
+   record must be **unproxied / DNS-only**: proxying breaks Vercel's domain
+   verification and TLS issuance. The apex and `www` are already set up this
+   way, so this is the same shape as what's working today.
+
+   Leave the zone where it is. Moving it onto Vercel's nameservers would buy
+   automatic records for Vercel subdomains and little else, while coupling DNS
+   to the host — leaving Vercel later becomes a zone migration rather than a
+   two-record edit. If it ever does move, migrate the zone as its own change,
+   never alongside a deploy: two moving parts at once makes propagation
+   problems unattributable.
 5. Add the URL to the README, and to the GitHub repo's About field.
 
 ## Optional, not blocking

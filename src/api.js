@@ -364,6 +364,7 @@ class GeoOp {
     this._nmat = null;
     this._ncAt = null;        // ditto for the resolved noise config
     this._nc = null;
+    this._sentOut = null;     // transform as of the last .out(), to catch a reused op
   }
 
   pos(x = 0, y = 0, z = 0) {
@@ -554,6 +555,15 @@ class GeoOp {
   color(c) { this._material.color = c; return this; }
 
   out(name) {
+    // Each mesh re-reads this op every frame, so an op moved between two
+    // .out() calls leaves both meshes on the last transform, stacked. Sending
+    // one op to two layers is fine, though — only a moved one is a mistake.
+    // pos/rotate/scale always assign a fresh array, so identity is the test.
+    if (this._sentOut && (this._pos !== this._sentOut.pos || this._rot !== this._sentOut.rot || this._scale !== this._sentOut.scale)) {
+      warn('this shape is already in the scene — moving it after .out() moves every copy of it. Use .instance(n, fn) for copies, or a function that builds the shape fresh each time.');
+    }
+    this._sentOut = { pos: this._pos, rot: this._rot, scale: this._scale };
+
     let pendingFont = null;
     if (this.type === 'text3d') {
       const resolved = resolveFont(this.opts);

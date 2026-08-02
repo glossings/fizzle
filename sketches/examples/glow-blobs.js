@@ -1,4 +1,4 @@
-// td-livecode — ctrl+enter run · ctrl+. pause · ctrl+h hide code · ctrl+b sidebar
+// glow-blobs — noise-displaced geometry, instanced shards, bloom over the lot
 // every numeric param also takes a function of time: t => ...
 // click any color swatch (or type #) for a color picker
 

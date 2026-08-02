@@ -288,7 +288,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       setCurrent('examples', last.name);
     }
   } catch { /* fall through to default sketch */ }
-  if (initialCode == null) setCurrent('examples', 'glow-blobs');
+  if (initialCode == null) setCurrent('examples', 'welcome');
 
   return { initialCode, toggle, settings };
 }

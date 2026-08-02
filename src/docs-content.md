@@ -287,6 +287,38 @@ ends: `.noise()`, the rest of `.material()` and `.out()` are shared by every
 instance and belong on the chain — calling them on `x` says so rather than
 silently doing nothing.
 
+### a shape as a function — copies that differ
+
+An op is a mutable object whose mesh re-reads it every frame. That's what makes
+`t => …` params work, but it means `.out()` doesn't take a copy: send one op out
+twice and you get two meshes reading the same transform, stacked wherever the
+last call left it.
+
+```js
+const ball = sphere({ radius: 0.5 }).material({ color: '#4fd1c5' })
+ball.pos(-3).out()
+ball.pos(3).out()          // one op, so both meshes sit at x = 3
+```
+
+`.instance()` is the answer when the copies share a material. When they need to
+differ beyond what it covers — their own color, their own `.noise()`, a
+different shape entirely — make the shape a *function* and call it once per
+copy. Each call builds a fresh op, so each `.out()` gets its own:
+
+```js
+const ball = (color) => sphere({ radius: 0.5 }).material({ color })
+
+ball('#4fd1c5').pos(-3).out()
+ball('#7ee787').pos(3).out()
+```
+
+Parameterise it however you like — the function is ordinary JavaScript, so a
+shape, its material and its animation can travel together as one named thing
+and get reused across a sketch.
+
+fizzle warns when it catches the first form, because the symptom (one shape
+where two were expected) looks nothing like the cause.
+
 ### materials
 
 `.material({ color, roughness, metalness, emissive, emissiveIntensity,
