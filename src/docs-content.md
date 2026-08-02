@@ -123,6 +123,53 @@ Audio signals and tempo signals (covered below) are themselves functions of
 `t`, so they drop into the same slots: `.scale(audio().mul(2))` works anywhere
 `.scale(t => ...)` does.
 
+### colors
+
+Anywhere a color is taken — `.material({ color })`, `.color()`, a light's
+`color`, `bg()`, `fog()`, a TOP's `color`/`bg`/`a`/`b` — four forms work:
+
+```js
+'#4fd1c5'            // hex
+'tomato'             // any CSS color name
+0x4fd1c5             // number
+[0.31, 0.82, 0.77]   // rgb, each channel 0..1
+```
+
+The array is the one you can compute, because each channel takes a fn of `t`
+like every other parameter — that's how you get a color out of math rather
+than out of a list:
+
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.4 }).pos(3, 5, 2).out()
+
+sphere({ radius: 1.4, res: 96 })
+  .color([t => Math.sin(t) * 0.5 + 0.5, 0.3, t => Math.cos(t * 0.7) * 0.5 + 0.5])
+  .material({ roughness: 0.35 })
+  .out()
+```
+
+`[1, 0, 0]` and `'#ff0000'` are the same red. A whole-color fn still works too,
+which is what you want for stepping through fixed palettes:
+`.color(kick.counter().select(['#f09', '#0fc']))`.
+
+## errors don't stop the video
+
+This is a livecoding environment, so a mistake never blanks the screen:
+
+- **A run that throws keeps the previous sketch playing.** The error shows in
+  the status bar with *(previous sketch still playing)*, and the visuals carry
+  on until the next run that works. Half-typed code is a normal state to be in.
+- **Anything a call can't honour is a warning, not a stop** — a `.material()`
+  property that doesn't exist, `.pos()` on an `ambient()` light, `.noise()` on
+  an instance handle. The status bar says what was ignored and the frame goes
+  out anyway.
+- **A throw inside a per-frame fn doesn't kill the loop.** It's reported once
+  (not sixty times a second) and rendering continues; fixing it and re-running
+  clears the message.
+
+Warnings also go to the browser console, prefixed `fizzle:`.
+
 ## geometry
 
 Geometry ops start a chain; `.out()` builds the mesh and adds it to the scene.
@@ -245,17 +292,18 @@ silently doing nothing.
 
 `.material({ color, roughness, metalness, emissive, emissiveIntensity,
 flatShading, wireframe, doubleSide })` — PBR settings. `doubleSide` renders
-back faces too — on by default for `plane()` and `model()`. `.color(c)` is shorthand for
-`.material({ color })`, and colors may be fns of `t` or signals, so a palette
-can be sequenced: `.color(kick.counter().select(['#f09', '#0fc']))`.
+back faces too — on by default for `plane()` and `model()`. `.color(c)` is
+shorthand for `.material({ color })`; see [colors](#colors) for the four forms
+every color slot takes.
 
 `opacity` fades a surface out and switches on blending by itself — name
 `transparent` only to override that, and `depthWrite: false` when a pile of
 overlapping transparent shapes pops as the camera turns.
 
-A property `.material()` doesn't know is an error rather than a shrug —
+A property `.material()` doesn't know is called out rather than shrugged at —
 `transmision` would otherwise just quietly do nothing, which looks exactly like
-the feature being broken.
+the feature being broken. It's a warning, not a stop: the key is ignored, the
+rest of the material is built, and the sketch renders.
 
 ### glass & coatings
 

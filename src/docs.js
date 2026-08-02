@@ -33,7 +33,7 @@ export const GLOBALS = {
   hdri: ['hdri(name?, { background, intensity, blur, rotation, backgroundRotation, backgroundIntensity })', "Image-based lighting from an imported .hdr/.exr: it lights every material in the scene and shows behind it. Metalness only comes alive with one — a metal surface has nothing to reflect otherwise.\nAn empty hdri() opens the Poly Haven browser and writes your pick back into the call; you can also drag a file in. Every option but background takes a fn of t."],
 
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
-  bg: ['bg(color)', 'Scene background color.'],
+  bg: ['bg(color)', 'Scene background color. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame.'],
   resolution: ['resolution(width, height)', "Pin the render to an exact pixel size and shape instead of the browser window. The main window letterboxes it — scaled to fit, centered, black around it — while the projector window (F1) takes that same aspect ratio, so full-screening the projector on a display of the same shape fills it edge to edge.\nresolution({ width, height }) and a single number for a square also work; drop the call to go back to filling the window. Sidebar quality scales the pixels underneath without changing the shape, so resolution(1920, 1080) at med renders 1440×810 and still presents 16:9."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. depth() picks the same range up by default. Positional fog(color, near, far) also works.'],
 
@@ -72,7 +72,7 @@ export const METHODS = {
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z} — a geometry used as a layout source rather than something drawn. The shape needn't be in the scene: an op that never reaches .out() renders nothing, so const pts = icosa({ radius: 3 }) then .instance(400, (x, i) => x.pos(pts.sample(i))) skins one shape onto another.\nPoints are area-weighted across the triangles and stable across re-runs, so editing a sketch doesn't reshuffle them. The source's whole chain applies: its .noise() puts the points on the deformed surface (the same field, re-run on the CPU), then its .pos/.rotate/.scale/.align place them, so a layout can be noised, placed, or spun. Either one makes the points a fn of t, so results can only be worked out ahead of the layout fn while the source is still."],
   normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. Hand it to .align() to stand copies up off the surface, or read a component to drive scale or color by facing.'],
   material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: a standard PBR material, upgraded to three's physical one the moment you name a glass or coating key — so a sketch that never mentions them pays nothing.\nAn empty .material() opens the Poly Haven browser and writes your pick back into the call. Every value takes a fn of t; every map slot takes an imported image by name, or a live TOP chain."],
-  color: ['.color(c)', 'Shorthand for .material({ color }). Colors may be fns of t or signals — e.g. .color(kickCounter.select(palette)).'],
+  color: ['.color(c)', "Shorthand for .material({ color }).\nFour forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] with channels 0..1. The whole color may be a fn of t or a signal — .color(kickCounter.select(palette)) — and each channel of the array may be its own, which is how you compute a color instead of listing one: .color([t => Math.sin(t) * 0.5 + 0.5, 0.2, audio()])."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .pos(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default and costs nothing until some light casts, so on a mesh this is really the opt-out: .shadow(false) for both, or one side of it. On a light, shadow: true turns casting on (directional/spot/point) and the same object tunes it.\nThe one exception to that default: glass (transmission) and blended (opacity < 1) surfaces don't cast, because the depth pass can't tell they're see-through and would throw the solid shadow of their silhouette. .shadow(true) insists."],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a TOP chain becomes the display output. With a name, publishes for input('name') instead: a TOP point (passthrough), a geometry as its own render layer, or a light lighting only that layer."],
@@ -276,7 +276,7 @@ const GLOBAL_KEY_DOCS = {
     fit: "Scale the longest axis to this many world units. Default 2, so anything lands usable. fit: 0 keeps the file's units, whatever they turn out to be.",
   },
   ambient: {
-    color: 'Light color. Default white. Takes a fn of t.',
+    color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
     intensity: "Brightness. Default 0.3 — this is the floor everything sits at, so it's the dial between a lit room and a single lamp in the dark.",
   },
   resolution: {
@@ -289,19 +289,19 @@ const GLOBAL_KEY_DOCS = {
     far: 'World distance at which geometry is fully fog. Default 30.',
   },
   directional: {
-    color: 'Light color. Default white. Takes a fn of t.',
+    color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
     intensity: 'Brightness. Default 1.5. Takes a fn of t.',
     shadow: 'true to cast shadows, or an object to tune them: { map, soft, strength, area, near, far, bias, normalBias }.',
   },
   point: {
-    color: 'Light color. Default white. Takes a fn of t.',
+    color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
     intensity: 'Brightness. Default 20 — a point light needs far more than a directional to read the same.',
     distance: 'Radius at which the light reaches zero. Default 0, meaning it never fully stops.',
     decay: 'Falloff exponent. Default 2, the physical inverse-square, which reads like a bare bulb. Around 1.3 pushes light further down a corridor.',
     shadow: 'true to cast. This is the expensive one — a cube map, so six renders. { map: 512 } wins some back.',
   },
   spot: {
-    color: 'Light color. Default white. Takes a fn of t.',
+    color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
     intensity: 'Brightness. Default 60.',
     angle: 'Half-width of the cone, in radians. Default ~0.52 (a desk lamp); 0.1 is a searchlight.',
     penumbra: '0 is a hard-edged circle of light, 1 fades from the rim all the way to the center. Default 0.4.',

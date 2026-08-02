@@ -27,13 +27,29 @@ function flash(msg) {
   setTimeout(() => { if (status.classList.contains('ok')) status.className = ''; }, 1200);
 }
 
+// Something the sketch asked for that couldn't be honoured — a material
+// property that doesn't exist, a throwing updater, a broken TOP graph. Shown
+// like an error but self-clearing, since the show goes on behind it.
+let warned = false;
+window.addEventListener('fizzle-warning', (e) => {
+  warned = true;
+  const msg = `⚠ ${e.detail}`;
+  status.textContent = msg;
+  status.className = 'show';
+  setTimeout(() => { if (status.textContent === msg) status.className = ''; }, 5000);
+});
+
 function run(code) {
   syncHash(code);
+  warned = false;
   const err = engine.run(code, api);
   if (err) {
-    status.textContent = String(err.stack?.split('\n').slice(0, 2).join('\n') ?? err);
+    const msg = String(err.stack?.split('\n').slice(0, 2).join('\n') ?? err);
+    status.textContent = err.restored ? `${msg}\n(previous sketch still playing)` : msg;
     status.className = 'show';
-  } else {
+  } else if (!warned) {
+    // a warning raised while the sketch was evaluating stays on screen — a ✓
+    // over the top of it would be the one thing the run got wrong, hidden
     status.textContent = '✓';
     status.className = 'show ok';
     setTimeout(() => { if (status.classList.contains('ok')) status.className = ''; }, 800);

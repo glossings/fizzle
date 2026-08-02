@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { SNOISE_GLSL } from './noise.js';
+import { setColor as writeColor, cssColor } from './color.js';
+import { warn } from './warn.js';
 
 // Texture operators. Each op is a fragment-shader
 // pass rendering into its own target; chains form a DAG evaluated once per
@@ -25,7 +27,7 @@ const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 // screen as (20,164,143) instead of (79,209,197), and differently again from
 // the same hex in text(), which is drawn on a 2D canvas. LinearSRGBColorSpace
 // means "already in working space": no conversion.
-const setColor = (target, v, t) => target.setStyle(String(resolve(v, t)), THREE.LinearSRGBColorSpace);
+const setColor = (target, v, t) => writeColor(target, v, t, THREE.LinearSRGBColorSpace);
 
 const setVec3 = (target, v, t) => {
   v = resolve(v, t);
@@ -721,7 +723,7 @@ function cssFont(spec, weight = 400) {
     cssFontCache.set(key, entry);
     new FontFace(entry.family, `url("${url}")`).load()
       .then((f) => { document.fonts.add(f); entry.loaded = true; })
-      .catch((e) => console.warn(`fizzle: font ${spec}: ${e.message ?? e}`));
+      .catch((e) => warn(`font ${spec}: ${e.message ?? e}`));
   }
   return entry;
 }
@@ -838,11 +840,14 @@ export class TopOp {
   }
 
   // TOP-valued args (comp layer, displace/remap map) may be a fn of the chain
-  // so far — .comp(s => s.edge(), 'add') overlays the current node's own edges
+  // so far — .comp(s => s.edge(), 'add') overlays the current node's own edges.
+  // null when the arg isn't one: the op then drops out of the chain rather
+  // than taking the picture down with it.
   _top(v, op) {
     if (typeof v === 'function') v = v(this);
-    if (!(v instanceof TopOp)) throw new Error(`${op}: expected a TOP (or a fn of the chain returning one)`);
-    return v;
+    if (v instanceof TopOp) return v;
+    warn(`${op}: expected a TOP (or a fn of the chain returning one) — the ${op} is skipped`);
+    return null;
   }
 
   // --- generators-as-filters & filters ---
@@ -871,24 +876,37 @@ export class TopOp {
   scale(v = 1, o = {}) { return this._n('transform', { scale: v, ...o }); }
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
   invert() { return this._n('invert'); }
-  remap(map) { return this._n('remap', {}, [this._top(map, 'remap')]); }
-  lookup(rampTop) { return this._n('lookup', {}, [this._top(rampTop, 'lookup')]); }
+  remap(map) {
+    const m = this._top(map, 'remap');
+    return m ? this._n('remap', {}, [m]) : this;
+  }
+  lookup(rampTop) {
+    const r = this._top(rampTop, 'lookup');
+    return r ? this._n('lookup', {}, [r]) : this;
+  }
   displace(map, amount = 0.1, o = {}) {
     // options object in the amount slot: .displace(map, { amount, mid })
     if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
-    return this._n('displace', { ...o, amount }, [this._top(map, 'displace')]);
+    const m = this._top(map, 'displace');
+    return m ? this._n('displace', { ...o, amount }, [m]) : this;
   }
   // options object in the mode slot: .comp(layer, { mode, opacity })
   comp(layer, mode = 'over', opacity = 1) {
     if (typeof mode === 'object' && mode !== null) ({ mode = 'over', opacity = 1 } = mode);
-    return this._n('comp', { mode, opacity }, [this._top(layer, 'comp')]);
+    const l = this._top(layer, 'comp');
+    return l ? this._n('comp', { mode, opacity }, [l]) : this;
   }
   // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
   // apply fn only where the mask is bright: dry→wet blend by mask luma.
   // Both the mask and the fn's return may be fns of the chain so far.
   mask(maskTop, fn) {
-    const ins = [this._top(maskTop, 'mask')];
-    if (fn != null) ins.push(this._top(fn, 'mask'));
+    const m = this._top(maskTop, 'mask');
+    if (!m) return this;
+    const ins = [m];
+    if (fn != null) {
+      const wet = this._top(fn, 'mask');
+      if (wet) ins.push(wet);
+    }
     return this._n('mask', {}, ins);
   }
   // .blur(r) — isotropic. .blur([rx, ry]) — one radius per axis, which is the
@@ -904,15 +922,16 @@ export class TopOp {
     // a static cond can never change — resolve the branch now. (Also keeps
     // tile dedupe tight: cells that skip the fn don't drag its chain along
     // in their structural signature.)
-    if (typeof cond !== 'function') return cond >= 0.5 ? this._top(fn, 'when') : this;
-    return new TopOp(this.engine, 'switch', { cond }, [this, this._top(fn, 'when')]);
+    if (typeof cond !== 'function') return cond >= 0.5 ? (this._top(fn, 'when') ?? this) : this;
+    const branch = this._top(fn, 'when');
+    return branch ? new TopOp(this.engine, 'switch', { cond }, [this, branch]) : this;
   }
 
   // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
   // per-cell choice of TOP. The fn runs once per cell at eval time and may
   // return src itself, a treatment of it, or any other chain. Structurally
   // identical variants are deduped (so `src.saturation(0)` per call is fine);
-  // up to 8 distinct variants. x runs left→right, y bottom→top, i = y*nx + x.
+  // up to 256 distinct variants. x runs left→right, y bottom→top, i = y*nx + x.
   tile(nx = 2, ny = nx, fn) {
     nx = Math.max(1, Math.round(nx));
     ny = Math.max(1, Math.round(ny));
@@ -922,13 +941,20 @@ export class TopOp {
     for (let y = 0; y < ny; y++) {
       for (let x = 0; x < nx; x++) {
         const i = y * nx + x;
-        const v = (fn ? fn(this, i, x, y) : this) ?? this;
-        if (!(v instanceof TopOp)) throw new Error('tile: fn must return a TOP chain');
+        let v = (fn ? fn(this, i, x, y) : this) ?? this;
+        if (!(v instanceof TopOp)) {
+          warn('tile: fn must return a TOP chain — that cell shows the source untreated');
+          v = this;
+        }
         const sig = sigOf(v);
         let idx = bySig.get(sig);
         if (idx == null) {
           // the cell map is a Uint8 texture, so indices top out at 255
-          if (variants.length >= 256) throw new Error('tile: more than 256 distinct variants');
+          if (variants.length >= 256) {
+            warn('tile: more than 256 distinct variants — the rest reuse the first');
+            map[i] = 0;
+            continue;
+          }
           idx = variants.length;
           variants.push(v);
           bySig.set(sig, idx);
@@ -1030,8 +1056,10 @@ export class TopOp {
       // *displayed* — which resolution() decouples from the window height
       const shownH = ctx.renderer.domElement.clientHeight || window.innerHeight;
       const fontPx = size <= 1 ? size * ctx.h : size * (ctx.h / shownH);
-      const color = String(resolve(p.color ?? '#ffffff', ctx.t));
-      const bg = String(resolve(p.bg ?? '#000000', ctx.t));
+      // this one paints on a 2D canvas rather than into a uniform, so the
+      // color has to come back out as CSS
+      const color = cssColor(p.color ?? '#ffffff', ctx.t);
+      const bg = cssColor(p.bg ?? '#000000', ctx.t);
       const pos = p.pos ?? [0.5, 0.5];
       const px = resolve(pos[0], ctx.t), py = resolve(pos[1], ctx.t);
       const ff = cssFont(String(p.font ?? 'ui-monospace, Menlo, monospace'), p.weight ?? 700);
@@ -1220,6 +1248,7 @@ export class TopOp {
     }
 
     const spec = SPECS[this.kind];
+    // unreachable from a sketch — every kind here comes from a method above
     if (!spec) throw new Error(`unknown TOP: ${this.kind}`);
     this.mat ??= makeMaterial(spec);
     const out = this._rt(ctx);

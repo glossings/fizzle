@@ -7,6 +7,8 @@ import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TopOp } from './tops.js';
 import { makePointSet } from './sample.js';
+import { setColor, makeColor, isDynamicColor } from './color.js';
+import { warn } from './warn.js';
 import { sig, valueNoise, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
@@ -104,7 +106,7 @@ function resolveFont(o) {
     });
     cached.catch((err) => {
       fontCache.delete(key);
-      console.warn(`fizzle: ${err.message}`);
+      warn(err.message);
     });
     fontCache.set(key, cached);
   }
@@ -259,31 +261,36 @@ class InstanceHandle {
   // tints this copy: multiplied with the chain's .material() color
   color(c) { this.col = c; return this; }
 
+  // The verbs a copy hasn't got say where the real one lives and carry on —
+  // this fn runs every frame, so throwing here would take the video down for a
+  // line that only ever needed moving.
   material(o = {}) {
     const extra = Object.keys(o).filter((k) => k !== 'color');
     if (extra.length) {
       // a misspelling is worth saying so, rather than explaining why the
       // property the sketch didn't actually name belongs on the chain
-      checkMaterialKeys(o);
-      throw new Error(
-        `instance: ${extra.join('/')} is one material for the whole batch, not per-instance — put .material() on the chain (.color() is the exception, it varies per copy)`
-      );
+      const bad = checkMaterialKeys(o);
+      warn(bad ?? `instance: ${extra.join('/')} is one material for the whole batch, not per-instance — put .material() on the chain (.color() is the exception, it varies per copy)`);
     }
     if (o.color !== undefined) this.col = o.color;
     return this;
   }
 
   noise() {
-    throw new Error('instance: .noise() is one shader for the whole batch — put it on the chain before .instance() (each copy already seeds the field from its own position)');
+    warn('instance: .noise() is one shader for the whole batch — put it on the chain before .instance() (each copy already seeds the field from its own position)');
+    return this;
   }
   shadow() {
-    throw new Error('instance: the batch is one mesh, so it casts and receives as one — put .shadow() on the chain');
+    warn('instance: the batch is one mesh, so it casts and receives as one — put .shadow() on the chain');
+    return this;
   }
   instance() {
-    throw new Error("instance: an instance can't be instanced — raise the count instead");
+    warn("instance: an instance can't be instanced — raise the count instead");
+    return this;
   }
   out() {
-    throw new Error('instance: .out() ends the chain, not a copy — call it after .instance()');
+    warn('instance: .out() ends the chain, not a copy — call it after .instance()');
+    return this;
   }
 }
 
@@ -487,7 +494,8 @@ class GeoOp {
     else {
       // checked here rather than at .out() so the error lands on the line that
       // wrote the typo, and before a half-configured material is ever built
-      checkMaterialKeys(o);
+      const bad = checkMaterialKeys(o);
+      if (bad) warn(bad);
       Object.assign(this._material, o);
     }
     return this;
@@ -525,9 +533,7 @@ class GeoOp {
       // Transmission multiplies the light coming *through* the surface the same
       // way, so glass starts white too — the default tint would otherwise turn
       // every unpainted pane periwinkle. attenuationColor is how you tint it.
-      color: new THREE.Color(
-        resolve(m.color ?? (textured || m.transmission != null ? '#ffffff' : '#8899ff'), 0)
-      ),
+      color: makeColor(m.color ?? (textured || m.transmission != null ? '#ffffff' : '#8899ff')),
       // the roughness/metalness scalars multiply their maps, so they're reset
       // to 1 if and when one actually lands (see applyMaps)
       roughness: m.roughness ?? 0.5,
@@ -542,7 +548,7 @@ class GeoOp {
         : THREE.FrontSide,
     });
     if (m.emissive) {
-      material.emissive = new THREE.Color(resolve(m.emissive, 0));
+      material.emissive = makeColor(m.emissive);
       material.emissiveIntensity = m.emissiveIntensity ?? 1;
     }
     applyMaterialScalars(material, m);
@@ -628,9 +634,10 @@ class GeoOp {
       swapGeometry(g.clone());
     }).catch(() => { /* already warned in ensureModel */ });
     const updater = (t) => {
-      // colors as fns of t (e.g. a .select() signal cycling a palette)
-      if (typeof m.color === 'function') material.color.set(m.color(t));
-      if (typeof m.emissive === 'function') material.emissive.set(m.emissive(t));
+      // colors as fns of t (e.g. a .select() signal cycling a palette), or an
+      // [r, g, b] with a fn in any channel
+      if (isDynamicColor(m.color)) setColor(material.color, m.color, t);
+      if (isDynamicColor(m.emissive)) setColor(material.emissive, m.emissive, t);
       // opacity + any physical property given as a fn of t
       surfaceUpdate?.(t);
       if (lastText !== null && typeof this.opts.text === 'function') {
@@ -666,7 +673,7 @@ class GeoOp {
           // goes NaN. Name it instead of rendering nothing. (A concise arrow —
           // x => x.pos(...) — hands the handle itself back, which is fine.)
           if (i === 0 && d && d !== handle && (d.pos || d.rot || d.scale)) {
-            throw new Error('instance: the layout fn is now (x, i, n, t) and transforms x directly — x.pos(...).rotate(...).scale(...) instead of returning { pos, rot, scale }');
+            warn('instance: the layout fn is now (x, i, n, t) and transforms x directly — x.pos(...).rotate(...).scale(...) instead of returning { pos, rot, scale }');
           }
           dummy.position.set(resolve(handle.px, t), resolve(handle.py, t), resolve(handle.pz, t));
           dummy.rotation.set(resolve(handle.rx, t), resolve(handle.ry, t), resolve(handle.rz, t));
@@ -679,7 +686,7 @@ class GeoOp {
           // rebuilds the program itself once the attribute shows up. Once the
           // buffer exists every copy writes every frame, or a tint set on one
           // frame would stick around after it stops being set.
-          if (handle.col !== null) mesh.setColorAt(i, instColor.set(resolve(handle.col, t)));
+          if (handle.col !== null) mesh.setColorAt(i, setColor(instColor, handle.col, t));
           else if (mesh.instanceColor) mesh.setColorAt(i, instColor.setRGB(1, 1, 1));
         }
         mesh.instanceMatrix.needsUpdate = true;
@@ -716,7 +723,8 @@ class GeoOp {
 function applyShadow(light, o) {
   if (!o) return;
   if (!light.shadow) {
-    throw new Error(`${light.type}: this light has no direction to cast from — shadows come from directional(), spot() or point()`);
+    warn(`${light.type}: this light has no direction to cast from — shadows come from directional(), spot() or point()`);
+    return;
   }
   const c = o === true ? {} : o;
   const s = light.shadow;
@@ -752,7 +760,8 @@ class LightOp {
   }
   pos(x, y, z) {
     if (this.light.isAmbientLight) {
-      throw new Error('ambient: arrives evenly from every direction, so it has nowhere to be — hemi(), directional() or point() light from somewhere');
+      warn('ambient: arrives evenly from every direction, so it has nowhere to be — hemi(), directional() or point() light from somewhere');
+      return this;
     }
     const v = asVec(x);
     this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
@@ -762,7 +771,8 @@ class LightOp {
   // it. Components take fns of t like .pos, so the beam can sweep.
   target(x = 0, y = 0, z = 0) {
     if (!this.light.target) {
-      throw new Error(`${this.light.type}: shines every way at once — .target() is for directional() and spot()`);
+      warn(`${this.light.type}: shines every way at once — .target() is for directional() and spot()`);
+      return this;
     }
     const v = asVec(x);
     this._target = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
@@ -783,8 +793,11 @@ class LightOp {
     // than merely failing to animate.
     const o = this.opts;
     applyShadow(this.light, o.shadow);
-    const dyn = ['intensity', 'color', 'sky', 'ground', 'angle', 'penumbra', 'distance', 'decay']
+    // colors test differently: an [r, g, b] with a fn in one channel animates
+    // too, while a plain array is as static as a hex
+    const dyn = ['intensity', 'angle', 'penumbra', 'distance', 'decay']
       .filter((k) => typeof o[k] === 'function');
+    const dynCol = ['color', 'sky', 'ground'].filter((k) => isDynamicColor(o[k]));
     // an ambient light has no position to write, so a static one needs no
     // updater at all
     const placed = !this.light.isAmbientLight;
@@ -796,14 +809,13 @@ class LightOp {
         // and both the light's direction and its shadow camera read matrixWorld
         this.light.target.updateMatrixWorld();
       }
-      for (const k of dyn) {
-        if (k === 'ground') this.light.groundColor.set(o.ground(t));
-        else if (k === 'color' || k === 'sky') this.light.color.set(o[k](t));
-        else this.light[k] = o[k](t);
+      for (const k of dyn) this.light[k] = o[k](t);
+      for (const k of dynCol) {
+        setColor(k === 'ground' ? this.light.groundColor : this.light.color, o[k], t);
       }
     };
     updater(0);
-    this.engine.add(this.light, placed || dyn.length ? updater : undefined);
+    this.engine.add(this.light, placed || dyn.length || dynCol.length ? updater : undefined);
     return this;
   }
 }
@@ -849,29 +861,29 @@ export function makeApi(engine) {
     // ambient(intensity, color) predates the config form.
     ambient(intensity = 0.3, color = 0xffffff) {
       if (typeof intensity === 'object' && intensity !== null) ({ intensity = 0.3, color = 0xffffff } = intensity);
-      const light = new THREE.AmbientLight(resolve(color, 0), resolve(intensity, 0));
+      const light = new THREE.AmbientLight(makeColor(color), resolve(intensity, 0));
       return new LightOp(engine, light, { intensity, color }).out();
     },
     directional(o = {}) {
       return new LightOp(engine, new THREE.DirectionalLight(
-        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 1.5, 0)), o);
+        makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 1.5, 0)), o);
     },
     point(o = {}) {
       return new LightOp(engine, new THREE.PointLight(
-        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 20, 0),
+        makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 20, 0),
         resolve(o.distance ?? 0, 0), resolve(o.decay ?? 2, 0)), o);
     },
     // a cone from .pos() toward .target(): angle is its half-width in radians,
     // penumbra (0..1) how soft the rim is
     spot(o = {}) {
       return new LightOp(engine, new THREE.SpotLight(
-        resolve(o.color ?? 0xffffff, 0), resolve(o.intensity ?? 60, 0),
+        makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 60, 0),
         resolve(o.distance ?? 0, 0), resolve(o.angle ?? Math.PI / 6, 0),
         resolve(o.penumbra ?? 0.4, 0), resolve(o.decay ?? 2, 0)), o);
     },
     hemi(o = {}) {
       return new LightOp(engine, new THREE.HemisphereLight(
-        resolve(o.sky ?? 0x8899ff, 0), resolve(o.ground ?? 0x332211, 0), resolve(o.intensity ?? 0.6, 0)), o);
+        makeColor(o.sky ?? 0x8899ff), makeColor(o.ground ?? 0x332211), resolve(o.intensity ?? 0.6, 0)), o);
     },
 
     // static args: place the camera, orbit controls stay live.
@@ -919,7 +931,14 @@ export function makeApi(engine) {
       else h.pending.then(attach);
       engine.updaters.push((t) => tick?.(t, resolve));
     },
-    bg(color) { engine.scene.background = new THREE.Color(color); },
+    // The updater writes into the Color, not into scene.background — so an
+    // hdri() that takes the background slot afterwards keeps it, and this
+    // quietly animates a color nothing is showing.
+    bg(color) {
+      const c = makeColor(color);
+      engine.scene.background = c;
+      if (isDynamicColor(color)) engine.updaters.push((t) => setColor(c, color, t));
+    },
     // Pins the render to an exact pixel size and shape. The main window shows
     // it letterboxed — scaled to fit, centered, black around it — while the
     // projector window (F1) takes the same aspect ratio, so full-screening
@@ -935,10 +954,14 @@ export function makeApi(engine) {
     // positional fog(color, near, far) predates the config form; a THREE.Color
     // in the first slot is still a color, not a config
     fog(color = 0x0a0a0f, near = 5, far = 30) {
-      if (typeof color === 'object' && color !== null && !color.isColor) {
+      // an [r, g, b] is a color, not a config — same exception a THREE.Color
+      // already got
+      if (typeof color === 'object' && color !== null && !color.isColor && !Array.isArray(color)) {
         ({ color = 0x0a0a0f, near = 5, far = 30 } = color);
       }
-      engine.scene.fog = new THREE.Fog(color, near, far);
+      const fog = new THREE.Fog(makeColor(color), near, far);
+      engine.scene.fog = fog;
+      if (isDynamicColor(color)) engine.updaters.push((t) => setColor(fog.color, color, t));
     },
 
     // TOPs — texture operators (see tops.js). Chains render only with .out()

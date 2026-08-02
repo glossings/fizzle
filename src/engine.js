@@ -5,6 +5,7 @@ import { AudioEngine } from './audio.js';
 import { mediaGet, mediaList } from './media.js';
 import { loadModelGeometry } from './models.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
+import { warn, resetWarnings } from './warn.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -67,7 +68,11 @@ export class Engine {
     window.addEventListener('resize', () => this.resize());
     this.resize();
 
-    this.renderer.setAnimationLoop(() => this.tick());
+    // a throw escaping the loop callback would end the loop for good (three
+    // only schedules the next frame after the callback returns)
+    this.renderer.setAnimationLoop(() => {
+      try { this.tick(); } catch (e) { warn(e.message ?? String(e)); }
+    });
   }
 
   resize() {
@@ -121,14 +126,23 @@ export class Engine {
       for (const ae of this.audios.values()) ae.update();
       for (const m of this.media.values()) m.ae?.update();
       for (const fn of this.updaters) {
-        try { fn(this.time, dt); } catch (e) { /* keep rendering even if one updater throws */ }
+        // keep rendering even if one updater throws, but say so
+        try { fn(this.time, dt); } catch (e) { warn(e.message ?? String(e)); }
       }
     }
     // camera stays interactive while paused (unless the sketch drives it)
     if (!this.cameraProgrammed) this.controls.update();
     // TOPs feeding a material map need the graph running even with no .out()
     if (this.topOutput || this.topMaps.length) {
-      renderTops(this);
+      try {
+        renderTops(this);
+      } catch (e) {
+        // a broken TOP graph shouldn't freeze the output — fall back to the
+        // plain 3D render so the scene keeps playing under the warning
+        warn(e.message ?? String(e));
+        this.renderer.setRenderTarget(null);
+        this.renderer.render(this.scene, this.camera);
+      }
     } else {
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
@@ -195,9 +209,9 @@ export class Engine {
       }
       if (dev) return dev.deviceId;
       const labels = devs.map((d) => `"${d.label}"`).join(', ') || 'none found';
-      console.warn(`fizzle: audio: no input matching "${name}" — using default. Inputs: ${labels}`);
+      warn(`audio: no input matching "${name}" — using default. Inputs: ${labels}`);
     } catch (e) {
-      console.warn(`fizzle: audio: ${e.message ?? e}`);
+      warn(`audio: ${e.message ?? e}`);
     }
     return undefined;
   }
@@ -252,7 +266,7 @@ export class Engine {
             dev = find();
           }
           if (dev) deviceId = dev.deviceId;
-          else console.warn(`fizzle: video: no camera matching "${name}" — using default. Sources: ${labels(devs)}`);
+          else warn(`video: no camera matching "${name}" — using default. Sources: ${labels(devs)}`);
         }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: deviceId ? { deviceId: { exact: deviceId } } : true,
@@ -267,7 +281,7 @@ export class Engine {
         await el.play();
         v.texture = new THREE.VideoTexture(el);
       } catch (e) {
-        console.warn(`fizzle: video: ${e.message ?? e}`);
+        warn(`video: ${e.message ?? e}`);
       }
     })();
     return v;
@@ -292,8 +306,8 @@ export class Engine {
         if (!rec) {
           m.missing = true; // retried on the next run (clearPatch drops it)
           const names = (await mediaList()).map((n) => `"${n}"`).join(', ');
-          console.warn(
-            `fizzle: ${kind}file: nothing imported matching "${name}" — drop a file into the window to import it. Imported: ${names || 'none'}`
+          warn(
+            `${kind}file: nothing imported matching "${name}" — drop a file into the window to import it. Imported: ${names || 'none'}`
           );
           return;
         }
@@ -328,7 +342,7 @@ export class Engine {
           }
         }
       } catch (e) {
-        console.warn(`fizzle: ${kind}file "${name}": ${e.message ?? e}`);
+        warn(`${kind}file "${name}": ${e.message ?? e}`);
       }
     })();
     return m;
@@ -357,8 +371,8 @@ export class Engine {
           m.missing = true; // retried on the next run (clearPatch drops it)
           const names = (await mediaList()).filter((n) => /\.(obj|fbx)$/i.test(n));
           const listed = names.map((n) => `"${n}"`).join(', ');
-          console.warn(
-            `fizzle: model: nothing imported matching "${name}" — drop an .obj/.fbx into the window to import it. Imported models: ${listed || 'none'}`
+          warn(
+            `model: nothing imported matching "${name}" — drop an .obj/.fbx into the window to import it. Imported models: ${listed || 'none'}`
           );
           return null;
         }
@@ -366,7 +380,7 @@ export class Engine {
         return m.geometry;
       } catch (e) {
         m.missing = true; // a re-run retries — the file may have been re-dropped
-        console.warn(`fizzle: model "${name}": ${e.message ?? e}`);
+        warn(`model "${name}": ${e.message ?? e}`);
         return null;
       }
     })();
@@ -412,7 +426,7 @@ export class Engine {
         return tex;
       } catch (e) {
         t.missing = true;
-        console.warn(`fizzle: material map "${name}": ${e.message ?? e}`);
+        warn(`material map "${name}": ${e.message ?? e}`);
         return null;
       }
     })();
@@ -441,8 +455,8 @@ export class Engine {
       if (!Object.keys(s.maps).length) {
         s.missing = true;
         const sets = [...new Set(all.filter((n) => IMAGE_RE.test(n) && n.includes('/')).map((n) => n.slice(0, n.lastIndexOf('/'))))];
-        console.warn(
-          `fizzle: material: no maps matching pbr: "${prefix}" — run an empty .material() to browse Poly Haven, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
+        warn(
+          `material: no maps matching pbr: "${prefix}" — run an empty .material() to browse Poly Haven, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
         );
       }
       return s.maps;
@@ -487,7 +501,7 @@ export class Engine {
         return h;
       } catch (e) {
         h.missing = true;
-        console.warn(`fizzle: hdri "${name}": ${e.message ?? e}`);
+        warn(`hdri "${name}": ${e.message ?? e}`);
         return null;
       }
     })();
@@ -529,7 +543,12 @@ export class Engine {
     let bit = this.geoLayers.get(name);
     if (bit == null) {
       bit = this.geoLayers.size + 1;
-      if (bit > 31) throw new Error('out: more than 31 named geometry layers');
+      if (bit > 31) {
+        // three has 32 layer bits and layer 0 is the display scene; past that
+        // a name has nowhere of its own to go, so it renders with everything
+        warn(`out('${name}'): more than 31 named layers — this one renders into the main scene`);
+        return 0;
+      }
       this.geoLayers.set(name, bit);
     }
     return bit;
@@ -553,6 +572,7 @@ export class Engine {
     this.patch = [];
     this.updaters = [];
     this.patchGen++;
+    resetWarnings();
     this.scene.fog = null;
     this.scene.background = new THREE.Color(0x0a0a0f);
     // the HDRI itself stays cached; only the scene's use of it is patch state,
@@ -600,22 +620,44 @@ export class Engine {
   }
 
   // Evaluate sketch code with the livecoding API in scope. Returns an error
-  // (or null) instead of throwing so the editor can show it inline.
+  // (or null) instead of throwing so the editor can show it inline. A run that
+  // throws restores the last good sketch: mid-edit errors show in the status
+  // bar while the visuals keep playing (err.restored says that happened).
   run(code, api) {
     this.clearPatch();
     const names = Object.keys(api);
     const values = names.map((n) => api[n]);
-    try {
-      new Function(...names, `"use strict";\n${code}`)(...values);
+    const exec = (src) => {
+      new Function(...names, `"use strict";\n${src}`)(...values);
       this.syncResolution(); // before the settle below, so the aspect is right
       // settle the new patch at current sketch time (matters when paused)
       for (const fn of this.updaters) {
-        try { fn(this.time, 0); } catch (e) { /* surfaced on next frame if persistent */ }
+        try { fn(this.time, 0); } catch (e) { /* the next frame's tick warns */ }
       }
+    };
+    try {
+      exec(code);
+      this._lastGood = code;
       return null;
     } catch (err) {
       this.clearPatch();
-      this.syncResolution();
+      if (this._lastGood != null && this._lastGood !== code) {
+        try {
+          exec(this._lastGood);
+          err.restored = true;
+          // an empty videofile()/.material() in the restored code asked for a
+          // picker on its own run and would get one now — over an editor
+          // holding the broken code its pick would be written into
+          this.pendingPick = null;
+        } catch {
+          // the old sketch depended on state that's gone — nothing to show
+          this._lastGood = null;
+          this.clearPatch();
+          this.syncResolution();
+        }
+      } else {
+        this.syncResolution();
+      }
       return err;
     }
   }

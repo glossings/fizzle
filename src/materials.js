@@ -12,6 +12,8 @@
 
 import { MAP_SLOTS, SRGB_SLOTS, ARM_SLOTS } from './pbr.js';
 import { TopOp } from './tops.js';
+import { setColor, isDynamicColor } from './color.js';
+import { warn } from './warn.js';
 
 const pair = (v) => (Array.isArray(v) ? [v[0], v[1] ?? v[0]] : [v, v]);
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
@@ -68,7 +70,7 @@ const BLEND_KEYS = ['opacity', 'transparent', 'depthWrite'];
 // one you want. Read out on ctrl+hover and in the completion popup, so this is
 // the documentation — keep it to a sentence that fits over the cursor.
 export const MATERIAL_DOCS = {
-  color: 'Base color. Any CSS color name, hex string, or fn of t.',
+  color: 'Base color: hex, CSS name, 0xrrggbb, or [r, g, b] 0..1. The color, or any one channel of the array, may be a fn of t.',
   roughness: '0 mirror-smooth .. 1 fully diffuse. Multiplies roughnessMap if there is one.',
   metalness: '0 dielectric .. 1 metal. Metal has nothing to reflect without an hdri().',
   emissive: 'Color the surface gives off on its own — unlit, so it glows in shadow.',
@@ -167,16 +169,18 @@ function nearestKey(key) {
   return best;
 }
 
-// Throws on anything .material() wouldn't act on. Loud rather than ignored:
-// the whole point of a property is the change it makes, so a typo that makes
-// no change is indistinguishable from the feature not working.
+// What's wrong with a .material()'s keys, as a message, or null if nothing is.
+// Said out loud rather than ignored — the whole point of a property is the
+// change it makes, so a typo that makes no change is indistinguishable from
+// the feature not working — but said, not thrown: the rest of the material is
+// perfectly good and the sketch keeps rendering with it.
 export function checkMaterialKeys(o) {
   const unknown = Object.keys(o).filter((k) => !MATERIAL_KEYS.has(k));
-  if (!unknown.length) return;
+  if (!unknown.length) return null;
   // shadows are a property of the object, not of its surface, so they'd never
   // be found by the spell-checker below — and three's own names invite the try
   if (unknown.some((k) => /^(cast|receive)?[Ss]hadow$/.test(k))) {
-    throw new Error('material: shadows are per-mesh, not per-material — .shadow(false) or .shadow({ cast, receive }) on the chain (both are on by default)');
+    return 'material: shadows are per-mesh, not per-material — .shadow(false) or .shadow({ cast, receive }) on the chain (both are on by default)';
   }
   let suggested = false;
   const described = unknown.map((k) => {
@@ -188,9 +192,7 @@ export function checkMaterialKeys(o) {
   // nothing close enough to name means it's not a typo but a property that
   // doesn't exist here, and then the list itself is the useful answer
   const hint = suggested ? '' : ' (ctrl+hover .material() for the full list)';
-  throw new Error(
-    `material: no such ${unknown.length > 1 ? 'properties' : 'property'} ${described.join(', ')}${hint}`
-  );
+  return `material: no such ${unknown.length > 1 ? 'properties' : 'property'} ${described.join(', ')}${hint} — ignored`;
 }
 
 // True if the material spec asks for anything only MeshPhysicalMaterial can do.
@@ -229,7 +231,11 @@ export function applySurface(material, m) {
       if (m[prop] != null) track(m[prop], (v) => { material[prop] = v; });
     }
     for (const prop of PHYSICAL_COLORS) {
-      if (m[prop] != null) track(m[prop], (v) => material[prop].set(v));
+      // colors carry their own animation test — an [r, g, b] moves if any one
+      // channel is a fn, which `track` (looking for a fn outright) would miss
+      if (m[prop] == null) continue;
+      setColor(material[prop], m[prop], 0);
+      if (isDynamicColor(m[prop])) animated.push((t) => setColor(material[prop], m[prop], t));
     }
     if (m.iridescenceThickness != null) {
       // written in place: three re-reads this array into the uniform every
@@ -331,7 +337,8 @@ export function applyMaps(engine, material, m, isAlive) {
   // pbr: names a set of files on disk; a chain is one image and has to say
   // which slot it fills
   if (m.pbr instanceof TopOp) {
-    throw new Error('material: pbr: names an imported set of maps — a TOP goes in one slot, e.g. { map: ... }');
+    warn('material: pbr: names an imported set of maps — a TOP goes in one slot, e.g. { map: ... }');
+    return;
   }
   engine.ensurePbrSet(m.pbr).pending.then((maps) => {
     if (!maps || !isAlive()) return;

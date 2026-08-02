@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js';
+import { warn } from './warn.js';
 
 // Points scattered over a geometry's surface, behind geo.sample(i)/.normal(i).
 //
@@ -33,9 +34,16 @@ class PointSet {
   }
 
   at(i) {
-    const n = Math.floor(i);
+    let n = Math.floor(i);
     if (!(n >= 0)) return 0;
-    if (n > MAX) throw new Error(`sample: index ${n} is past the ${MAX} point limit — is the index an i * n rather than an i?`);
+    // Past the limit the index is wrong, not the shape. Wrapping keeps every
+    // copy somewhere on the surface so the sketch still renders — into a small
+    // scatter rather than back across MAX, which would allocate the million
+    // points this limit exists to refuse.
+    if (n > MAX) {
+      warn(`sample: index ${n} is past the ${MAX} point limit — is the index an i * n rather than an i?`);
+      n %= 1000;
+    }
     const p = new THREE.Vector3();
     const nm = new THREE.Vector3();
     while (this.points.length <= n) {
