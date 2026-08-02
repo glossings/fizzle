@@ -1029,6 +1029,7 @@ export function makeApi(engine) {
     ramp: (o) => new TextureOp(engine, 'ramp', o ?? {}),
     circle: (o) => new TextureOp(engine, 'circle', o ?? {}),
     noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),
+    voronoi: (o) => new TextureOp(engine, 'voronoi', o ?? {}),
     text: (text, o) => new TextureOp(engine, 'textGen', { ...o, text }),
     // camera capture as a texture; name matches a camera label (substring,
     // case-insensitive), no name = default camera. Permission prompt on

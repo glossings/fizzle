@@ -40,11 +40,6 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 `SPECS` entries take `frag`, plus `extras`/`update()` to declare and resolve
 uniforms (numbers or fns of `t`).
 
-[ ] `voronoi({ scale, speed, blend, seed, mode })` — scattered feature points,
-  each pixel colored by its nearest. `mode`: `'cells'` (flat random color per
-  cell), `'distance'` (grayscale by distance to nearest point), `'edges'`
-  (bright where the two nearest are equidistant). `blend` softens the cell
-  boundaries. `speed` drifts the points over time.
 [ ] `constant(color)` — a solid fill, whole frame, one color. Takes a fn of `t`
   like any color slot. The haze recipe at [src/docs.js:41](src/docs.js#L41)
   currently fakes it with a `ramp()` whose two colors are identical.

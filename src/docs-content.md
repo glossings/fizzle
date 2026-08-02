@@ -605,6 +605,14 @@ scene()
   for `.contrast()` / `.mul()` to change level). `channels: 2`–`4` puts
   independent fields in R/G(/B/A) instead of the a→b ramp — what you want for
   `.displace()` maps.
+- `voronoi({ scale, speed, blend, seed, mode, a, b })` — scattered points
+  drifting over the frame, each pixel colored by the nearest one. `mode` is
+  what gets drawn: `'cells'` fills each cell flat (its own point on the a→b
+  ramp), `'distance'` shades by distance to the nearest point, `'edges'` lights
+  only the seams. `blend` is how far past its own cell a pixel listens, in cell
+  widths — 0 is hard, and raising it melts the cells together / rounds the
+  wells / fattens the seams. All three modes shade `a`→`b`, so any of them is
+  also a mask or a `.displace()` map.
 - `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
   text. `size` is a font size in screen px (values ≤ 1 = fraction of screen
   height); any CSS font, `\n` for multiline, content may be a fn of `t`.
@@ -616,6 +624,17 @@ scene()
 ramp({ type: 'radial', a: '#1a0533', b: '#ff5f9e' })
   .comp(noise({ freq: 3, octaves: 4, speed: 0.3, a: '#000000', b: '#4fd1c5' }), 'screen', 0.7)
   .comp(text('fizzle'), 'add')
+  .out()
+```
+
+Two `voronoi()` calls that agree on `scale`, `speed` and `seed` see the same
+scatter of points, so their modes line up exactly and can be layered — cells
+with their own seams lit on top:
+
+```js
+voronoi({ scale: 9, speed: 0.4, blend: 0.05, a: '#0d1030', b: '#7ee8ff' })
+  .comp(voronoi({ scale: 9, speed: 0.4, mode: 'edges', b: '#ffd9a0' }), 'add')
+  .bloom({ threshold: 0.6, strength: 0.8 })
   .out()
 ```
 
@@ -815,6 +834,7 @@ The slots that take one:
 | `.mirror()` | `flip` |
 | `.mul()` / `.add()` | the value itself |
 | `circle()` | `radius`, `soft`, `center` |
+| `voronoi()` | `blend` |
 
 Two rules cover the whole set:
 
@@ -844,9 +864,12 @@ negative. `amount` and `mid` take fns of `t` like anything else.
 A texture in a slot that has no per-pixel form (`.blur()`, `.bloom()`, …)
 warns and falls back to the default rather than taking the picture down.
 
-`circle()` is on the list too, and it is the odd one — a *generator* whose shape
-one texture decides. `circle({ radius: noise({ freq: 3 }).mul(0.1).add(0.25) })`
-is a disc whose rim wanders: a blob, and a mask that no longer looks stamped on.
+`circle()` and `voronoi()` are on the list too, and they are the odd ones —
+*generators* whose shape a texture decides.
+`circle({ radius: noise({ freq: 3 }).mul(0.1).add(0.25) })` is a disc whose rim
+wanders: a blob, and a mask that no longer looks stamped on. `voronoi({ blend:
+ramp({ type: 'radial' }) })` is a pattern that is cracked glass at the center
+and melted wax at the rim.
 
 ## buses, layers & feedback
 

@@ -182,6 +182,64 @@ const SPECS = {
     },
   },
 
+  // Scattered feature points, one per lattice cell, each pixel answering to its
+  // nearest. The three modes differ only in the scalar they pull out of that
+  // neighbourhood — the a→b color mapping is the same for all of them, so any
+  // mode is also a usable mask or displace map.
+  voronoi: {
+    extras: { uScale: 6, uSpeed: 0.3, uBlend: 0, uSeed: 0, uMode: 0, uColA: '#000000', uColB: '#ffffff' },
+    // a texture in blend: hard cells where the map is dark, cells melting into
+    // each other where it's bright
+    texParams: { blend: 'uBlend' },
+    frag: `
+      vec2 cellPoint(vec2 c) {
+        vec2 h = fract(sin(vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3))) + uSeed * 17.13) * 43758.5453);
+        // the drift never leaves the cell, so the 3x3 search still finds the nearest
+        return c + 0.5 + 0.5 * sin(uTime * uSpeed + 6.2831853 * h);
+      }
+      float cellValue(vec2 c) {
+        return fract(sin(dot(c, vec2(419.2, 371.9)) + uSeed * 29.7) * 43758.5453);
+      }
+      void main() {
+        vec2 p = vUv * vec2(uAspect, 1.0) * uScale;
+        vec2 base = floor(p);
+        // cells and distance are both an exp(-d/blend) weighted mean over the 9
+        // neighbors — blend is how far past its own cell a pixel listens. The
+        // floor on it keeps the weights out of float underflow, and at that
+        // floor the mean is the nearest cell to within a fiftieth of a cell:
+        // hard, but antialiased rather than stair-stepped.
+        float k = 1.0 / max(uBlend, 0.02);
+        float wsum = 0.0, vsum = 0.0, dsum = 0.0;
+        float d1 = 8.0, d2 = 8.0;
+        for (int j = -1; j <= 1; j++) {
+          for (int i = -1; i <= 1; i++) {
+            vec2 c = base + vec2(float(i), float(j));
+            float d = distance(cellPoint(c), p);
+            float w = exp(-k * d);
+            wsum += w; vsum += cellValue(c) * w; dsum += d * w;
+            if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+          }
+        }
+        float f;
+        if (uMode < 0.5) f = vsum / wsum;
+        else if (uMode < 1.5) f = dsum / wsum;
+        else f = 1.0 - smoothstep(0.0, max(uBlend, 0.0) + 0.02, d2 - d1);
+        gl_FragColor = vec4(mix(uColA, uColB, clamp(f, 0.0, 1.0)), 1.0);
+      }`,
+    update(u, p, t) {
+      u.uScale.value = resolve(p.scale ?? 6, t);
+      u.uSpeed.value = resolve(p.speed ?? 0.3, t);
+      u.uBlend.value = resolve(par(p.blend, 0), t);
+      u.uSeed.value = resolve(p.seed ?? 0, t);
+      const modes = { cells: 0, distance: 1, edges: 2 };
+      const mode = p.mode ?? 'cells';
+      if (modes[mode] == null) warn(`voronoi: no mode '${mode}' — cells, distance or edges; showing cells`);
+      u.uMode.value = modes[mode] ?? 0;
+      setColor(u.uColA.value, p.a ?? '#000000', t);
+      setColor(u.uColB.value, p.b ?? '#ffffff', t);
+    },
+  },
+
   mirror: {
     extras: { uAxis: 0, uFlip: 0 },
     // a texture in flip picks which half survives per pixel — the two mirror

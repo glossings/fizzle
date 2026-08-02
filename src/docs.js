@@ -47,6 +47,7 @@ export const GLOBALS = {
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped) — imageseq(names, beat(1).counter()) steps each beat, .counter() of .kicks() steps on kicks. Default index: one per second.\nDropping several images at once types this call for you. Empty call = multi-file picker.'],
   noise: ['noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from color a to color b — the workhorse source for .displace(), masks and lookups.\nThe output is normalized, so the octave keys change its texture rather than its level; reach for .contrast()/.mul() to set that. On a geometry chain .noise() displaces vertices instead.'],
+  voronoi: ["voronoi({ scale, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: scattered points drifting over the frame, every pixel colored by the nearest one — cracked glass, cell walls, stained glass, water caustics.\nmode picks what's drawn (flat cells, distance to the nearest point, or the seams between cells); all three shade from a to b, so any of them also works as a mask or a .displace() map. blend softens the boundaries and takes a texture."],
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text on a solid background — comp it over a scene with add or screen to drop the bg. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text, chainable like any other shape. Renders in helvetiker until the font you named arrives."],
 
@@ -376,6 +377,15 @@ const GLOBAL_KEY_DOCS = {
     a: 'Color the low end shades to. Default black.',
     b: 'Color the high end shades to. Default white.',
   },
+  voronoi: {
+    scale: 'How many cells span the frame. Default 6 — 2 is a few big plates, 40 is fine crazing.',
+    speed: 'How fast the points drift inside their cells. Default 0.3; 0 freezes the pattern into a still.',
+    blend: "How far past its own cell a pixel listens, in cell widths. Default 0 — hard edges. Raising it melts neighbouring cells into each other ('cells'), rounds the wells ('distance') and fattens the seams ('edges'). A texture here makes the pattern crisp in some places and molten in others.",
+    seed: 'Picks a different scatter of the same character. Default 0.',
+    mode: "'cells' (default) fills each cell flat, 'distance' shades by how far the pixel is from its point — dark at the points, bright at the walls — and 'edges' lights only the seams, where the two nearest points are equally close.",
+    a: 'Color the low end shades to. Default black. In cells mode each cell picks its own point on the a→b ramp, so two different colors give a scatter of tints; .lookup() a grayscale one through a gradient for a wider palette.',
+    b: 'Color the high end shades to. Default white.',
+  },
   text: {
     size: 'Values above 1 are screen pixels, like CSS; 0..1 is a fraction of frame height. Default 0.15.',
     color: 'Text color. Default white.',
@@ -557,7 +567,7 @@ const names = (s) => s.trim().split(/\s+/);
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder icosa model text3d',
   light: 'ambient directional point spot hemi',
-  texture: 'scene depth input ramp circle video videofile imagefile imageseq noise text',
+  texture: 'scene depth input ramp circle video videofile imagefile imageseq noise voronoi text',
   signal: 'beat audio audiofile rand sig',
 };
 
