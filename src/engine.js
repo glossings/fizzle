@@ -50,6 +50,7 @@ export class Engine {
     this.videos = new Map();        // camera captures by name, shared across re-runs
     this.media = new Map();         // imported media files (kind:name), shared across re-runs
     this.models = new Map();        // parsed .obj/.fbx geometry, shared across re-runs
+    this.pointSets = new Map();     // shape -> sampled surface points, geo.sample()
     this.textures = new Map();      // decoded material maps by filename, shared across re-runs
     this.pbrSets = new Map();       // prefix -> { slot: filename }, shared across re-runs
     this.hdris = new Map();         // loaded HDRIs + their prefiltered env, shared across re-runs

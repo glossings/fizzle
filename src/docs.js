@@ -62,15 +62,18 @@ export const GLOBALS = {
 };
 
 export const METHODS = {
-  pos: ['.pos(x, y, z)', 'Position. Each component is a number or fn of t.'],
-  rotate: ['.rotate(x, y, z)', 'Geometry: rotation in radians (numbers or fns of t) · TOP: .rotate(v, { wrap }) rotates the image around center.'],
-  scale: ['.scale(x, y?, z?)', 'Geometry: scale, one argument = uniform · TOP: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
+  pos: ['.pos(x, y, z) | .pos(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works, so .pos(pts.sample(i)) goes straight in.'],
+  rotate: ['.rotate(x, y, z) | .rotate(v)', 'Geometry: rotation in radians (numbers or fns of t, or one vector) · TOP: .rotate(v, { wrap }) rotates the image around center.'],
+  scale: ['.scale(x, y?, z?) | .scale(v)', 'Geometry: scale, one number = uniform, one vector = per-axis · TOP: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
   translate: ['.translate(x, y, { wrap })', 'TOP: shift the image in UV space (1 = full frame).'],
   noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.'],
-  instance: ['.instance(count, (x, i, n, t) => x.pos(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .pos/.rotate/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.'],
+  instance: ['.instance(count, (x, i, n, t) => x.pos(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .pos/.rotate/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.\nFor a layout that follows another shape, .pos(pts.sample(i)) scatters the copies over its surface — see .sample().'],
+  align: ['.align(v)', "Aim the shape's +Y axis along a direction vector — the rotation Euler angles can't state without a page of atan2. Its reason to exist is .align(pts.normal(i)), standing each copy up off the surface it was sampled from.\n+Y is the axis because that's where a cylinder() or a cone already points. .rotate() still applies, in the shape's own frame before the aim: a Y-only rotation rolls it about the aimed axis and leaves the aim alone, while an X or Z one leans it off by that angle. Components take fns of t."],
+  sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z} — a geometry used as a layout source rather than something drawn. The shape needn't be in the scene: an op that never reaches .out() renders nothing, so const pts = icosa({ radius: 3 }) then .instance(400, (x, i) => x.pos(pts.sample(i))) skins one shape onto another.\nPoints are area-weighted across the triangles and stable across re-runs, so editing a sketch doesn't reshuffle them. The source's own .pos/.rotate/.scale/.align move them with it, so a layout can be placed or spun — but not its .noise(), which displaces on the GPU where the CPU can't read it. A source transform that's a fn of t makes the points move, so results can only be worked out ahead of the layout fn while the source is still."],
+  normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. Hand it to .align() to stand copies up off the surface, or read a component to drive scale or color by facing.'],
   material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: a standard PBR material, upgraded to three's physical one the moment you name a glass or coating key — so a sketch that never mentions them pays nothing.\nAn empty .material() opens the Poly Haven browser and writes your pick back into the call. Every value takes a fn of t; every map slot takes an imported image by name, or a live TOP chain."],
   color: ['.color(c)', 'Shorthand for .material({ color }). Colors may be fns of t or signals — e.g. .color(kickCounter.select(palette)).'],
-  target: ['.target(x, y, z)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep. Point and hemisphere lights have no direction and reject it.'],
+  target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .pos(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default and costs nothing until some light casts, so on a mesh this is really the opt-out: .shadow(false) for both, or one side of it. On a light, shadow: true turns casting on (directional/spot/point) and the same object tunes it.\nThe one exception to that default: glass (transmission) and blended (opacity < 1) surfaces don't cast, because the depth pass can't tell they're see-through and would throw the solid shadow of their silhouette. .shadow(true) insists."],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a TOP chain becomes the display output. With a name, publishes for input('name') instead: a TOP point (passthrough), a geometry as its own render layer, or a light lighting only that layer."],
 
@@ -542,9 +545,9 @@ const globalKinds = {
 };
 
 const methodKinds = {
-  geo: 'pos rotate scale shadow noise instance material color out',
+  geo: 'pos rotate scale align shadow noise instance material color sample normal out',
   light: 'pos target out',
-  inst: 'pos rotate scale color material',
+  inst: 'pos rotate scale align color material',
   top: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
         remap lookup displace comp mask blur bloom when tile out`,

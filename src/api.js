@@ -5,6 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise, applyNoiseDepth } from './noise.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TopOp } from './tops.js';
+import { makePointSet } from './sample.js';
 import { sig, valueNoise, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
@@ -126,6 +127,14 @@ function resolveFont(o) {
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
 
+// .pos/.rotate/.scale also take a whole vector in the first slot, so a sampled
+// point goes straight in: x.pos(pts.sample(i)). Arrays and anything carrying
+// x/y/z (a Vector3, a sample()) both count; null = the caller passed components.
+const asVec = (v) =>
+  v === null || typeof v !== 'object' ? null
+    : Array.isArray(v) ? [v[0], v[1], v[2]]
+      : [v.x, v.y, v.z];
+
 // extra carries things resolved outside the switch: `font` for text3d, and
 // `geometry` for model() — the parsed .obj/.fbx, which arrives asynchronously
 function buildGeometry(type, o = {}, extra = {}) {
@@ -170,6 +179,45 @@ function buildGeometry(type, o = {}, extra = {}) {
   }
 }
 
+// .align(v) turns a direction into a rotation, which .rotate()'s Euler angles
+// can't do without a page of atan2 — the point of it is .align(pts.normal(i)),
+// standing a copy up off the surface it was sampled from. +Y is the axis that
+// gets aimed, being which way a cylinder/cone already points. Premultiplied, so
+// .rotate() lands first in the shape's own frame: a Y-only rotation rolls the
+// copy about the aimed axis and leaves the aim alone, X/Z lean it off by that
+// much. Every frame re-sets .rotation before this runs, so nothing accumulates.
+const UP = new THREE.Vector3(0, 1, 0);
+const _aim = new THREE.Vector3();
+const _quat = new THREE.Quaternion();
+function aim(obj, dir, t) {
+  const v = asVec(dir);
+  if (!v) return;
+  _aim.set(resolve(v[0], t) || 0, resolve(v[1], t) || 0, resolve(v[2], t) || 0);
+  // a zero vector points nowhere; setFromUnitVectors would hand back garbage
+  if (_aim.lengthSq() < 1e-12) return;
+  obj.quaternion.premultiply(_quat.setFromUnitVectors(UP, _aim.normalize()));
+}
+
+// scratch for GeoOp._xform(), which composes a source's transform through the
+// same Object3D the renderer would to keep the two from drifting apart
+const IDENTITY = new THREE.Matrix4();
+const _src = new THREE.Object3D();
+
+// Two ops that describe the same shape share one set of sampled points. Sizes
+// are resolved at t=0 (an animated radius scatters over the shape it starts
+// as) and a parsed font stands in as an id, being megabytes of glyph outlines.
+let fontSeq = 0;
+const fontIds = new WeakMap();
+const pointSetKey = (type, opts) =>
+  `${type}:${JSON.stringify(opts, (k, v) => {
+    if (typeof v === 'function') return v(0);
+    if (k === 'font' && v !== null && typeof v === 'object') {
+      if (!fontIds.has(v)) fontIds.set(v, ++fontSeq);
+      return `font${fontIds.get(v)}`;
+    }
+    return v;
+  })}`;
+
 // The stand-in for one copy handed to .instance()'s fn: the chain's transform
 // verbs, applied to a single instance. It's the same geometry, so the method
 // names are the same — but an InstancedMesh is one mesh with one material, so
@@ -185,11 +233,28 @@ class InstanceHandle {
     this.rx = this.ry = this.rz = 0;
     this.sx = this.sy = this.sz = 1;
     this.col = null;
+    this.dir = null;
   }
 
-  pos(x = 0, y = 0, z = 0) { this.px = x; this.py = y; this.pz = z; return this; }
-  rotate(x = 0, y = 0, z = 0) { this.rx = x; this.ry = y; this.rz = z; return this; }
-  scale(x = 1, y, z) { this.sx = x; this.sy = y ?? x; this.sz = z ?? x; return this; }
+  pos(x = 0, y = 0, z = 0) {
+    const v = asVec(x);
+    if (v) [x, y, z] = [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0];
+    this.px = x; this.py = y; this.pz = z;
+    return this;
+  }
+  rotate(x = 0, y = 0, z = 0) {
+    const v = asVec(x);
+    if (v) [x, y, z] = [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0];
+    this.rx = x; this.ry = y; this.rz = z;
+    return this;
+  }
+  scale(x = 1, y, z) {
+    const v = asVec(x);
+    if (v) [x, y, z] = [v[0] ?? 1, v[1] ?? 1, v[2] ?? 1];
+    this.sx = x; this.sy = y ?? x; this.sz = z ?? x;
+    return this;
+  }
+  align(v) { this.dir = v; return this; }
   // tints this copy: multiplied with the chain's .material() color
   color(c) { this.col = c; return this; }
 
@@ -233,11 +298,116 @@ class GeoOp {
     this._instance = null;
     this._material = {};
     this._shadow = null;      // null = whatever the material implies (see out())
+    this._align = null;       // a direction to aim +Y at, on top of _rot
+    this._pointSet = null;    // sampled surface points, built on the first .sample()
+    this._xformAt = null;     // clock reading _mat/_nmat were composed at
+    this._mat = null;
+    this._nmat = null;
   }
 
-  pos(x = 0, y = 0, z = 0) { this._pos = [x, y, z]; return this; }
-  rotate(x = 0, y = 0, z = 0) { this._rot = [x, y, z]; return this; }
-  scale(x = 1, y, z) { this._scale = [x, y ?? x, z ?? x]; return this; }
+  pos(x = 0, y = 0, z = 0) {
+    const v = asVec(x);
+    this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+    return this;
+  }
+  rotate(x = 0, y = 0, z = 0) {
+    const v = asVec(x);
+    this._rot = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+    return this;
+  }
+  scale(x = 1, y, z) {
+    const v = asVec(x);
+    this._scale = v ? [v[0] ?? 1, v[1] ?? 1, v[2] ?? 1] : [x, y ?? x, z ?? x];
+    return this;
+  }
+  align(v) { this._align = v; return this; }
+
+  // sample(i) — the i-th point of a fixed scatter over this shape's surface,
+  // and normal(i) the surface normal there. The shape needn't be in the scene:
+  // an op that never reaches .out() is just a description of a geometry, so it
+  // works as a layout source and renders nothing.
+  //
+  //   const pts = icosa({ radius: 3 });
+  //   sphere({ radius: 0.08 })
+  //     .instance(400, (x, i) => x.pos(pts.sample(i)))
+  //     .out();
+  //
+  // The source's own .pos/.rotate/.scale/.align move what it hands out: the
+  // shape is never drawn, so its transform has no other job, and spinning the
+  // layout should carry the copies with it. Not its .noise() though, which
+  // displaces on the GPU where there's nothing for the CPU to read.
+  //
+  // A transform that's a function of t makes these move, so results can only be
+  // precomputed outside the layout fn when the source is still.
+  sample(i) {
+    const set = this._points();
+    const p = set ? set.point(i) : new THREE.Vector3();
+    const m = this._xform();
+    return m ? p.applyMatrix4(m) : p;
+  }
+  normal(i) {
+    const set = this._points();
+    const n = set ? set.normal(i) : new THREE.Vector3(0, 1, 0);
+    return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
+  }
+
+  // Composed the same way the mesh updater does it, so a source that is also
+  // drawn scatters onto itself. Held until the clock moves rather than rebuilt
+  // per call, since one .instance() asks hundreds of times a frame; null for
+  // the common untransformed source, to skip the multiply per point entirely.
+  _xform() {
+    const t = this.engine.time;
+    if (this._xformAt !== t) {
+      this._xformAt = t;
+      _src.position.set(...resolve3(this._pos, t));
+      _src.rotation.set(...resolve3(this._rot, t));
+      if (this._align) aim(_src, this._align, t);
+      _src.scale.set(...resolve3(this._scale, t));
+      _src.updateMatrix();
+      if (_src.matrix.equals(IDENTITY)) {
+        this._mat = null;
+      } else {
+        this._mat = (this._mat ?? new THREE.Matrix4()).copy(_src.matrix);
+        // normals drop the translation and need the inverse-transpose, or a
+        // non-uniform .scale() tilts every one of them off its surface
+        this._nmat = (this._nmat ?? new THREE.Matrix3()).getNormalMatrix(this._mat);
+      }
+    }
+    return this._mat;
+  }
+
+  // Cached on the engine as well as on the op, because a source written inline
+  // inside a layout fn — .instance(400, (x, i) => x.pos(icosa().sample(i))) —
+  // is a fresh op per copy per frame. Sharing by shape makes that merely
+  // wasteful rather than fatal.
+  _points() {
+    if (this._pointSet) return this._pointSet;
+    const opts = { ...this.opts };
+    const extra = {};
+    if (this.type === 'text3d') {
+      if (!this._font) {
+        const r = resolveFont(this.opts);
+        this._font = r.font;
+        // the real font swaps every glyph outline, so the points move with it
+        r.pending?.then((f) => { this._font = f; this._pointSet = null; }).catch(() => {});
+      }
+      extra.font = opts.font = this._font;
+    }
+    if (this.type === 'model') {
+      if (this.opts.name == null) return null;
+      extra.geometry = this.engine.ensureModel(this.opts.name, this.opts).geometry;
+      if (!extra.geometry) return null;   // still parsing — retried next frame
+    }
+    const key = pointSetKey(this.type, opts);
+    let set = this.engine.pointSets.get(key);
+    if (!set) {
+      set = makePointSet(buildGeometry(this.type, opts, extra));
+      if (!set) return null;
+      this.engine.pointSets.set(key, set);
+    }
+    this._pointSet = set;
+    return set;
+  }
 
   // Every mesh casts and receives by default — it's free until some light is
   // given shadow: true, and "I enabled shadows and nothing happened" is a worse
@@ -442,6 +612,7 @@ class GeoOp {
       }
       mesh.position.set(...resolve3(this._pos, t));
       mesh.rotation.set(...resolve3(this._rot, t));
+      if (this._align) aim(mesh, this._align, t);
       mesh.scale.set(...resolve3(this._scale, t));
 
       if (noiseUniforms) {
@@ -469,6 +640,7 @@ class GeoOp {
           }
           dummy.position.set(resolve(handle.px, t), resolve(handle.py, t), resolve(handle.pz, t));
           dummy.rotation.set(resolve(handle.rx, t), resolve(handle.ry, t), resolve(handle.rz, t));
+          if (handle.dir) aim(dummy, handle.dir, t);
           dummy.scale.set(resolve(handle.sx, t), resolve(handle.sy, t), resolve(handle.sz, t));
           dummy.updateMatrix();
           mesh.setMatrixAt(i, dummy.matrix);
@@ -552,7 +724,8 @@ class LightOp {
     if (this.light.isAmbientLight) {
       throw new Error('ambient: arrives evenly from every direction, so it has nowhere to be — hemi(), directional() or point() light from somewhere');
     }
-    this._pos = [x, y, z];
+    const v = asVec(x);
+    this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
     return this;
   }
   // Where a directional or spot light points; both aim at the origin without
@@ -561,7 +734,8 @@ class LightOp {
     if (!this.light.target) {
       throw new Error(`${this.light.type}: shines every way at once — .target() is for directional() and spot()`);
     }
-    this._target = [x, y, z];
+    const v = asVec(x);
+    this._target = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
     return this;
   }
   out(name) {
