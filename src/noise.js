@@ -1,6 +1,12 @@
 // GLSL simplex-noise displacement injected into MeshStandardMaterial via
 // onBeforeCompile, so displaced geometry stays lit correctly (normals are
 // recomputed by sampling two tangent-offset neighbors on the GPU).
+//
+// noise-cpu.js is a line-by-line JS twin of snoise/fbm/displacePoint and the
+// normal reconstruction below, so geo.sample() can put points on the deformed
+// surface. Edit the two together — a change here that isn't mirrored there
+// doesn't break anything visibly, it just floats sampled points off the shape.
+// NOISE-PARITY.md records the known precision traps and how to re-verify.
 
 // Ashima / stegu 3D simplex noise — pure functions, shared with the TOP
 // noise generator in tops.js

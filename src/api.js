@@ -3,6 +3,7 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise, applyNoiseDepth } from './noise.js';
+import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TopOp } from './tops.js';
 import { makePointSet } from './sample.js';
@@ -303,6 +304,8 @@ class GeoOp {
     this._xformAt = null;     // clock reading _mat/_nmat were composed at
     this._mat = null;
     this._nmat = null;
+    this._ncAt = null;        // ditto for the resolved noise config
+    this._nc = null;
   }
 
   pos(x = 0, y = 0, z = 0) {
@@ -332,23 +335,50 @@ class GeoOp {
   //     .instance(400, (x, i) => x.pos(pts.sample(i)))
   //     .out();
   //
-  // The source's own .pos/.rotate/.scale/.align move what it hands out: the
-  // shape is never drawn, so its transform has no other job, and spinning the
-  // layout should carry the copies with it. Not its .noise() though, which
-  // displaces on the GPU where there's nothing for the CPU to read.
+  // The source's whole chain applies: its .noise() moves the points onto the
+  // deformed surface (noise-cpu.js re-runs the shader's field on the CPU), then
+  // its .pos/.rotate/.scale/.align place them. The shape is never drawn, so its
+  // transform has no other job, and spinning a layout should carry the copies.
   //
-  // A transform that's a function of t makes these move, so results can only be
-  // precomputed outside the layout fn when the source is still.
+  // Both are functions of t once the source has a .noise() or a fn transform,
+  // so results can only be precomputed outside the layout fn while it's still.
   sample(i) {
     const set = this._points();
     const p = set ? set.point(i) : new THREE.Vector3();
+    const c = set && this._noiseCfg();
+    if (c) displacedPoint(p, set.normal(i), c, p);
     const m = this._xform();
     return m ? p.applyMatrix4(m) : p;
   }
   normal(i) {
     const set = this._points();
     const n = set ? set.normal(i) : new THREE.Vector3(0, 1, 0);
+    const c = set && this._noiseCfg();
+    if (c) displacedNormal(set.point(i), n, c, n);
     return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
+  }
+
+  // The uniforms the mesh updater would set this frame, as plain numbers. Held
+  // per frame like _xform, and for the same reason: one .instance() asks for
+  // hundreds of points and they all read the same config.
+  _noiseCfg() {
+    if (!this._noise) return null;
+    const t = this.engine.time;
+    if (this._ncAt !== t) {
+      this._ncAt = t;
+      const n = this._noise;
+      this._nc = {
+        time: t,
+        amp: resolve(n.amp, t),
+        freq: resolve(n.freq, t),
+        octaves: Math.min(8, Math.max(1, resolve(n.octaves, t))),
+        lacunarity: resolve(n.lacunarity, t),
+        gain: resolve(n.gain, t),
+        speed: resolve(n.speed, t),
+        seed: resolve(n.seed, t),
+      };
+    }
+    return this._nc;
   }
 
   // Composed the same way the mesh updater does it, so a source that is also
