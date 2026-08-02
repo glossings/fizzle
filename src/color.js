@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 // Every color in the API — .material({ color }), .color(), a light's color,
-// bg(), fog(), a TOP's color/bg — accepts the same four forms:
+// bg(), fog(), a texture's color/bg — accepts the same four forms:
 //
 //   '#4fd1c5'  ·  'tomato'  ·  0x4fd1c5  ·  [0.31, 0.82, 0.77]
 //
@@ -12,8 +12,8 @@ import * as THREE from 'three';
 //   .color([t => Math.sin(t) * 0.5 + 0.5, 0.2, audio()])
 //
 // `space` is what the given numbers already are. The 3D scene works in linear
-// and three converts sRGB on the way in; TOPs are display-space end to end
-// (see the note on tops.js's own pass-through), so they say so here.
+// and three converts sRGB on the way in; textures are display-space end to end
+// (see the note on textures.js's own pass-through), so they say so here.
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
@@ -37,7 +37,7 @@ export const makeColor = (v, t = 0, space = THREE.SRGBColorSpace) =>
   setColor(new THREE.Color(), v, t, space);
 
 // A CSS string, for the color that ends up on a 2D canvas rather than in a
-// uniform (the text() TOP). Goes through THREE.Color so an [r, g, b] and a
+// uniform (the text() texture). Goes through THREE.Color so an [r, g, b] and a
 // hex reach the canvas as the same pixels — hence the linear space, which is
 // what the rest of that path already assumes.
 const _css = new THREE.Color();

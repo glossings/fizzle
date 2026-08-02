@@ -178,7 +178,7 @@ export class AudioEngine {
 const frac = (x) => x - Math.floor(x);
 
 // deterministic smooth value noise of x, 0..1 — the signal-space cousin of
-// the noise() TOP (exposed in sketches as rand())
+// the noise() texture (exposed in sketches as rand())
 const hash = (i) => frac(Math.sin(i * 127.1 + 311.7) * 43758.5453);
 export function valueNoise(x) {
   const i = Math.floor(x), u = x - i, s = u * u * (3 - 2 * u);

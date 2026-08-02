@@ -38,13 +38,13 @@ const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
 
 // one filtered method list per chain kind, built once
 const methodsByKind = {};
-for (const kind of ['geo', 'light', 'top', 'signal', 'inst']) {
+for (const kind of ['geo', 'light', 'texture', 'signal', 'inst']) {
   methodsByKind[kind] = methodOptions.filter((o) => METHOD_KINDS[o.label]?.has(kind));
 }
 
 // globals grouped by what they produce, for boosting at a value position
 const kindGlobals = (kind) => globalOptions.filter((o) => GLOBAL_KIND[o.label] === kind);
-const TOP_GLOBALS = kindGlobals('top');
+const TEXTURE_GLOBALS = kindGlobals('texture');
 const SIGNAL_GLOBALS = kindGlobals('signal');
 
 // --- tree helpers ----------------------------------------------------------
@@ -250,7 +250,7 @@ function valueCompletions(context, spec) {
   if (!spec) return null;
   const shaped = spec.values
     ? spec.values.map((v) => ({ label: `'${v}'`, type: 'enum', boost: 99 }))
-    : (TEXTURE_KEYS.has(spec.key) ? TOP_GLOBALS : SIGNAL_GLOBALS).map((o) => ({ ...o, boost: 50 }));
+    : (TEXTURE_KEYS.has(spec.key) ? TEXTURE_GLOBALS : SIGNAL_GLOBALS).map((o) => ({ ...o, boost: 50 }));
 
   // With nothing typed, only what the key is shaped for — five signal
   // generators over `speed:` is a useful nudge, forty globals is a wall. Once

@@ -28,7 +28,7 @@ function flash(msg) {
 }
 
 // Something the sketch asked for that couldn't be honoured — a material
-// property that doesn't exist, a throwing updater, a broken TOP graph. Shown
+// property that doesn't exist, a throwing updater, a broken texture graph. Shown
 // like an error but self-clearing, since the show goes on behind it.
 let warned = false;
 window.addEventListener('fizzle-warning', (e) => {

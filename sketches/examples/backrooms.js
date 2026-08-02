@@ -151,7 +151,7 @@ point({ color: '#ffeec4', intensity: (t) => 9 * (0.8 + 0.28 * buzz(t + 3.1)), di
 // --- tape ---
 
 scene()
-  // masking a solid ramp by depth is fog, done in TOP space. It mixes toward a
+  // masking a solid ramp by depth is fog, done in texture space. It mixes toward a
   // bright yellow: haze that darkens is night, haze that brightens is tubes.
   .mask(depth({ near: 8, far: 42 }), s => s.comp(ramp({ a: '#cbb877', b: '#cbb877' }), 'over'))
   .mask(depth({ near: 22, far: 46 }), s => s.blur(4))                   // far end goes soft

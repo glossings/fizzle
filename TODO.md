@@ -8,7 +8,7 @@ Ordered roughly by leverage.
 
 Most of what follows is "add an operator." That's four edits, and the last two
 are the ones easy to forget: the implementation (a `SPECS` entry in
-[src/tops.js:79](src/tops.js#L79) for a TOP, a `buildGeometry` case in
+[src/textures.js:79](src/textures.js#L79) for a texture op, a `buildGeometry` case in
 [src/api.js:143](src/api.js#L143) for geometry), the chain method or `api.js`
 export, a `DOCS` entry in [src/docs.js](src/docs.js) (tooltip says what the call
 does and which params exist; per-param detail goes on the param), and the
@@ -23,7 +23,7 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 ## Texture-driven parameters
 
 The machinery — a `texParams` map on a spec, resolved by `bindTexParams`
-([src/tops.js:606](src/tops.js#L606)) — is in, and `transform`, `warp`,
+([src/textures.js:606](src/textures.js#L606)) — is in, and `transform`, `warp`,
 `kaleido`, `adjust` and `pixellate` are wired. What's left is extending it, one
 `texParams` line each:
 
@@ -34,10 +34,10 @@ The machinery — a `texParams` map on a spec, resolved by `bindTexParams`
 [ ] `math` (`mul`, `add`) wants vec3 slots reading RGB — the machinery already
   emits that type, but nothing declares one yet, so it's untested.
 
-## Vertex displacement from a TOP
+## Vertex displacement from a texture
 
-[ ] `.displace(top, { amount, mid })` on a geometry chain — move each vertex
-  along its normal by what the texture says at its UV. TOPs already feed
+[ ] `.displace(texture, { amount, mid })` on a geometry chain — move each vertex
+  along its normal by what the texture says at its UV. Textures already feed
   materials as maps ([src/materials.js](src/materials.js)) but can't move
   vertices. Reuses the `.noise()` vertex machinery — `displacePoint`
   ([src/noise.js:90](src/noise.js#L90)) and the `NORMAL_CHUNK`/`DEPTH_CHUNK`
@@ -49,7 +49,7 @@ The machinery — a `texParams` map on a spec, resolved by `bindTexParams`
   source, or leave the points on the undisplaced surface and say so in the
   docs. Decide which.
 
-## New TOP generators
+## New texture generators
 
 `SPECS` entries take `frag`, plus `extras`/`update()` to declare and resolve
 uniforms (numbers or fns of `t`).
@@ -63,7 +63,7 @@ uniforms (numbers or fns of `t`).
   like any color slot. The haze recipe at [src/docs.js:41](src/docs.js#L41)
   currently fakes it with a `ramp()` whose two colors are identical.
 [ ] `polygon(sides, { radius, smooth, angle, color, bg })` — filled regular
-  n-gon, centered. Mirror `circle()`'s options ([src/tops.js:123](src/tops.js#L123))
+  n-gon, centered. Mirror `circle()`'s options ([src/textures.js:123](src/textures.js#L123))
   so the two are interchangeable; `smooth` is the edge falloff, `angle` spins it.
 [ ] `stripes({ freq, shape, speed, polar, a, b })` — a 1-D waveform swept across
   the frame, so it reads as bands. `freq` = bands per frame, `shape` =
@@ -74,11 +74,11 @@ uniforms (numbers or fns of `t`).
   gap, a, b })` — same but every other row shifted by `offset` (0.5 = running
   bond), `gap` is the mortar line width.
 
-## New TOP filters
+## New texture filters
 
 [ ] `sharpen`, `emboss`, `erode`, `dilate` — all four are 3×3 neighbor
   operations, so add them as `mode`s of the existing `neighbor` spec
-  ([src/tops.js:220](src/tops.js#L220)) behind
+  ([src/textures.js:220](src/textures.js#L220)) behind
   `.edge()`/`.slope()`/`.normalMap()`, not new specs. Erode/dilate take the
   min/max of the neighborhood; emboss is a directional difference plus 0.5.
 [ ] `.dither({ mode, levels })` — quantize to `levels` steps per channel, but
@@ -100,7 +100,7 @@ uniforms (numbers or fns of `t`).
 [ ] `.pixelSort({ threshold, dir })` — cheap per frame (one neighbor fetch, same
   as sharpen), but it's an odd–even transposition sort: it converges over many
   frames and must read its own previous output. Needs a per-node ping-pong
-  buffer + frame parity; [src/tops.js](src/tops.js) only has last-frame via
+  buffer + frame parity; [src/textures.js](src/textures.js) only has last-frame via
   named `.out()` cycles today.
 
 ## Coordinates
@@ -113,7 +113,7 @@ uniforms (numbers or fns of `t`).
   radially: `.polar().translate(0, 0.1).cartesian()` is a tunnel, a `.blur()`
   in between is a radial smear. Keep `.kaleido()` — the mirror fold is the
   effect, not just the coordinate change.
-[ ] More radial distortions as extra `.warp()` keys ([src/tops.js:392](src/tops.js#L392))
+[ ] More radial distortions as extra `.warp()` keys ([src/textures.js:392](src/textures.js#L392))
   rather than new ops — each is a different function applied to the radius
   before resampling: `invert` (1/r, turns the frame inside out), `sqrt`
   (compresses the center, expands the edge), `log`, `ripple` (a sine of r, with
@@ -174,7 +174,7 @@ Chain methods go next to `.smooth()` at
   center. `mouse('x')` / `mouse('y')` for one axis; also want a `.down` gate.
   Must read from the canvas, and keep working in the projector window
   ([src/projector.js](src/projector.js)).
-[ ] `.read(top, x, y)` — sample one pixel of a TOP back down into a signal, so
+[ ] `.read(texture, x, y)` — sample one pixel of a texture back down into a signal, so
   an image can drive geometry. `x`/`y` in 0..1, returns luma (or a channel).
   The only GPU→CPU bridge in the app. Real cost: `readRenderTargetPixelsAsync`
   resolves a frame or more late, so the value lags — batch all reads for a
@@ -182,10 +182,10 @@ Chain methods go next to `.smooth()` at
 
 ## `glsl()` escape hatch
 
-[ ] `.glsl(source)` for a custom fragment pass — the TOP-side counterpart to
+[ ] `.glsl(source)` for a custom fragment pass — the texture-side counterpart to
   exposing `THREE` on the 3D side ([src/docs.js:61](src/docs.js#L61)). Compile
   the string through the same `SPECS` machinery
-  ([src/tops.js:640](src/tops.js#L640)) so `HEADER`, `vUv` and `tex0` are
+  ([src/textures.js:640](src/textures.js#L640)) so `HEADER`, `vUv` and `tex0` are
   already in scope, and allow a uniforms object whose values take fns of `t`.
   A compile error must `warn()` and pass the input through untouched, never
   throw — see the errors-never-block-playback rule.

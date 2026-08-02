@@ -1,15 +1,15 @@
 # Deployment plan
 
-Hosting fizzle publicly, Hydra-style: the site serves the code, every sketch
-runs in the visitor's browser. The code side is done — what's left is pressing
-the button on an account.
+Hosting fizzle publicly: the site serves the code, every sketch runs in the
+visitor's browser. The code side is done — what's left is pressing the button
+on an account.
 
 ## Why this is mostly already true
 
-`npm run build` produces a fully static `dist/`. The engine, editor, and TOP
+`npm run build` produces a fully static `dist/`. The engine, editor, and texture
 pipeline are client-side, examples are inlined at build time (`import.meta.glob`
-eager, [src/sidebar.js:8](src/sidebar.js#L8)), and share links are already
-Hydra-shaped — deflate-compressed source in the URL hash,
+eager, [src/sidebar.js:8](src/sidebar.js#L8)), and share links are
+self-contained — deflate-compressed source in the URL hash,
 [src/share.js](src/share.js).
 
 Build weight, for reference:

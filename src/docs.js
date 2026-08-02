@@ -1,5 +1,5 @@
 import { MATERIAL_GROUPS, MATERIAL_DOCS } from './materials.js';
-import { BLEND_MODE_NAMES, ASCII_SET_NAMES } from './tops.js';
+import { BLEND_MODE_NAMES, ASCII_SET_NAMES } from './textures.js';
 
 // One docs table drives both autocomplete and ctrl+hover tooltips.
 // [0] signature — shown next to the completion, and as the tooltip header
@@ -37,24 +37,24 @@ export const GLOBALS = {
   resolution: ['resolution(width, height)', "Pin the render to an exact pixel size and shape instead of the browser window. The main window letterboxes it — scaled to fit, centered, black around it — while the projector window (F1) takes that same aspect ratio, so full-screening the projector on a display of the same shape fills it edge to edge.\nresolution({ width, height }) and a single number for a square also work; drop the call to go back to filling the window. Sidebar quality scales the pixels underneath without changing the shape, so resolution(1920, 1080) at med renders 1440×810 and still presents 16:9."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. depth() picks the same range up by default. Positional fog(color, near, far) also works.'],
 
-  scene: ['scene()', 'TOP source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
-  depth: ['depth({ near, far }) | depth({ focus, range })', "TOP source: the same 3D render as scene(), as a grayscale distance map — black near, white far, empty space white. Give it a focus instead and it measures distance from that plane, a ready-made depth-of-field mask.\nMostly you hand it to .mask(m, fn) to treat the image by distance: .mask(depth(), s => s.blur(8)) blurs the far, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, .mask(depth(), s => s.comp(ramp({ a: '#8a97a8', b: '#8a97a8' }), 'over')) is haze."],
-  input: ['input(name?)', "TOP source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a TOP chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
-  ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'TOP generator: two-color gradient.'],
-  circle: ['circle({ radius, soft, center, color, bg })', 'TOP generator: soft-edged disc.'],
-  video: ['video(name?)', "TOP generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera, and the console lists the available sources on start. Permission prompt on first use; black until the stream is live."],
-  videofile: ["videofile(name?, { speed, loop, mute, restart })", "TOP generator: an imported video file, looping. Drag a file in to import it (stored in the browser, survives reloads); an empty call opens a picker and fills the name in. name = filename, exact or substring.\nctrl+r or restartMedia() rewinds everything by hand."],
-  imagefile: ["imagefile(name?)", 'TOP generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
-  imageseq: ["imageseq(['a.png', ...], index?)", 'TOP generator: several imported images with a signal picking the current one (floored, wrapped) — imageseq(names, beat(1).counter()) steps each beat, .counter() of .kicks() steps on kicks. Default index: one per second.\nDropping several images at once types this call for you. Empty call = multi-file picker.'],
-  noise: ['noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'TOP generator: animated fbm simplex noise, shading from color a to color b — the workhorse source for .displace(), masks and lookups.\nThe output is normalized, so the octave keys change its texture rather than its level; reach for .contrast()/.mul() to set that. On a geometry chain .noise() displaces vertices instead.'],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "TOP generator: canvas-rendered text on a solid background — comp it over a scene with add or screen to drop the bg. Content can be a fn of t; \\n for multiline."],
+  scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
+  depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far, empty space white. Give it a focus instead and it measures distance from that plane, a ready-made depth-of-field mask.\nMostly you hand it to .mask(m, fn) to treat the image by distance: .mask(depth(), s => s.blur(8)) blurs the far, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, .mask(depth(), s => s.comp(ramp({ a: '#8a97a8', b: '#8a97a8' }), 'over')) is haze."],
+  input: ['input(name?)', "Texture source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a texture chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
+  ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'Texture generator: two-color gradient.'],
+  circle: ['circle({ radius, soft, center, color, bg })', 'Texture generator: soft-edged disc.'],
+  video: ['video(name?)', "Texture generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera, and the console lists the available sources on start. Permission prompt on first use; black until the stream is live."],
+  videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Drag a file in to import it (stored in the browser, survives reloads); an empty call opens a picker and fills the name in. name = filename, exact or substring.\nctrl+r or restartMedia() rewinds everything by hand."],
+  imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
+  imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped) — imageseq(names, beat(1).counter()) steps each beat, .counter() of .kicks() steps on kicks. Default index: one per second.\nDropping several images at once types this call for you. Empty call = multi-file picker.'],
+  noise: ['noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from color a to color b — the workhorse source for .displace(), masks and lookups.\nThe output is normalized, so the octave keys change its texture rather than its level; reach for .contrast()/.mul() to set that. On a geometry chain .noise() displaces vertices instead.'],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text on a solid background — comp it over a scene with add or screen to drop the bg. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text, chainable like any other shape. Renders in helvetiker until the font you named arrives."],
 
   beat: ['beat(div = 1)', 'Tempo-synced phase ramp 0..1 over div beats (tempo in the sidebar). Shape it: beat(2).sin() two-beat LFO, beat(0.25).sqr() sixteenth gates, rand().beat(1) sample-hold, beat(4).counter().select([...]) walks a list per bar.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input level as a signal — a fn of t, usable in any parameter. Chain .mul/.add/.pow/.smooth/.kicks/.lowpass/.highpass/.bandpass; the first use starts capture.\naudio() is the mono mix of the sidebar's device, audio(2) one channel by index, audio('scarlett') a device by name (substring, and an unmatched one lists the inputs in the console), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and analysed like audio(): it returns its level as a signal, so chain .kicks/.lowpass/.smooth/etc. Empty call = picker; drag a file in to import. ctrl+r or restartMedia() rewinds by hand.'],
   restartMedia: ['restartMedia(name?)', 'Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute; ctrl+r does the same from the keyboard.'],
-  rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() TOP. Positional rand(freq, seed) also works.\nrand().beat(4).mul(4).round() = random 0..4 per bar; rand().hold(audio().kicks()) = a new value per kick.'],
+  rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() texture. Positional rand(freq, seed) also works.\nrand().beat(4).mul(4).round() = random 0..4 per bar; rand().hold(audio().kicks()) = a new value per kick.'],
   sig: ['sig(fn)', 'Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.'],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
@@ -63,29 +63,29 @@ export const GLOBALS = {
 
 export const METHODS = {
   pos: ['.pos(x, y, z) | .pos(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works, so .pos(pts.sample(i)) goes straight in.'],
-  rotate: ['.rotate(x, y, z) | .rotate(v)', 'Geometry: rotation in radians (numbers or fns of t, or one vector) · TOP: .rotate(v, { wrap }) rotates the image around center.'],
-  scale: ['.scale(x, y?, z?) | .scale(v)', 'Geometry: scale, one number = uniform, one vector = per-axis · TOP: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
-  translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame).\nA TOP fills the whole slot rather than one component — the shift at each pixel is that map's R and G there, which is what .displace() is built on."],
+  rotate: ['.rotate(x, y, z) | .rotate(v)', 'Geometry: rotation in radians (numbers or fns of t, or one vector) · Texture: .rotate(v, { wrap }) rotates the image around center.'],
+  scale: ['.scale(x, y?, z?) | .scale(v)', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
+  translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame).\nA texture fills the whole slot rather than one component — the shift at each pixel is that map's R and G there, which is what .displace() is built on."],
   noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens. .sample()/.normal() on the chain see the same field, so a noised shape works as a layout source.'],
   instance: ['.instance(count, (x, i, n, t) => x.pos(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .pos/.rotate/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.\nFor a layout that follows another shape, .pos(pts.sample(i)) scatters the copies over its surface — see .sample().'],
   align: ['.align(v)', "Aim the shape's +Y axis along a direction vector — the rotation Euler angles can't state without a page of atan2. Its reason to exist is .align(pts.normal(i)), standing each copy up off the surface it was sampled from.\n+Y is the axis because that's where a cylinder() or a cone already points. .rotate() still applies, in the shape's own frame before the aim: a Y-only rotation rolls it about the aimed axis and leaves the aim alone, while an X or Z one leans it off by that angle. Components take fns of t."],
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z} — a geometry used as a layout source rather than something drawn. The shape needn't be in the scene: an op that never reaches .out() renders nothing, so const pts = icosa({ radius: 3 }) then .instance(400, (x, i) => x.pos(pts.sample(i))) skins one shape onto another.\nPoints are area-weighted across the triangles and stable across re-runs, so editing a sketch doesn't reshuffle them. The source's whole chain applies: its .noise() puts the points on the deformed surface (the same field, re-run on the CPU), then its .pos/.rotate/.scale/.align place them, so a layout can be noised, placed, or spun. Either one makes the points a fn of t, so results can only be worked out ahead of the layout fn while the source is still."],
   normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. Hand it to .align() to stand copies up off the surface, or read a component to drive scale or color by facing.'],
-  material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: a standard PBR material, upgraded to three's physical one the moment you name a glass or coating key — so a sketch that never mentions them pays nothing.\nAn empty .material() opens the Poly Haven browser and writes your pick back into the call. Every value takes a fn of t; every map slot takes an imported image by name, or a live TOP chain."],
+  material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: a standard PBR material, upgraded to three's physical one the moment you name a glass or coating key — so a sketch that never mentions them pays nothing.\nAn empty .material() opens the Poly Haven browser and writes your pick back into the call. Every value takes a fn of t; every map slot takes an imported image by name, or a live texture chain."],
   color: ['.color(c)', "Shorthand for .material({ color }).\nFour forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] with channels 0..1. The whole color may be a fn of t or a signal — .color(kickCounter.select(palette)) — and each channel of the array may be its own, which is how you compute a color instead of listing one: .color([t => Math.sin(t) * 0.5 + 0.5, 0.2, audio()])."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .pos(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default and costs nothing until some light casts, so on a mesh this is really the opt-out: .shadow(false) for both, or one side of it. On a light, shadow: true turns casting on (directional/spot/point) and the same object tunes it.\nThe one exception to that default: glass (transmission) and blended (opacity < 1) surfaces don't cast, because the depth pass can't tell they're see-through and would throw the solid shadow of their silhouette. .shadow(true) insists."],
-  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a TOP chain becomes the display output. With a name, publishes for input('name') instead: a TOP point (passthrough), a geometry as its own render layer, or a light lighting only that layer."],
+  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output. With a name, publishes for input('name') instead: a texture chain (passthrough), a geometry as its own render layer, or a light lighting only that layer."],
 
-  mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'TOP: reflect one half of the image onto the other.'],
-  kaleido: ['.kaleido(sides, { rotate })', 'TOP: polar kaleidoscope fold. Both keys take a fn of t, or a TOP for a value that varies across the frame.'],
-  edge: ['.edge({ strength, spread })', 'TOP: Sobel edge magnitude (grayscale).'],
-  slope: ['.slope({ strength, spread })', 'TOP: neighbor-difference gradient, centered on 0.5, in RG.'],
-  normalMap: ['.normalMap({ strength, spread })', 'TOP: tangent-space normal map from luma height.'],
-  levels: ['.levels({ contrast, saturation, gamma, hue })', 'TOP: combined tonal adjust. Every key takes a fn of t, or a TOP for a value that varies across the frame.'],
-  hue: ['.hue(v)', 'TOP: hue rotation in turns — 0.5 is opposite colors, 1 a full lap. Animate with a fn of t or a signal, or hand it a TOP to rotate each pixel by what the map says there.'],
-  add: ['.add(v)', 'TOP: add v to every pixel (scalar or [r, g, b]; negative darkens) · audio signal: plain addition/offset.'],
-  mul: ['.mul(v)', 'TOP: multiply every pixel by v (scalar or [r, g, b]) · audio signal: plain gain.'],
+  mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other.'],
+  kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
+  edge: ['.edge({ strength, spread })', 'Texture: Sobel edge magnitude (grayscale).'],
+  slope: ['.slope({ strength, spread })', 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
+  normalMap: ['.normalMap({ strength, spread })', 'Texture: tangent-space normal map from luma height.'],
+  levels: ['.levels({ contrast, saturation, gamma, hue })', 'Texture: combined tonal adjust. Every key takes a fn of t, or a texture for a value that varies across the frame.'],
+  hue: ['.hue(v)', 'Texture: hue rotation in turns — 0.5 is opposite colors, 1 a full lap. Animate with a fn of t or a signal, or hand it a texture to rotate each pixel by what the map says there.'],
+  add: ['.add(v)', 'Texture: add v to every pixel (scalar or [r, g, b]; negative darkens) · audio signal: plain addition/offset.'],
+  mul: ['.mul(v)', 'Texture: multiply every pixel by v (scalar or [r, g, b]) · audio signal: plain gain.'],
   pow: ['.pow(v)', 'Audio signal: raise to a power — <1 expands quiet detail, >1 emphasizes peaks.'],
   smooth: ['.smooth(up, down?)', 'Audio signal: exponential lag (one-pole lowpass on the value), time constants in seconds. Two args = separate attack/release — fast up + slow down makes a nice envelope.'],
   kicks: ['.kicks({ threshold: 1.5, decay: 6, floor: 0.05 })', 'Audio signal: onset detector — 1 when the value jumps past threshold × its own moving average, exponential decay after. audio().bandpass(30, 160).kicks() for kick drums; move the band for snares/hats.'],
@@ -106,26 +106,26 @@ export const METHODS = {
   floor: ['.floor()', 'Signal: round down to an integer.'],
   ceil: ['.ceil()', 'Signal: round up to an integer.'],
   abs: ['.abs()', 'Signal: absolute value.'],
-  when: ['.when(cond, s => ...)', 'TOP: per-frame switch — while cond >= 0.5 the chain becomes fn(chain), otherwise it passes through. E.g. .when(audio().gte(0.3), s => s.kaleido(6)). Only the active branch renders.'],
-  contrast: ['.contrast(v)', 'TOP: contrast around mid-gray (1 = unchanged). A TOP in place of v sets it per pixel.'],
-  saturation: ['.saturation(v)', 'TOP: 0 = grayscale, 1 = unchanged, >1 boosts. A TOP in place of v sets it per pixel.'],
-  gamma: ['.gamma(v)', 'TOP: gamma curve (1 = unchanged). A TOP in place of v sets it per pixel.'],
-  posterize: ['.posterize(steps)', 'TOP: quantize values to n levels per channel.'],
-  pixellate: ['.pixellate(x, y?)', 'TOP: quantize position into cells (square cells if y omitted). Either count takes a TOP, so the cells can be coarse in one part of the frame and fine in another.'],
+  when: ['.when(cond, s => ...)', 'Texture: per-frame switch — while cond >= 0.5 the chain becomes fn(chain), otherwise it passes through. E.g. .when(audio().gte(0.3), s => s.kaleido(6)). Only the active branch renders.'],
+  contrast: ['.contrast(v)', 'Texture: contrast around mid-gray (1 = unchanged). A texture in place of v sets it per pixel.'],
+  saturation: ['.saturation(v)', 'Texture: 0 = grayscale, 1 = unchanged, >1 boosts. A texture in place of v sets it per pixel.'],
+  gamma: ['.gamma(v)', 'Texture: gamma curve (1 = unchanged). A texture in place of v sets it per pixel.'],
+  posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel.'],
+  pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. Cells keep the color of the image under them until you name one.\nchars is a set name — 'ascii', 'dense', 'blocks', 'numbers', 'letters', 'binary', 'dots' — or any string of your own, ordered dark→bright. Contrast decides how much of the set gets used, so .levels() ahead of it is the real dial."],
-  transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v).\ntranslate, scale and rotate each take a TOP in place of a number and become per-pixel: two-component slots read the map's R and G, scalar ones its luma, and { map, amount, mid } scales and biases what comes back. .displace() is this pass with mid: 0.5."],
-  warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t.\nbarrel, twist, zoom and center also take a TOP, which makes the lens vary across the frame — luma for the scalars, R/G for center."],
+  transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v).\ntranslate, scale and rotate each take a texture in place of a number and become per-pixel: two-component slots read the map's R and G, scalar ones its luma, and { map, amount, mid } scales and biases what comes back. .displace() is this pass with mid: 0.5."],
+  warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t.\nbarrel, twist, zoom and center also take a texture, which makes the lens vary across the frame — luma for the scalars, R/G for center."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch, and it takes a fn of t."],
-  mask: ['.mask(maskTop, fn?)', 'TOP: without fn, multiply by the mask\'s luma (cutout). With fn, apply it only where the mask is bright: .mask(circle(), s => s.displace(...)) displaces inside the circle only. Mask and fn both accept fn-of-chain.'],
-  threshold: ['.threshold(level, { soft })', 'TOP: luma threshold to a black/white mask.'],
-  invert: ['.invert()', 'TOP: invert colors.'],
-  remap: ['.remap(mapTop)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
-  lookup: ['.lookup(rampTop)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. .lookup(ramp({ a: 'black', b: 'red' })). Ramp can be a fn of the chain so far."],
+  mask: ['.mask(mask, fn?)', 'Texture: without fn, multiply by the mask\'s luma (cutout). With fn, apply it only where the mask is bright: .mask(circle(), s => s.displace(...)) displaces inside the circle only. Mask and fn both accept fn-of-chain.'],
+  threshold: ['.threshold(level, { soft })', 'Texture: luma threshold to a black/white mask.'],
+  invert: ['.invert()', 'Texture: invert colors.'],
+  remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
+  lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. .lookup(ramp({ a: 'black', b: 'red' })). Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount: 0.1, mid: 0.5 })', "Texture: push each pixel sideways by what the map says there, reading the offset from its red and green. Positional .displace(map, amount) also works, and the map can be a fn of the chain so far.\nA grayscale map moves everything along the diagonal — noise({ channels: 2 }) for a wobble that goes both ways. It is .transform({ translate: map }) with the mid bias, so the two share a pass."],
-  comp: [".comp(layer, { mode, opacity })", 'TOP: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
-  blur: ['.blur(radius)', 'TOP: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
-  bloom: ['.bloom({ threshold, strength, radius })', 'TOP: brightpass + half-res gaussian glow.'],
-  tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'TOP: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any TOP; identical variants dedupe, and each distinct one renders its own pass — like comping that many .out()s. x left→right, y bottom→top, i = y*nx + x.'],
+  comp: [".comp(layer, { mode, opacity })", 'Texture: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
+  blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
+  bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
+  tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, and each distinct one renders its own pass — like comping that many .out()s. x left→right, y bottom→top, i = y*nx + x.'],
 };
 
 // --- config keys -----------------------------------------------------------
@@ -205,7 +205,7 @@ METHOD_CONFIG.material = new Map(
 );
 
 // Same escape hatch for .comp({ mode }): seventeen blend modes don't fit in a
-// signature, and tops.js owns the list that resolves them.
+// signature, and textures.js owns the list that resolves them.
 METHOD_CONFIG.comp.get('mode').values = BLEND_MODE_NAMES;
 
 // .ascii({ chars }) takes either a named set or a literal vocabulary, so the
@@ -451,8 +451,8 @@ const METHOD_KEY_DOCS = {
     floor: 'Level below which nothing fires, so a quiet passage stays quiet. Default 0.05.',
   },
   transform: {
-    translate: "[x, y] shift in UV, where 1 is a whole frame. Default [0, 0]. A TOP here shifts each pixel by its own R and G; { map, amount, mid } scales and biases what it reads, which is all .displace() is.",
-    scale: 'Zoom about the center. A number, or [x, y] to stretch. Default 1. A TOP here takes x from red and y from green, so a grayscale map zooms uniformly.',
+    translate: "[x, y] shift in UV, where 1 is a whole frame. Default [0, 0]. A texture here shifts each pixel by its own R and G; { map, amount, mid } scales and biases what it reads, which is all .displace() is.",
+    scale: 'Zoom about the center. A number, or [x, y] to stretch. Default 1. A texture here takes x from red and y from green, so a grayscale map zooms uniformly.',
     rotate: 'Rotation about the center, in radians. Default 0.',
     wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'black'. Default 'clamp'.",
   },
@@ -550,14 +550,14 @@ if (import.meta.env?.DEV) {
 // this a `.` offers all 59 methods, so a geometry chain is asked to choose
 // between `bandpass` and `kaleido` when nine verbs apply — the wrong question
 // to put in front of someone mid-set. Kinds mirror the classes in api.js
-// (GeoOp / LightOp / InstanceHandle), tops.js (TopOp) and audio.js (sig).
+// (GeoOp / LightOp / InstanceHandle), textures.js (TextureOp) and audio.js (sig).
 
 const names = (s) => s.trim().split(/\s+/);
 
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder icosa model text3d',
   light: 'ambient directional point spot hemi',
-  top: 'scene depth input ramp circle video videofile imagefile imageseq noise text',
+  texture: 'scene depth input ramp circle video videofile imagefile imageseq noise text',
   signal: 'beat audio audiofile rand sig',
 };
 
@@ -565,7 +565,7 @@ const methodKinds = {
   geo: 'pos rotate scale align shadow noise instance material color sample normal out',
   light: 'pos target out',
   inst: 'pos rotate scale align color material',
-  top: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
+  texture: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
         remap lookup displace comp mask blur bloom when tile out`,
   signal: `add mul pow round floor ceil abs gte lte counter select sin tri saw sqr beat hold
@@ -583,11 +583,11 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 }
 
 // A callback parameter's kind, by the method that hands it over:
-// .instance(n, x => …) gives an instance handle, .tile/.mask/.when a TOP.
+// .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
 export const CALLBACK_KIND = {
   instance: 'inst',
-  tile: 'top', mask: 'top', when: 'top', comp: 'top',
-  displace: 'top', remap: 'top', lookup: 'top',
+  tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture',
+  displace: 'texture', remap: 'texture', lookup: 'texture',
 };
 
 // --- rendering -------------------------------------------------------------

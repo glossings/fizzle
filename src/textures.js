@@ -3,10 +3,10 @@ import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
 import { warn } from './warn.js';
 
-// Texture operators. Each op is a fragment-shader
-// pass rendering into its own target; chains form a DAG evaluated once per
-// frame in dependency order. `scene()` is the 3D render, `.out()` marks a
-// chain as the display output, `input()` is last frame's display output.
+// Texture operators. Each op is a fragment-shader pass rendering into its own
+// target; chains form a DAG evaluated once per frame in dependency order.
+// `scene()` is the 3D render, `.out()` marks a chain as the display output,
+// `input()` is last frame's display output.
 // `.out('name')`/`input('name')` route between chains by name: same-frame
 // when acyclic, last frame's snapshot when the wiring loops — so a named
 // cycle *is* a feedback loop.
@@ -19,15 +19,16 @@ import { warn } from './warn.js';
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
-// A param handed a TOP is replaced by a marker (see bindTexParams): the shader
-// reads that slot from a texture, so the uniform it would have filled isn't in
-// the compiled program. `par` keeps the CPU side on the default instead of
-// trying to make a number out of the marker.
+// A param handed a texture is replaced by a marker (see bindTexParams): the
+// shader reads that slot from a texture, so the uniform it would have filled
+// isn't in the compiled program. `par` keeps the CPU side on the default
+// instead of trying to make a number out of the marker.
 const par = (v, d) => (v == null || typeof v.tex === 'number' ? d : v);
 
 // A color literal has to reach the shader as the numbers it was written as:
-// TOPs work in display space from end to end (that's what the scene TOP's
-// tonemap pass establishes), and the final pass copies them to the canvas
+// textures work in display space from end to end (that's what the scene
+// texture's tonemap pass establishes), and the final pass copies them to the
+// canvas
 // unencoded. THREE.Color's default set() decodes sRGB into three's linear
 // working space, which nothing here re-encodes — so '#4fd1c5' would land on
 // screen as (20,164,143) instead of (79,209,197), and differently again from
@@ -83,7 +84,7 @@ const SPECS = {
 
   // depth() — tex0 is the scene's depth attachment (window-space, non-linear).
   // Undo the projection to get eye-space distance in world units, then map it
-  // to 0..1 so the result behaves like every other grayscale TOP.
+  // to 0..1 so the result behaves like every other grayscale texture.
   // uMode 0: near→0, far→1. uMode 1: focus→0, ±range→1 (a DOF blur mask).
   depth: {
     extras: { uRange: [0, 20], uCam: [0.01, 500], uFocus: [8, 6], uMode: 0 },
@@ -460,8 +461,8 @@ const SPECS = {
     frag: `void main() { gl_FragColor = vec4(1.0 - texture2D(tex0, vUv).rgb, 1.0); }`,
   },
 
-  // sRGB -> linear, appended to a chain feeding a *color* map slot. TOPs work
-  // in display space throughout (that's what the scene TOP's tonemap pass
+  // sRGB -> linear, appended to a chain feeding a *color* map slot. textures work
+  // in display space throughout (that's what the scene texture's tonemap pass
   // establishes), while three shades in linear and normally gets the decode
   // for free from the texture's internal format — which a half-float render
   // target can't have. So it happens here instead. Data maps (normal,
@@ -589,7 +590,7 @@ function uniformType(init) {
 }
 
 // ---------------------------------------------------------------------------
-// texture-driven params — a param handed a TOP is read from that TOP at vUv
+// texture-driven params — a param handed a texture is read from that texture at vUv
 // instead of from a uniform, which makes every slot below per-pixel
 // modulatable. The value is `(sample - mid) * amount`, defaulting to the
 // sample itself; a vec2 slot takes R/G, a vec3 slot RGB, a scalar slot luma.
@@ -598,10 +599,10 @@ function uniformType(init) {
 // the uniform's name, so the frag body is written once and a node with nothing
 // bound compiles exactly the shader it did before.
 
-// The TOP may be given bare or as { map, amount, mid } — the latter is what
+// The texture may be given bare or as { map, amount, mid } — the latter is what
 // .displace() is: a translate with mid 0.5, so an unsigned map wobbles both
 // ways instead of pushing one.
-const asMap = (v) => (v instanceof TopOp ? v : v?.map instanceof TopOp ? v.map : null);
+const asMap = (v) => (v instanceof TextureOp ? v : v?.map instanceof TextureOp ? v.map : null);
 
 function bindTexParams(kind, params, inputs) {
   if (!Object.values(params).some(asMap)) return { params, inputs, binds: [] };
@@ -628,10 +629,10 @@ function bindTexParams(kind, params, inputs) {
     params[name] = { tex: inputs.length, amount, mid };
     inputs.push(map);
   }
-  // a TOP left in a slot with no texture form would reach a uniform as NaN
+  // a texture left in a slot with no texture form would reach a uniform as NaN
   for (const [name, v] of Object.entries(params)) {
     if (!asMap(v)) continue;
-    warn(`${kind}: ${name} does not take a TOP — the default is used instead`);
+    warn(`${kind}: ${name} does not take a texture — the default is used instead`);
     delete params[name];
   }
   return { params, inputs, binds };
@@ -709,7 +710,7 @@ function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
   // three only tone-maps + sRGB-encodes when rendering to the canvas, so the
   // scene lands in its RT linear. This pass replicates the renderer's ACES
-  // filmic + sRGB output at the scene→TOP boundary; downstream ops then see
+  // filmic + sRGB output at the scene→texture boundary; downstream ops then see
   // exactly what a direct render would have shown.
   MAT_TONEMAP ??= makeMaterial({
     frag: `
@@ -899,7 +900,7 @@ ${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c =
 // ---------------------------------------------------------------------------
 // the chainable node
 
-export class TopOp {
+export class TextureOp {
   constructor(engine, kind, params = {}, inputs = []) {
     const bound = bindTexParams(kind, params, inputs);
     this.engine = engine;
@@ -908,21 +909,21 @@ export class TopOp {
     this.inputs = bound.inputs;
     this.texBinds = bound.binds;
     this.lastFrame = -1;
-    engine.topNodes.push(this);
+    engine.textureNodes.push(this);
   }
 
   _n(kind, params = {}, extraInputs = []) {
-    return new TopOp(this.engine, kind, params, [this, ...extraInputs]);
+    return new TextureOp(this.engine, kind, params, [this, ...extraInputs]);
   }
 
-  // TOP-valued args (comp layer, displace/remap map) may be a fn of the chain
+  // texture-valued args (comp layer, displace/remap map) may be a fn of the chain
   // so far — .comp(s => s.edge(), 'add') overlays the current node's own edges.
   // null when the arg isn't one: the op then drops out of the chain rather
   // than taking the picture down with it.
-  _top(v, op) {
+  _texture(v, op) {
     if (typeof v === 'function') v = v(this);
-    if (v instanceof TopOp) return v;
-    warn(`${op}: expected a TOP (or a fn of the chain returning one) — the ${op} is skipped`);
+    if (v instanceof TextureOp) return v;
+    warn(`${op}: expected a texture (or a fn of the chain returning one) — the ${op} is skipped`);
     return null;
   }
 
@@ -948,7 +949,7 @@ export class TopOp {
   chroma(amount = 0.005, o = {}) { return this._n('chroma', { amount, ...o }); }
   // transform shorthands (same pass; wrap etc. via the trailing options)
   translate(x = 0, y = 0, o = {}) {
-    // .translate(map) — a TOP fills the whole slot rather than one component,
+    // .translate(map) — a texture fills the whole slot rather than one component,
     // so the options land in the second argument
     const map = asMap(x) != null;
     if (map && typeof y === 'object' && y !== null) o = y;
@@ -959,11 +960,11 @@ export class TopOp {
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
   invert() { return this._n('invert'); }
   remap(map) {
-    const m = this._top(map, 'remap');
+    const m = this._texture(map, 'remap');
     return m ? this._n('remap', {}, [m]) : this;
   }
-  lookup(rampTop) {
-    const r = this._top(rampTop, 'lookup');
+  lookup(ramp) {
+    const r = this._texture(ramp, 'lookup');
     return r ? this._n('lookup', {}, [r]) : this;
   }
   // Sugar over .transform({ translate: map }): the only thing displace adds is
@@ -971,7 +972,7 @@ export class TopOp {
   displace(map, amount = 0.1, o = {}) {
     // options object in the amount slot: .displace(map, { amount, mid })
     if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
-    const m = this._top(map, 'displace');
+    const m = this._texture(map, 'displace');
     if (!m) return this;
     const { amount: _a, mid = 0.5, ...rest } = o;
     // translate moves the image, displace moves the lookup — opposite signs
@@ -981,18 +982,18 @@ export class TopOp {
   // options object in the mode slot: .comp(layer, { mode, opacity })
   comp(layer, mode = 'over', opacity = 1) {
     if (typeof mode === 'object' && mode !== null) ({ mode = 'over', opacity = 1 } = mode);
-    const l = this._top(layer, 'comp');
+    const l = this._texture(layer, 'comp');
     return l ? this._n('comp', { mode, opacity }, [l]) : this;
   }
   // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
   // apply fn only where the mask is bright: dry→wet blend by mask luma.
   // Both the mask and the fn's return may be fns of the chain so far.
-  mask(maskTop, fn) {
-    const m = this._top(maskTop, 'mask');
+  mask(maskSrc, fn) {
+    const m = this._texture(maskSrc, 'mask');
     if (!m) return this;
     const ins = [m];
     if (fn != null) {
-      const wet = this._top(fn, 'mask');
+      const wet = this._texture(fn, 'mask');
       if (wet) ins.push(wet);
     }
     return this._n('mask', {}, ins);
@@ -1010,13 +1011,13 @@ export class TopOp {
     // a static cond can never change — resolve the branch now. (Also keeps
     // tile dedupe tight: cells that skip the fn don't drag its chain along
     // in their structural signature.)
-    if (typeof cond !== 'function') return cond >= 0.5 ? (this._top(fn, 'when') ?? this) : this;
-    const branch = this._top(fn, 'when');
-    return branch ? new TopOp(this.engine, 'switch', { cond }, [this, branch]) : this;
+    if (typeof cond !== 'function') return cond >= 0.5 ? (this._texture(fn, 'when') ?? this) : this;
+    const branch = this._texture(fn, 'when');
+    return branch ? new TextureOp(this.engine, 'switch', { cond }, [this, branch]) : this;
   }
 
   // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
-  // per-cell choice of TOP. The fn runs once per cell at eval time and may
+  // per-cell choice of texture. The fn runs once per cell at eval time and may
   // return src itself, a treatment of it, or any other chain. Structurally
   // identical variants are deduped (so `src.saturation(0)` per call is fine);
   // up to 256 distinct variants. x runs left→right, y bottom→top, i = y*nx + x.
@@ -1030,8 +1031,8 @@ export class TopOp {
       for (let x = 0; x < nx; x++) {
         const i = y * nx + x;
         let v = (fn ? fn(this, i, x, y) : this) ?? this;
-        if (!(v instanceof TopOp)) {
-          warn('tile: fn must return a TOP chain — that cell shows the source untreated');
+        if (!(v instanceof TextureOp)) {
+          warn('tile: fn must return a texture chain — that cell shows the source untreated');
           v = this;
         }
         const sig = sigOf(v);
@@ -1050,7 +1051,7 @@ export class TopOp {
         map[i] = idx;
       }
     }
-    return new TopOp(this.engine, 'tile', { nx, ny, map }, variants);
+    return new TextureOp(this.engine, 'tile', { nx, ny, map }, variants);
   }
 
   // .out() — make this chain the display output. .out('name') — publish this
@@ -1058,8 +1059,8 @@ export class TopOp {
   // frame when the wiring is acyclic, last frame's snapshot when it loops
   // (which is what makes a cycle a feedback loop). Both are passthrough.
   out(name) {
-    if (name != null) this.engine.topBuffers.set(String(name), this);
-    else this.engine.topOutput = this;
+    if (name != null) this.engine.textureBuffers.set(String(name), this);
+    else this.engine.textureOutput = this;
     return this;
   }
 
@@ -1121,7 +1122,7 @@ export class TopOp {
     if (this.kind === 'in') {
       const { name } = this.params;
       if (name == null) return ctx.feedbackTex;   // last frame's display output
-      const producer = this.engine.topBuffers.get(name);
+      const producer = this.engine.textureBuffers.get(name);
       // acyclic: pull the producer fresh this frame (plain routing between
       // chains); cyclic or unpublished: last frame's snapshot (feedback)
       if (producer && !producer._evaluating) return producer.renderNode(ctx);
@@ -1337,7 +1338,7 @@ export class TopOp {
 
     const spec = SPECS[this.kind];
     // unreachable from a sketch — every kind here comes from a method above
-    if (!spec) throw new Error(`unknown TOP: ${this.kind}`);
+    if (!spec) throw new Error(`unknown texture: ${this.kind}`);
     this.mat ??= makeMaterial(spec, this.texBinds);
     const out = this._rt(ctx);
     runPass(ctx, this.mat, ins[0], ins[1], out, (u) => {
@@ -1360,13 +1361,13 @@ export class TopOp {
 }
 
 // ---------------------------------------------------------------------------
-// TOPs bound to material map slots — .material({ map: scene().kaleido(6) }).
+// textures bound to material map slots — .material({ map: scene().kaleido(6) }).
 // materials.js registers { node, material, slot } on the engine; these render
 // at the top of the frame, before the 3D pass that samples them, and the
 // current texture is written into the slot.
 
 function renderMaterialMaps(engine, ctx) {
-  const binds = engine.topMaps;
+  const binds = engine.textureMaps;
   if (!binds.length) return;
   // a mesh whose patch was cleared takes its bindings with it
   let live = 0;
@@ -1388,13 +1389,13 @@ function renderMaterialMaps(engine, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// per-frame evaluation, called by the engine when a TOP chain has .out() (or
+// per-frame evaluation, called by the engine when a texture chain has .out() (or
 // feeds a material map)
 
-export function renderTops(engine) {
+export function renderTextures(engine) {
   const renderer = engine.renderer;
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  const st = engine._topState;
+  const st = engine._textureState;
   st.quad ??= new Quad();
   st.frame = (st.frame ?? 0) + 1;
   ensurePassMaterials();
@@ -1402,17 +1403,17 @@ export function renderTops(engine) {
   // depth() reads the 3D pass's depth attachment, which is only allocated when
   // a sketch asks for it (and stays once allocated — a re-run that drops
   // depth() isn't worth a realloc)
-  const needsDepth = engine.topNodes.some((n) => n.kind === 'depth');
-  // pure-TOP sketches (generators/feedback only) skip the 3D pass entirely.
-  // With no TOP .out() the display *is* the scene (we're only here to feed a
+  const needsDepth = engine.textureNodes.some((n) => n.kind === 'depth');
+  // pure-texture sketches (generators/feedback only) skip the 3D pass entirely.
+  // With no texture .out() the display *is* the scene (we're only here to feed a
   // material map) — it still goes through the offscreen render, so that
   // scene() and input() mean the same thing they always do.
-  const needsScene = !engine.topOutput || needsDepth || engine.topNodes.some((n) => n.kind === 'scene');
+  const needsScene = !engine.textureOutput || needsDepth || engine.textureNodes.some((n) => n.kind === 'scene');
   if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y
       || (needsDepth && !st.sceneRT.depthTexture))) {
     st.sceneRT?.depthTexture?.dispose();
     st.sceneRT?.dispose();
-    // linear HDR; the scene TOP's tonemap pass converts to display space
+    // linear HDR; the scene texture's tonemap pass converts to display space
     st.sceneRT = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: THREE.HalfFloatType,
       samples: 4,
@@ -1496,17 +1497,17 @@ export function renderTops(engine) {
     renderer.render(engine.scene, engine.camera);
   }
 
-  if (engine.topOutput) {
-    const outTex = engine.topOutput.renderNode(ctx);
+  if (engine.textureOutput) {
+    const outTex = engine.textureOutput.renderNode(ctx);
     runPass(ctx, MAT_COPY, outTex, null, null);
     // snapshot for next frame's input(); frozen while paused so trails hold
     if (!engine.paused && outTex !== st.feedbackRT.texture) {
       runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
     }
   } else {
-    // no TOP .out() — the sketch is 3D that merely feeds a chain into a
+    // no texture .out() — the sketch is 3D that merely feeds a chain into a
     // material, so what's on screen is the scene, reaching the canvas through
-    // the same tonemap the scene TOP uses (and snapshot for next frame's
+    // the same tonemap the scene texture uses (and snapshot for next frame's
     // input(), which is otherwise the one thing this path would break)
     runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, null);
     if (!engine.paused) runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, st.feedbackRT);
@@ -1514,7 +1515,7 @@ export function renderTops(engine) {
   // named buffers: render each published chain (memoized if it was already
   // pulled this frame) and snapshot it for next frame's cyclic input(name)
   if (!engine.paused) {
-    for (const [name, node] of engine.topBuffers) {
+    for (const [name, node] of engine.textureBuffers) {
       const tex = node.renderNode(ctx);
       const rt = fbRT(name);
       if (tex !== rt.texture) runPass(ctx, MAT_COPY, tex, null, rt);

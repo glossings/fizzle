@@ -1,10 +1,9 @@
 ## fizzle
 
 Fizzle is a livecoding environment for visual art: a fullscreen canvas behind a
-live code editor, with a synth-flavored pipeline — 3D geometry ops,
-lights and cameras on one side, and a **TOP** (texture operator) graph of
-shader passes on the other. Chains read left to right like a patch network;
-re-running a sketch replaces the previous one, Hydra-style.
+live code editor, with a two-sided pipeline — 3D **geometry** ops, lights and
+cameras on one side, and a **texture** graph of shader passes on the other.
+Chains read left to right; re-running a sketch replaces the previous one.
 
 **These docs are live.** Every code block below is a real editor: click into
 it, change anything, and press **▶** (or `ctrl+enter` inside the block) to run
@@ -29,9 +28,9 @@ scene()
 ```
 
 That one sketch touches most of the system: a geometry chain ends in `.out()`
-to join the scene, then a TOP chain picks the rendered scene up as a texture,
-feeds it back on itself for trails, blooms it, and makes itself the display
-output with its own `.out()`.
+to join the scene, then a texture chain picks that render up, feeds it back on
+itself for trails, blooms it, and makes itself the display output with its own
+`.out()`.
 
 ## quick start
 
@@ -126,7 +125,7 @@ Audio signals and tempo signals (covered below) are themselves functions of
 ### colors
 
 Anywhere a color is taken — `.material({ color })`, `.color()`, a light's
-`color`, `bg()`, `fog()`, a TOP's `color`/`bg`/`a`/`b` — four forms work:
+`color`, `bg()`, `fog()`, a texture's `color`/`bg`/`a`/`b` — four forms work:
 
 ```js
 '#4fd1c5'            // hex
@@ -416,8 +415,8 @@ box({ res: 2 })
 - **slots** — `map` (color), `normalMap`, `roughnessMap`, `metalnessMap`,
   `aoMap`, `displacementMap`, and `arm` for one packed image filling the
   middle three. A slot named outright wins over whatever `pbr:` resolved.
-  Any slot also takes a live TOP chain instead of a filename — see
-  **tops as texture maps**.
+  Any slot also takes a live texture chain instead of a filename — see
+  **texture chains as material maps**.
 - **tiling** — `repeat` (a number, or `[x, y]`), `offset`, `uvRotate`
   (radians). These apply to every map on the material.
 - **tuning** — `normalScale` (relief strength), `aoIntensity`,
@@ -572,11 +571,11 @@ torus({ radius: 1.4, tube: 0.4 }).pos(0, 2, 0).rotate(t => t * 0.4, 0, 0).out()
 - `.noise()` displacement is shadowed as displaced, not as the shape it started
   from. Geometry sent to `.out('name')` casts within its own layer.
 
-## textures: the TOP pipeline
+## textures: the shader pipeline
 
-The rendered scene is also a texture. TOP chains are shader passes over
+The rendered scene is also a texture. Texture chains are shader passes over
 textures, evaluated as a graph each frame; end a chain with `.out()` to make
-it the display output. With no TOP `.out()`, the scene renders directly.
+it the display output. With no texture `.out()`, the scene renders directly.
 
 ```js
 ambient({ intensity: 0.3 })
@@ -592,7 +591,7 @@ scene()
 ### sources
 
 - `scene()` — the lit 3D render of everything sent to a naked `.out()`.
-- `input()` — last frame's display output (Feedback-TOP style; survives
+- `input()` — last frame's display output (a feedback loop; survives
   re-runs, frozen while paused). Comp it back in for trails.
 - `input('name')` — a named bus published elsewhere with `.out('name')` — see
   **buses, layers & feedback**.
@@ -620,7 +619,7 @@ ramp({ type: 'radial', a: '#1a0533', b: '#ff5f9e' })
   .out()
 ```
 
-Every numeric parameter in every TOP takes `t => ...` or a signal, same as
+Every numeric parameter in every texture op takes `t => ...` or a signal, same as
 geometry.
 
 ## color & filters
@@ -672,7 +671,7 @@ scene()
 - `.mirror({ axis: 'x'|'y'|'both', flip })` — reflect one half onto the other.
 - `.kaleido(sides, { rotate })` — polar kaleidoscope fold.
 - `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
-  chain: return `src`, a treatment of it, or any other TOP. `x` runs
+  chain: return `src`, a treatment of it, or any other texture chain. `x` runs
   left→right, `y` bottom→top, `i = y * nx + x`. Cells with structurally
   identical variants share one render; each *distinct* variant renders its
   own full pass per frame — the cost of `.tile(10, 10, (s, i) => s.hue(i / 100))`
@@ -761,14 +760,14 @@ the map's RG channels minus `mid`, scaled by `amount` — the classic
 displacement map. (`.displace(map, amount)` works as a positional shorthand.)
 
 - **`mid` is the neutral value.** By default mid-gray (0.5) means "don't
-  move": brighter than mid pushes one way, darker
-  pushes the other. For dark maps where black should be neutral (`edge()`
-  output, text on black), set `mid: 0`.
+  move": brighter than mid pushes one way, darker pushes the other. For dark
+  maps where black should be neutral (`edge()` output, text on black), set
+  `mid: 0`.
 - **Grayscale maps are diagonal-locked** — R = G, so x and y always move
   together. For isotropic wobble, use `noise({ channels: 2 })`: independent
   fields in R and G.
-- `.slope()` output is centered on 0.5 by construction — the workflow of
-  displacing by a Slope TOP works verbatim.
+- `.slope()` output is centered on 0.5 by construction, so displacing by a
+  slope map needs no bias.
 
 ```js
 text('fizzle')
@@ -777,7 +776,7 @@ text('fizzle')
 ```
 
 With `mid: 0` and a hefty amount, a dark map cuts shapes out of the source —
-the classic circle-displaced-by-text trick:
+a circle displaced by text:
 
 ```js
 circle({ radius: 0.35, color: '#ffd166' })
@@ -785,12 +784,12 @@ circle({ radius: 0.35, color: '#ffd166' })
   .out()
 ```
 
-`.remap(mapTop)` is the absolute version: sample the chain at the map's RG
+`.remap(map)` is the absolute version: sample the chain at the map's RG
 coordinates directly (the map **is** the UV space).
 
-## a TOP where a number goes
+## a texture where a number goes
 
-`.displace()` is not a special case. Hand a TOP to any of the parameters below
+`.displace()` is not a special case. Hand a texture to any of the parameters below
 and it stops being one number for the whole frame: each pixel reads its own
 value out of that map, sampled at the same UV.
 
@@ -835,8 +834,8 @@ pixels. `mid: 0.5` is the whole difference between `translate` and `displace`:
 without it a `noise()` map only ever pushes +x/+y, because it never goes
 negative. `amount` and `mid` take fns of `t` like anything else.
 
-A TOP in a slot that has no texture form (`.blur()`, `.threshold()`, …) warns
-and falls back to the default rather than taking the picture down.
+A texture in a slot that has no per-pixel form (`.blur()`, `.threshold()`, …)
+warns and falls back to the default rather than taking the picture down.
 
 ## buses, layers & feedback
 
@@ -876,8 +875,8 @@ they never reach a naked `.out()` (as long as something does).
 
 `.out('name')` on a **geometry** publishes it under the same namespace: the
 object renders into its own layer (not the visible scene), and `input('name')`
-pulls that layer as a TOP — same camera, lit, on a black background, so layers
-comp cleanly with `add`/`screen`/`lighten`. Lights hit every layer by default;
+pulls that layer as a texture — same camera, lit, on a black background, so
+layers comp cleanly with `add`/`screen`/`lighten`. Lights hit every layer by default;
 a light's own `.out('name')` restricts it to one layer.
 
 ```js
@@ -892,9 +891,9 @@ input('knot').edge({ strength: 2 })
   .out()
 ```
 
-### tops as texture maps
+### texture chains as material maps
 
-The other direction: any TOP chain can be a **map on a material**, wherever a
+The other direction: any texture chain can be a **map on a material**, wherever a
 filename goes. The chain re-renders every frame, so the surface is live.
 
 ```js
@@ -975,12 +974,12 @@ The screen has to have something to show, hence the torus in front of it: the
 loop only ever hands back what the camera saw last frame, so a scene whose
 only object *is* the screen stays black forever.
 
-A sketch can be entirely 3D and still use this — with no TOP `.out()` anywhere,
-the scene still displays as normal and only the map chains run.
+A sketch can be entirely 3D and still use this — with no texture `.out()`
+anywhere, the scene still displays as normal and only the map chains run.
 
 ## video input
 
-`video(name?)` is a live camera as a TOP generator. No name = the default
+`video(name?)` is a live camera as a texture generator. No name = the default
 camera; a name matches a camera label by case-insensitive substring
 (`video('facetime')`). The browser console lists the available sources when
 the stream starts — and when a name doesn't match anything. First use asks
@@ -1022,9 +1021,9 @@ before you've dropped anything in: `ship.obj`, the HDRI
 by name like anything else, and an import of the same name shadows them.
 
 - `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
-  TOP. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
+  texture. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
   soundtrack.
-- `imagefile(name?)` — a still image as a TOP.
+- `imagefile(name?)` — a still image as a texture.
 - `imageseq([names], index?)` — several images with a signal choosing the
   current one (floored, wrapped). Dropping multiple images at once types
   `imageseq([...], beat(1).counter())` for you — swap the index for any
@@ -1034,7 +1033,7 @@ by name like anything else, and an import of the same name shadows them.
   played out loud and analysed like `audio()`: it returns a level **signal**
   (see below), so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
 - `model(name?, { center, fit })` — an `.obj`/`.fbx` as a geometry op, not a
-  TOP: it starts a chain like `sphere()` does (see **geometry**).
+  texture: it starts a chain like `sphere()` does (see **geometry**).
 - `hdri(name?, { ... })` — an `.hdr`/`.exr` panorama as environment lighting
   (see **hdri**). An empty call browses Poly Haven rather than opening a file
   picker, since there's no local file to point at yet; **from disk…** in that
@@ -1141,7 +1140,7 @@ circle({
 ## random & custom signals
 
 `rand({ freq, seed })` is a smooth random signal — deterministic value noise of
-`t`, 0..1 — the signal cousin of the `noise()` TOP (positional
+`t`, 0..1 — the signal cousin of the `noise()` texture (positional
 `rand(freq, seed)` works too). Different seeds give independent signals —
 `rand({ seed: i })` inside a `.tile()` or `.instance()` fn gives every copy its
 own. `.beat(div)` snaps it to the grid, and `.hold` samples a new random value

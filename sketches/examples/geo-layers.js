@@ -1,5 +1,5 @@
 // geometry layers: .out('name') sends a geometry to its own render layer
-// instead of the visible scene; input('name') pulls that layer as a TOP.
+// instead of the visible scene; input('name') pulls that layer as a texture.
 // Each layer gets its own treatment before they comp back together.
 
 bg('#000008')

@@ -1,5 +1,5 @@
 // Sketch code ↔ URL hash, so patches survive a refresh and can be shared as
-// plain links (same idea as Hydra/Strudel). Format: '#z=<base64url>' where the
+// plain links (no server, no database). Format: '#z=<base64url>' where the
 // payload is deflate-raw compressed UTF-8; '#c=<base64url>' is the uncompressed
 // fallback for browsers without CompressionStream.
 

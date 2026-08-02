@@ -1,8 +1,8 @@
-// tops as texture maps: any TOP chain can go where a filename goes in
+// texture chains as material maps: any chain can go where a filename goes in
 // .material(), and it re-renders every frame — so the surface is live.
 //
-// The screen's color map is a TOP feedback loop, published on a bus so the
-// material can read it. The floor's relief and roughness are noise TOPs, one
+// The screen's color map is a texture feedback loop, published on a bus so the
+// material can read it. The floor's relief and roughness are noise textures, one
 // of them moving real vertices. Map chains render before the 3D pass that
 // samples them, so all of this is the current frame, not a frame behind.
 

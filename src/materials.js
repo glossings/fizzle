@@ -1,17 +1,17 @@
 // Texture maps on a geometry chain's .material(). Every slot takes the name of
 // an imported image (exact filename, else substring, like every other name
-// here), a live TOP chain, or a THREE.Texture as an escape hatch:
+// here), a live texture chain, or a THREE.Texture as an escape hatch:
 //
 //   .material({ map: 'wood.jpg', normalMap: 'wood_nor.jpg', repeat: 4 })
 //   .material({ pbr: 'rock_2k', repeat: 2 })       // a whole set at once
-//   .material({ map: video().kaleido(6) })         // a TOP, re-rendered per frame
+//   .material({ map: video().kaleido(6) })         // a texture, re-rendered per frame
 //
 // Loading is async, like fonts and models: the mesh renders untextured for the
 // first frames after a fresh import and the maps appear when they land. On a
 // re-run they come from the engine's cache and are there on the first frame.
 
 import { MAP_SLOTS, SRGB_SLOTS, ARM_SLOTS } from './pbr.js';
-import { TopOp } from './tops.js';
+import { TextureOp } from './textures.js';
 import { setColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
 
@@ -76,7 +76,7 @@ export const MATERIAL_DOCS = {
   emissive: 'Color the surface gives off on its own — unlit, so it glows in shadow.',
   emissiveIntensity: 'How hard emissive glows. Push past 1 to feed bloom().',
 
-  map: 'Base color texture: an imported image name, a live TOP chain, or a THREE.Texture.',
+  map: 'Base color texture: an imported image name, a live texture chain, or a THREE.Texture.',
   normalMap: 'Tangent-space normals (OpenGL convention) — surface detail without geometry.',
   roughnessMap: 'Per-pixel roughness, read from green. roughness multiplies it.',
   metalnessMap: 'Per-pixel metalness, read from blue. metalness multiplies it.',
@@ -296,8 +296,8 @@ export function applyMaps(engine, material, m, isAlive) {
     material.needsUpdate = true;
   };
 
-  // A TOP in a map slot is a live chain, not a file: it re-renders every frame,
-  // so the binding is handed to the engine and tops.js writes the current
+  // A texture in a map slot is a live chain, not a file: it re-renders every frame,
+  // so the binding is handed to the engine and textures.js writes the current
   // texture in ahead of each 3D pass.
   //
   // It always ends in one more pass, which is what makes the texture in the
@@ -307,19 +307,19 @@ export function applyMaps(engine, material, m, isAlive) {
   // the texture itself, which would otherwise reach into every other user of
   // it. Owning it also means two materials can tile one chain differently.
   // For a color slot that pass is the sRGB decode it needed anyway.
-  const bindTop = (slot, chain) => {
+  const bindTexture = (slot, chain) => {
     slotDefaults(slot);
-    const node = new TopOp(engine, SRGB_SLOTS.has(slot) ? 'toLinear' : 'copy', {}, [chain]);
+    const node = new TextureOp(engine, SRGB_SLOTS.has(slot) ? 'toLinear' : 'copy', {}, [chain]);
     // tiling past the edge only wraps if the target says so, and it has to say
     // so before it's allocated — hence a flag on the node rather than on the
     // texture the way an imported image does it
     if (repeat) node._tiled = true;
-    engine.topMaps.push({ node, material, slot, isAlive, configure: tiled ? configure : null, tex: null });
+    engine.textureMaps.push({ node, material, slot, isAlive, configure: tiled ? configure : null, tex: null });
   };
 
   const setSlot = (slot, spec) => {
     if (spec == null || spec === false) return;
-    if (spec instanceof TopOp) return bindTop(slot, spec);
+    if (spec instanceof TextureOp) return bindTexture(slot, spec);
     if (spec.isTexture) return assign(slot, spec);
     const t = engine.ensureTexture(spec, SRGB_SLOTS.has(slot));
     if (t.texture) assign(slot, t.texture);
@@ -336,8 +336,8 @@ export function applyMaps(engine, material, m, isAlive) {
   if (m.pbr == null) return;
   // pbr: names a set of files on disk; a chain is one image and has to say
   // which slot it fills
-  if (m.pbr instanceof TopOp) {
-    warn('material: pbr: names an imported set of maps — a TOP goes in one slot, e.g. { map: ... }');
+  if (m.pbr instanceof TextureOp) {
+    warn('material: pbr: names an imported set of maps — a texture goes in one slot, e.g. { map: ... }');
     return;
   }
   engine.ensurePbrSet(m.pbr).pending.then((maps) => {

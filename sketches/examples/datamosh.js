@@ -1,4 +1,4 @@
-// Datamosh — the decoder rebuilt out of TOPs.
+// Datamosh — the decoder rebuilt out of texture ops.
 //
 // A compressed frame is one of two things: a keyframe, which is a whole
 // picture, or a P-frame, which is only per-block motion vectors plus a small

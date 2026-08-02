@@ -8,8 +8,8 @@
 // doesn't break anything visibly, it just floats sampled points off the shape.
 // NOISE-PARITY.md records the known precision traps and how to re-verify.
 
-// Ashima / stegu 3D simplex noise — pure functions, shared with the TOP
-// noise generator in tops.js
+// Ashima / stegu 3D simplex noise — pure functions, shared with the texture
+// noise generator in textures.js
 export const SNOISE_GLSL = /* glsl */ `
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }

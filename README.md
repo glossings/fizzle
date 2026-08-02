@@ -1,9 +1,9 @@
 # fizzle
 
-A Hydra-style livecoding environment with a synth-flavored 3D pipeline:
-geometry → transform → noise displacement → instancing → lit render, plus
-shader-pass texture operators over the result — all on a fullscreen canvas
-behind a live code editor.
+A livecoding environment for visual art with a 3D pipeline: geometry →
+transform → noise displacement → instancing → lit render, plus shader-pass
+texture ops over the result — all on a fullscreen canvas behind a live code
+editor.
 
 ```js
 sphere({ radius: 1.2, res: 96 })
@@ -16,8 +16,8 @@ sphere({ radius: 1.2, res: 96 })
 scene().kaleido(6).bloom({ threshold: 0.6 }).out()
 ```
 
-Chains read like a patch network, left to right; nothing appears until
-`.out()`. Re-running replaces the previous sketch (Hydra semantics). Every
+Chains read left to right; nothing appears until `.out()`. Re-running a sketch
+replaces the previous one — the code on screen is always what you see. Every
 numeric parameter also takes `t => ...` — or an audio/tempo signal — so
 animation uses the same syntax as static values.
 
@@ -57,7 +57,7 @@ to zoom.
 
 - [src/engine.js](src/engine.js) — renderer, scene/patch lifecycle, frame loop, sketch eval
 - [src/api.js](src/api.js) — the chainable operator API
-- [src/tops.js](src/tops.js) — TOP shader passes, graph evaluation, feedback
+- [src/textures.js](src/textures.js) — texture shader passes, graph evaluation, feedback
 - [src/noise.js](src/noise.js) — GLSL simplex fbm + shader injection
 - [src/editor.js](src/editor.js) — CodeMirror overlay, keybindings, completions
 - [src/docs.js](src/docs.js) — API docs table → autocomplete + ctrl+hover tooltips

@@ -5,7 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise, applyNoiseDepth } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
-import { TopOp } from './tops.js';
+import { TextureOp } from './textures.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
@@ -164,7 +164,7 @@ function resolveFont(o) {
   return { font: fallback, pending: cached };
 }
 
-// Chainable operator API, synth-flavored:
+// Chainable operator API:
 //
 //   sphere({ radius: 1 })
 //     .pos(0, t => Math.sin(t), 0)
@@ -746,7 +746,7 @@ class GeoOp {
     };
 
     updater(0);
-    // .out('name'): render into a named layer (pulled as a TOP by
+    // .out('name'): render into a named layer (pulled as a texture by
     // input('name')) instead of the visible scene
     if (name != null) mesh.layers.set(this.engine.geoLayer(String(name)));
     this.engine.add(mesh, updater);
@@ -1015,25 +1015,25 @@ export function makeApi(engine) {
       if (isDynamicColor(color)) engine.updaters.push((t) => setColor(fog.color, color, t));
     },
 
-    // TOPs — texture operators (see tops.js). Chains render only with .out()
-    scene: () => new TopOp(engine, 'scene'),
+    // textures — texture operators (see textures.js). Chains render only with .out()
+    scene: () => new TextureOp(engine, 'scene'),
     // the same render as scene(), as a grayscale distance map: black near,
     // white far. depth({ near, far }) sets the world-space range it spans
     // (defaulting to the sketch's fog, else 0..20); depth({ focus, range })
     // instead measures distance from a focal plane, which is a DOF blur mask.
     // Pairs with .mask(m, fn): scene().mask(depth(), s => s.blur(8)).
-    depth: (o) => new TopOp(engine, 'depth', o ?? {}),
+    depth: (o) => new TextureOp(engine, 'depth', o ?? {}),
     // input() = last frame's display output; input('name') = the buffer
     // published by .out('name'). ('in' is a JS reserved word, hence 'input'.)
-    input: (name) => new TopOp(engine, 'in', name != null ? { name: String(name) } : {}),
-    ramp: (o) => new TopOp(engine, 'ramp', o ?? {}),
-    circle: (o) => new TopOp(engine, 'circle', o ?? {}),
-    noise: (o) => new TopOp(engine, 'noiseGen', o ?? {}),
-    text: (text, o) => new TopOp(engine, 'textGen', { ...o, text }),
-    // camera capture as a TOP; name matches a camera label (substring,
+    input: (name) => new TextureOp(engine, 'in', name != null ? { name: String(name) } : {}),
+    ramp: (o) => new TextureOp(engine, 'ramp', o ?? {}),
+    circle: (o) => new TextureOp(engine, 'circle', o ?? {}),
+    noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),
+    text: (text, o) => new TextureOp(engine, 'textGen', { ...o, text }),
+    // camera capture as a texture; name matches a camera label (substring,
     // case-insensitive), no name = default camera. Permission prompt on
     // first use; the stream survives re-runs.
-    video: (name) => new TopOp(engine, 'video', name != null ? { name: String(name) } : {}),
+    video: (name) => new TextureOp(engine, 'video', name != null ? { name: String(name) } : {}),
 
     // Imported media files: drag a file into the window to import it (the
     // drop also types the call for you), or run an empty call for a picker.
@@ -1042,12 +1042,12 @@ export function makeApi(engine) {
     videofile(name, o = {}) {
       if (name !== null && typeof name === 'object') { o = name; name = o.name; }
       if (name == null) engine.requestMediaPick('videofile', 'video');
-      return new TopOp(engine, 'videofile', { ...o, name: name != null ? String(name) : null });
+      return new TextureOp(engine, 'videofile', { ...o, name: name != null ? String(name) : null });
     },
     imagefile(name) {
       if (Array.isArray(name)) return api.imageseq(name);
       if (name == null) engine.requestMediaPick('imagefile', 'image');
-      return new TopOp(engine, 'imagefile', { name: name != null ? String(name) : null });
+      return new TextureOp(engine, 'imagefile', { name: name != null ? String(name) : null });
     },
     // several images with an index picking the current one — any fn of t or
     // signal (floored, wrapped): imageseq([...], beat(1).counter()) steps on
@@ -1057,7 +1057,7 @@ export function makeApi(engine) {
         engine.requestMediaPick('imageseq', 'image', true);
         names = [];
       }
-      return new TopOp(engine, 'imageseq', { names: names.map(String), index });
+      return new TextureOp(engine, 'imageseq', { names: names.map(String), index });
     },
 
     // audio input as signals — fns of t with chainable processing, so they
@@ -1110,7 +1110,7 @@ export function makeApi(engine) {
       });
     },
     // smooth random signal (deterministic value noise of t, 0..1) — the
-    // signal-space cousin of the noise() TOP. freq in Hz-ish wiggles/sec;
+    // signal-space cousin of the noise() texture. freq in Hz-ish wiggles/sec;
     // different seeds give independent signals. Pairs with .beat()/.hold():
     // rand().beat(4) freezes a new random value each bar,
     // rand().hold(audio().kicks()) one on every kick.

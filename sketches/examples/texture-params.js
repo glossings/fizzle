@@ -1,4 +1,4 @@
-// texture-driven parameters — hand a TOP where a number goes and the parameter
+// texture-driven parameters — hand a texture where a number goes and the parameter
 // stops being one value for the whole frame: every pixel reads its own out of
 // the map, sampled at the same spot. The sample *is* the value, in whatever
 // units the number would have been, so .mul()/.add() on the map sets the range.

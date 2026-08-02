@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { renderTops } from './tops.js';
+import { renderTextures } from './textures.js';
 import { AudioEngine } from './audio.js';
 import { mediaGet, mediaList } from './media.js';
 import { loadModelGeometry } from './models.js';
@@ -9,7 +9,7 @@ import { warn, resetWarnings } from './warn.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
-// builds a new one, Hydra-style.
+// builds a new one.
 
 export class Engine {
   constructor(canvas) {
@@ -57,13 +57,13 @@ export class Engine {
     this.hdris = new Map();         // loaded HDRIs + their prefiltered env, shared across re-runs
     this.pendingPick = null;        // an empty videofile()/... asked for a file picker
 
-    this.cameraProgrammed = false;  // a camera(fn...) call disables orbit controls
-    this.topNodes = [];             // TOP graph nodes from the current sketch
-    this.topOutput = null;          // TOP chain marked with .out(), if any
-    this.topBuffers = new Map();    // name -> node published with .out(name)
-    this.topMaps = [];              // TOP chains bound to a material map slot
-    this.geoLayers = new Map();     // name -> three.js layer bit, geometry .out(name)
-    this._topState = {};            // persistent RTs/quad (feedback survives re-runs)
+    this.cameraProgrammed = false;     // a camera(fn...) call disables orbit controls
+    this.textureNodes = [];            // texture graph nodes from the current sketch
+    this.textureOutput = null;         // texture chain marked with .out(), if any
+    this.textureBuffers = new Map();   // name -> node published with .out(name)
+    this.textureMaps = [];             // texture chains bound to a material map slot
+    this.geoLayers = new Map();        // name -> three.js layer bit, geometry .out(name)
+    this._textureState = {};           // persistent RTs/quad (feedback survives re-runs)
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -101,7 +101,7 @@ export class Engine {
 
   // A sketch's resolution() — or the absence of one, after clearPatch reset it
   // — only lands once the whole run has had its say, so a re-run at the same
-  // size never touches the renderer and never churns the TOP buffers.
+  // size never touches the renderer and never churns the texture buffers.
   syncResolution() {
     const key = this.resolution?.join('x') ?? '';
     if (key === this._resKey) return;
@@ -132,12 +132,12 @@ export class Engine {
     }
     // camera stays interactive while paused (unless the sketch drives it)
     if (!this.cameraProgrammed) this.controls.update();
-    // TOPs feeding a material map need the graph running even with no .out()
-    if (this.topOutput || this.topMaps.length) {
+    // textures feeding a material map need the graph running even with no .out()
+    if (this.textureOutput || this.textureMaps.length) {
       try {
-        renderTops(this);
+        renderTextures(this);
       } catch (e) {
-        // a broken TOP graph shouldn't freeze the output — fall back to the
+        // a broken texture graph shouldn't freeze the output — fall back to the
         // plain 3D render so the scene keeps playing under the warning
         warn(e.message ?? String(e));
         this.renderer.setRenderTarget(null);
@@ -238,7 +238,7 @@ export class Engine {
     else this.ensureAudio().setOutput(deviceId);
   }
 
-  // Camera capture for the video() TOP. name matches a camera label
+  // Camera capture for the video() texture. name matches a camera label
   // (case-insensitive substring); no name = default camera. Streams are
   // created once and survive re-runs, so livecoding doesn't re-prompt.
   ensureVideo(name) {
@@ -538,7 +538,7 @@ export class Engine {
 
   // Named geometry layers: geometry .out('name') moves the object onto its
   // own three.js layer (invisible to the display camera), and input('name')
-  // renders just that layer as a TOP. Layer 0 is the naked-.out() scene.
+  // renders just that layer as a texture. Layer 0 is the naked-.out() scene.
   geoLayer(name) {
     let bit = this.geoLayers.get(name);
     if (bit == null) {
@@ -584,11 +584,11 @@ export class Engine {
     this.scene.backgroundBlurriness = 0;
     this.scene.backgroundIntensity = 1;
 
-    for (const node of this.topNodes) node.dispose();
-    this.topNodes = [];
-    this.topOutput = null;
-    this.topBuffers.clear();
-    this.topMaps = [];
+    for (const node of this.textureNodes) node.dispose();
+    this.textureNodes = [];
+    this.textureOutput = null;
+    this.textureBuffers.clear();
+    this.textureMaps = [];
     this.geoLayers.clear();
 
     this.cameraProgrammed = false;

@@ -38,7 +38,7 @@ plane({ width: 60, height: 60, res: 160 })
   .material({ color: '#1a2036', roughness: 0.9, flatShading: true })
   .out()
 
-// TOPs: post-process the rendered scene as a texture
+// textures: post-process the rendered scene
 scene()
   .bloom({ threshold: 0.55, strength: 1.1, radius: 1.2 })
   .out()

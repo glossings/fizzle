@@ -1,4 +1,4 @@
-// no geometry at all — TOP generators only
+// no geometry at all — texture generators only
 
 ramp({ type: 'angular', a: '#ff5f9e', b: '#1b1040' })
   .displace(noise({ freq: 2.5, octaves: 4, speed: 0.4, channels: 2 }), 0.3)

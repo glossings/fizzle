@@ -1,4 +1,4 @@
-// text two ways: extruded 3d type + canvas text TOPs
+// text two ways: extruded 3d type + canvas text textures
 // text3d content can be a fn of t — geometry rebuilds only when the string changes
 
 bg('#0a0a12')
