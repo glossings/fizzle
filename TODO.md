@@ -8,7 +8,7 @@ Ordered roughly by leverage.
 
 Most of what follows is "add an operator." That's four edits, and the last two
 are the ones easy to forget: the implementation (a `SPECS` entry in
-[src/tops.js:72](src/tops.js#L72) for a TOP, a `buildGeometry` case in
+[src/tops.js:79](src/tops.js#L79) for a TOP, a `buildGeometry` case in
 [src/api.js:143](src/api.js#L143) for geometry), the chain method or `api.js`
 export, a `DOCS` entry in [src/docs.js](src/docs.js) (tooltip says what the call
 does and which params exist; per-param detail goes on the param), and the
@@ -22,32 +22,17 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 
 ## Texture-driven parameters
 
-Every TOP param takes a number or a fn of `t`, never a TOP. Letting a TOP stand
-in makes every transform per-pixel modulatable from one change, and makes
-`.displace(map, amt)` sugar for `.translate(map)`.
+The machinery — a `texParams` map on a spec, resolved by `bindTexParams`
+([src/tops.js:606](src/tops.js#L606)) — is in, and `transform`, `warp`,
+`kaleido`, `adjust` and `pixellate` are wired. What's left is extending it, one
+`texParams` line each:
 
-Mechanically: a param that is a TOP becomes an extra input texture on the pass
-(`_n(kind, params, extraInputs)`, [src/tops.js:838](src/tops.js#L838), already
-does this for `.remap()`/`.displace()`), and the spec's `frag` samples it at
-`vUv` instead of reading a uniform.
-
-[ ] Accept a TOP wherever a scalar/vector param is taken — `transform`,
-  `kaleido`, `pixellate`, `hue`, `warp`. Each spec needs a uniform-or-texture
-  branch; a `#define` per slot keeps the shader from paying for unused ones.
-[ ] Settle the channel convention and document it once: two-component slots
-  (`translate`) read R/G, scalar slots (`rotate`, `scale`, `hue`) read luma —
-  or red, but pick one and apply it everywhere.
-[ ] Keep `.displace()` — but as sugar, not its own pass. Point the method at
-  the `transform` spec with `mid: 0.5` and delete the `displace` spec
-  ([src/tops.js:341](src/tops.js#L341)), which by then is a second shader doing
-  what `transform` does. Public name and behavior unchanged, one code path.
-
-  It stays because the API is built this way — `.translate/.rotate/.scale` are
-  already sugar over `.transform()`, `.contrast/.saturation/.gamma/.hue` over
-  `adjust`, `.edge/.slope/.normalMap` over `neighbor` — and because it is not a
-  pure alias: `translate`'s neutral is 0, `displace`'s is `mid: 0.5`. Maps are
-  unsigned 0..1, so without the bias a `noise()` map pushes +x/+y only. The
-  bias is what makes it wobble both ways.
+[ ] `threshold` (`level`, `soft`), `posterize` (`steps`), `chroma` (`amount`,
+  `angle`, `center`), `circle` (`radius`, `soft`, `center`), `mirror`. Each is
+  a slot where a per-pixel value is worth having and the cost when unused is
+  zero, so the only question is whether the result reads as anything.
+[ ] `math` (`mul`, `add`) wants vec3 slots reading RGB — the machinery already
+  emits that type, but nothing declares one yet, so it's untested.
 
 ## Vertex displacement from a TOP
 
@@ -78,7 +63,7 @@ uniforms (numbers or fns of `t`).
   like any color slot. The haze recipe at [src/docs.js:41](src/docs.js#L41)
   currently fakes it with a `ramp()` whose two colors are identical.
 [ ] `polygon(sides, { radius, smooth, angle, color, bg })` — filled regular
-  n-gon, centered. Mirror `circle()`'s options ([src/tops.js:117](src/tops.js#L117))
+  n-gon, centered. Mirror `circle()`'s options ([src/tops.js:123](src/tops.js#L123))
   so the two are interchangeable; `smooth` is the edge falloff, `angle` spins it.
 [ ] `stripes({ freq, shape, speed, polar, a, b })` — a 1-D waveform swept across
   the frame, so it reads as bands. `freq` = bands per frame, `shape` =
@@ -93,7 +78,7 @@ uniforms (numbers or fns of `t`).
 
 [ ] `sharpen`, `emboss`, `erode`, `dilate` — all four are 3×3 neighbor
   operations, so add them as `mode`s of the existing `neighbor` spec
-  ([src/tops.js:213](src/tops.js#L213)) behind
+  ([src/tops.js:220](src/tops.js#L220)) behind
   `.edge()`/`.slope()`/`.normalMap()`, not new specs. Erode/dilate take the
   min/max of the neighborhood; emboss is a directional difference plus 0.5.
 [ ] `.dither({ mode, levels })` — quantize to `levels` steps per channel, but
@@ -128,7 +113,7 @@ uniforms (numbers or fns of `t`).
   radially: `.polar().translate(0, 0.1).cartesian()` is a tunnel, a `.blur()`
   in between is a radial smear. Keep `.kaleido()` — the mirror fold is the
   effect, not just the coordinate change.
-[ ] More radial distortions as extra `.warp()` keys ([src/tops.js:388](src/tops.js#L388))
+[ ] More radial distortions as extra `.warp()` keys ([src/tops.js:392](src/tops.js#L392))
   rather than new ops — each is a different function applied to the radius
   before resampling: `invert` (1/r, turns the frame inside out), `sqrt`
   (compresses the center, expands the edge), `log`, `ripple` (a sine of r, with
@@ -200,7 +185,7 @@ Chain methods go next to `.smooth()` at
 [ ] `.glsl(source)` for a custom fragment pass — the TOP-side counterpart to
   exposing `THREE` on the 3D side ([src/docs.js:61](src/docs.js#L61)). Compile
   the string through the same `SPECS` machinery
-  ([src/tops.js:599](src/tops.js#L599)) so `HEADER`, `vUv` and `tex0` are
+  ([src/tops.js:640](src/tops.js#L640)) so `HEADER`, `vUv` and `tex0` are
   already in scope, and allow a uniforms object whose values take fns of `t`.
   A compile error must `warn()` and pass the input through untouched, never
   throw — see the errors-never-block-playback rule.

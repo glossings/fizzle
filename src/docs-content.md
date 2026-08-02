@@ -788,6 +788,56 @@ circle({ radius: 0.35, color: '#ffd166' })
 `.remap(mapTop)` is the absolute version: sample the chain at the map's RG
 coordinates directly (the map **is** the UV space).
 
+## a TOP where a number goes
+
+`.displace()` is not a special case. Hand a TOP to any of the parameters below
+and it stops being one number for the whole frame: each pixel reads its own
+value out of that map, sampled at the same UV.
+
+```js
+scene()
+  .kaleido(noise({ freq: 1.5, speed: 0.2 }).mul(10).add(3))   // fold count by region
+  .hue(noise({ freq: 3, speed: 0.3 }))                        // spectrum by region
+  .out()
+```
+
+The slots that take one:
+
+| call | keys |
+| --- | --- |
+| `.transform()` | `translate`, `scale`, `rotate` |
+| `.warp()` | `barrel`, `twist`, `zoom`, `center` |
+| `.kaleido()` | `sides`, `rotate` |
+| `.levels()` (and `.contrast/.saturation/.gamma/.hue`) | `contrast`, `saturation`, `gamma`, `hue` |
+| `.pixellate()` | `x`, `y` |
+
+Two rules cover the whole set:
+
+- **Which channels.** A two-component slot (`translate`, `scale`, `center`)
+  reads **R and G**. A scalar slot (`rotate`, `sides`, `hue`, `barrel`, …)
+  reads **luma**. So a grayscale map drives a two-component slot along the
+  diagonal — `noise({ channels: 2 })` when you want the axes independent.
+- **What the number is.** By default the sample *is* the value, in the units
+  the number would have been: `.rotate(map)` turns each pixel by 0..1 radians.
+  Render targets are half-float, so `.mul()`/`.add()` on the map itself reach
+  past 0..1 in either direction and are the normal way to set a range.
+
+For the case where the range has to be set *after* the map is read — a bias, so
+an unsigned map swings both ways — the slot also takes `{ map, amount, mid }`,
+which resolves to `(sample - mid) * amount`:
+
+```js
+scene().transform({ translate: { map: noise({ channels: 2 }), amount: 0.1, mid: 0.5 } })
+```
+
+That line **is** `.displace(noise({ channels: 2 }), 0.1)` — same pass, same
+pixels. `mid: 0.5` is the whole difference between `translate` and `displace`:
+without it a `noise()` map only ever pushes +x/+y, because it never goes
+negative. `amount` and `mid` take fns of `t` like anything else.
+
+A TOP in a slot that has no texture form (`.blur()`, `.threshold()`, …) warns
+and falls back to the default rather than taking the picture down.
+
 ## buses, layers & feedback
 
 `.out('name')` publishes instead of displaying, and `input('name')` reads the

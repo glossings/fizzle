@@ -19,6 +19,12 @@ import { warn } from './warn.js';
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
+// A param handed a TOP is replaced by a marker (see bindTexParams): the shader
+// reads that slot from a texture, so the uniform it would have filled isn't in
+// the compiled program. `par` keeps the CPU side on the default instead of
+// trying to make a number out of the marker.
+const par = (v, d) => (v == null || typeof v.tex === 'number' ? d : v);
+
 // A color literal has to reach the shader as the numbers it was written as:
 // TOPs work in display space from end to end (that's what the scene TOP's
 // tonemap pass establishes), and the final pass copies them to the canvas
@@ -191,6 +197,7 @@ const SPECS = {
 
   kaleido: {
     extras: { uSides: 6, uRot: 0 },
+    texParams: { sides: 'uSides', rotate: 'uRot' },
     frag: `
       void main() {
         vec2 p = vUv - 0.5;
@@ -203,8 +210,8 @@ const SPECS = {
         gl_FragColor = texture2D(tex0, clamp(uv + 0.5, 0.0, 1.0));
       }`,
     update(u, p, t) {
-      u.uSides.value = resolve(p.sides ?? 6, t);
-      u.uRot.value = resolve(p.rotate ?? 0, t);
+      u.uSides.value = resolve(par(p.sides, 6), t);
+      u.uRot.value = resolve(par(p.rotate, 0), t);
     },
   },
 
@@ -238,25 +245,27 @@ const SPECS = {
 
   adjust: {
     extras: { uContrast: 1, uSat: 1, uGamma: 1, uHue: 0 },
+    texParams: { contrast: 'uContrast', saturation: 'uSat', gamma: 'uGamma', hue: 'uHue' },
     frag: `
       void main() {
         vec3 c = texture2D(tex0, vUv).rgb;
         c = (c - 0.5) * uContrast + 0.5;
         c = mix(vec3(dot(c, LUMA)), c, uSat);
-        if (uHue != 0.0) {
-          // rotate around the gray axis (Rodrigues); uHue in radians
+        float hue = uHue * 6.2831853;    // turns: 1 = full wheel
+        if (hue != 0.0) {
+          // rotate around the gray axis (Rodrigues)
           const vec3 k = vec3(0.57735026919);
-          float ca = cos(uHue), sa = sin(uHue);
+          float ca = cos(hue), sa = sin(hue);
           c = c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
         }
         c = pow(max(c, 0.0), vec3(1.0 / max(uGamma, 0.001)));
         gl_FragColor = vec4(c, 1.0);
       }`,
     update(u, p, t) {
-      u.uContrast.value = resolve(p.contrast ?? 1, t);
-      u.uSat.value = resolve(p.saturation ?? 1, t);
-      u.uGamma.value = resolve(p.gamma ?? 1, t);
-      u.uHue.value = resolve(p.hue ?? 0, t) * Math.PI * 2; // turns: 1 = full wheel
+      u.uContrast.value = resolve(par(p.contrast, 1), t);
+      u.uSat.value = resolve(par(p.saturation, 1), t);
+      u.uGamma.value = resolve(par(p.gamma, 1), t);
+      u.uHue.value = resolve(par(p.hue, 0), t);
     },
   },
 
@@ -285,16 +294,21 @@ const SPECS = {
     update(u, p, t) { u.uSteps.value = resolve(p.steps ?? 4, t); },
   },
 
+  // the two counts are separate floats rather than one vec2 so either can be
+  // texture-driven on its own, and so the no-y case can follow x per pixel
   pixellate: {
-    extras: { uCells: [100, 100] },
+    extras: { uCellX: 100, uCellY: 100, uFitY: 1 },
+    texParams: { x: 'uCellX', y: 'uCellY' },
     frag: `
       void main() {
-        gl_FragColor = texture2D(tex0, (floor(vUv * uCells) + 0.5) / uCells);
+        float cx = max(uCellX, 1.0);
+        vec2 c = vec2(cx, uFitY > 0.5 ? max(cx / uAspect, 1.0) : max(uCellY, 1.0));
+        gl_FragColor = texture2D(tex0, (floor(vUv * c) + 0.5) / c);
       }`,
-    update(u, p, t, ctx) {
-      const x = Math.max(1, resolve(p.x ?? 100, t));
-      const y = p.y != null ? Math.max(1, resolve(p.y, t)) : x / ctx.aspect;
-      u.uCells.value.set(x, y);
+    update(u, p, t) {
+      u.uCellX.value = resolve(par(p.x, 100), t);
+      u.uCellY.value = resolve(par(p.y, 100), t);
+      u.uFitY.value = p.y == null ? 1 : 0;   // square cells from the aspect
     },
   },
 
@@ -338,19 +352,6 @@ const SPECS = {
       }`,
   },
 
-  displace: {
-    extras: { uAmount: 0.1, uMid: 0.5 },
-    frag: `
-      void main() {
-        vec2 uv = vUv + (texture2D(tex1, vUv).rg - uMid) * uAmount;
-        gl_FragColor = texture2D(tex0, uv);
-      }`,
-    update(u, p, t) {
-      u.uAmount.value = resolve(p.amount ?? 0.1, t);
-      u.uMid.value = resolve(p.mid ?? 0.5, t);
-    },
-  },
-
   // tex0 = dry chain, tex1 = mask (luma), tex2 = wet chain (when blending)
   mask: {
     extras: { uBlend: 0 },
@@ -362,23 +363,26 @@ const SPECS = {
       }`,
   },
 
+  // also the pass behind .displace(): a texture-driven translate biased by mid
   transform: {
     extras: { uTranslate: [0, 0], uScale: [1, 1], uRot: 0, uWrap: 0 },
+    texParams: { translate: 'uTranslate', scale: 'uScale', rotate: 'uRot' },
     frag: `
       void main() {
         vec2 p = vUv - 0.5;
-        float cs = cos(uRot), sn = sin(uRot);
+        float rot = uRot;
+        float cs = cos(rot), sn = sin(rot);
         p = mat2(cs, sn, -sn, cs) * p;
         p /= uScale;
         p += 0.5 - uTranslate;
         gl_FragColor = wrapSample(tex0, p, uWrap);
       }`,
     update(u, p, t) {
-      const tr = p.translate ?? [0, 0];
+      const tr = par(p.translate, [0, 0]);
       u.uTranslate.value.set(resolve(tr[0], t), resolve(tr[1], t));
-      const s = resolve(p.scale ?? 1, t);
+      const s = resolve(par(p.scale, 1), t);
       Array.isArray(s) ? u.uScale.value.set(resolve(s[0], t), resolve(s[1], t)) : u.uScale.value.set(s, s);
-      u.uRot.value = resolve(p.rotate ?? 0, t);
+      u.uRot.value = resolve(par(p.rotate, 0), t);
       u.uWrap.value = WRAP_MODES[p.wrap ?? 'clamp'] ?? 0;
     },
   },
@@ -387,23 +391,25 @@ const SPECS = {
   // this: nothing in the toolkit *generates* a radial vector field.
   warp: {
     extras: { uBarrel: 0, uTwist: 0, uZoom: 1, uCenter: [0.5, 0.5], uWrap: 3 },
+    texParams: { barrel: 'uBarrel', twist: 'uTwist', zoom: 'uZoom', center: 'uCenter' },
     frag: `
       void main() {
         // square space (x scaled by aspect) so the warp stays circular, with
         // r normalized to 1 at the frame corner
-        vec2 p = (vUv - uCenter) * vec2(uAspect, 1.0) / max(uZoom, 0.001);
+        vec2 ctr = uCenter;
+        vec2 p = (vUv - ctr) * vec2(uAspect, 1.0) / max(uZoom, 0.001);
         float r = length(p) / max(0.5 * length(vec2(uAspect, 1.0)), 0.001);
         p *= 1.0 + uBarrel * r * r;   // > 0 bulges outward like a CRT face
         float a = uTwist * r;         // rotation grows with radius
         float cs = cos(a), sn = sin(a);
         p = mat2(cs, sn, -sn, cs) * p;
-        gl_FragColor = wrapSample(tex0, p / vec2(uAspect, 1.0) + uCenter, uWrap);
+        gl_FragColor = wrapSample(tex0, p / vec2(uAspect, 1.0) + ctr, uWrap);
       }`,
     update(u, p, t) {
-      u.uBarrel.value = resolve(p.barrel ?? 0, t);
-      u.uTwist.value = resolve(p.twist ?? 0, t);
-      u.uZoom.value = resolve(p.zoom ?? 1, t);
-      const c = p.center ?? [0.5, 0.5];
+      u.uBarrel.value = resolve(par(p.barrel, 0), t);
+      u.uTwist.value = resolve(par(p.twist, 0), t);
+      u.uZoom.value = resolve(par(p.zoom, 1), t);
+      const c = par(p.center, [0.5, 0.5]);
       u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
       u.uWrap.value = WRAP_MODES[p.wrap ?? 'black'] ?? 3;
     },
@@ -576,7 +582,62 @@ function inferUniform(v) {
   return { value: new THREE.Color().setStyle(v, THREE.LinearSRGBColorSpace) };
 }
 
-function makeMaterial(spec) {
+function uniformType(init) {
+  return typeof init === 'number' ? 'float'
+    : Array.isArray(init) && init.length === 2 ? 'vec2'
+    : 'vec3';
+}
+
+// ---------------------------------------------------------------------------
+// texture-driven params — a param handed a TOP is read from that TOP at vUv
+// instead of from a uniform, which makes every slot below per-pixel
+// modulatable. The value is `(sample - mid) * amount`, defaulting to the
+// sample itself; a vec2 slot takes R/G, a vec3 slot RGB, a scalar slot luma.
+//
+// Each bound slot becomes one more input on the node plus a `#define` shadowing
+// the uniform's name, so the frag body is written once and a node with nothing
+// bound compiles exactly the shader it did before.
+
+// The TOP may be given bare or as { map, amount, mid } — the latter is what
+// .displace() is: a translate with mid 0.5, so an unsigned map wobbles both
+// ways instead of pushing one.
+const asMap = (v) => (v instanceof TopOp ? v : v?.map instanceof TopOp ? v.map : null);
+
+function bindTexParams(kind, params, inputs) {
+  if (!Object.values(params).some(asMap)) return { params, inputs, binds: [] };
+  const spec = SPECS[kind];
+  params = { ...params };
+  inputs = [...inputs];
+  const binds = [];
+  for (const [name, uniform] of Object.entries(spec?.texParams ?? {})) {
+    const map = asMap(params[name]);
+    if (!map) continue;
+    const { amount = 1, mid = 0 } = params[name];
+    const i = binds.length;
+    binds.push({
+      uniform,
+      type: uniformType(spec.extras[uniform]),
+      tex: `uPTex${i}`,
+      mod: `uPMod${i}`,
+      slot: inputs.length,
+      amount,
+      mid,
+    });
+    // the marker keeps the slot visible to the structural signature tile()
+    // dedupes on, and tells the spec's update() to leave the uniform alone
+    params[name] = { tex: inputs.length, amount, mid };
+    inputs.push(map);
+  }
+  // a TOP left in a slot with no texture form would reach a uniform as NaN
+  for (const [name, v] of Object.entries(params)) {
+    if (!asMap(v)) continue;
+    warn(`${kind}: ${name} does not take a TOP — the default is used instead`);
+    delete params[name];
+  }
+  return { params, inputs, binds };
+}
+
+function makeMaterial(spec, binds = []) {
   const uniforms = {
     tex0: { value: null },
     tex1: { value: null },
@@ -585,14 +646,27 @@ function makeMaterial(spec) {
     uAspect: { value: 1 },
     uTime: { value: 0 },
   };
+  const bound = new Set(binds.map((b) => b.uniform));
   const decls = [];
   for (const [name, init] of Object.entries(spec.extras ?? {})) {
     uniforms[name] = inferUniform(init);
-    const type =
-      typeof init === 'number' ? 'float'
-      : Array.isArray(init) && init.length === 2 ? 'vec2'
-      : 'vec3';
-    decls.push(`uniform ${type} ${name};`);
+    // still declared as a uniform in JS (update() writes it either way, three
+    // skips what the program doesn't use), but in GLSL the #define stands in
+    if (bound.has(name)) continue;
+    decls.push(`uniform ${uniformType(init)} ${name};`);
+  }
+  for (const b of binds) {
+    uniforms[b.tex] = { value: null };
+    uniforms[b.mod] = { value: new THREE.Vector2(1, 0) };
+    const read =
+      b.type === 'vec2' ? `texture2D(${b.tex}, vUv).rg`
+      : b.type === 'vec3' ? `texture2D(${b.tex}, vUv).rgb`
+      : `dot(texture2D(${b.tex}, vUv).rgb, LUMA)`;
+    decls.push(
+      `uniform sampler2D ${b.tex};`,
+      `uniform vec2 ${b.mod};`,
+      `#define ${b.uniform} ((${read} - ${b.mod}.y) * ${b.mod}.x)`,
+    );
   }
   return new THREE.ShaderMaterial({
     vertexShader: VERT,
@@ -827,10 +901,12 @@ ${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c =
 
 export class TopOp {
   constructor(engine, kind, params = {}, inputs = []) {
+    const bound = bindTexParams(kind, params, inputs);
     this.engine = engine;
     this.kind = kind;
-    this.params = params;
-    this.inputs = inputs;
+    this.params = bound.params;
+    this.inputs = bound.inputs;
+    this.texBinds = bound.binds;
     this.lastFrame = -1;
     engine.topNodes.push(this);
   }
@@ -871,7 +947,13 @@ export class TopOp {
   // .chroma(amount) splits horizontally; { radial: true } makes it lens-like
   chroma(amount = 0.005, o = {}) { return this._n('chroma', { amount, ...o }); }
   // transform shorthands (same pass; wrap etc. via the trailing options)
-  translate(x = 0, y = 0, o = {}) { return this._n('transform', { translate: [x, y], ...o }); }
+  translate(x = 0, y = 0, o = {}) {
+    // .translate(map) — a TOP fills the whole slot rather than one component,
+    // so the options land in the second argument
+    const map = asMap(x) != null;
+    if (map && typeof y === 'object' && y !== null) o = y;
+    return this._n('transform', { translate: map ? x : [x, y], ...o });
+  }
   rotate(v = 0, o = {}) { return this._n('transform', { rotate: v, ...o }); }
   scale(v = 1, o = {}) { return this._n('transform', { scale: v, ...o }); }
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
@@ -884,11 +966,17 @@ export class TopOp {
     const r = this._top(rampTop, 'lookup');
     return r ? this._n('lookup', {}, [r]) : this;
   }
+  // Sugar over .transform({ translate: map }): the only thing displace adds is
+  // the mid 0.5 bias, without which an unsigned map only ever pushes one way.
   displace(map, amount = 0.1, o = {}) {
     // options object in the amount slot: .displace(map, { amount, mid })
     if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
     const m = this._top(map, 'displace');
-    return m ? this._n('displace', { ...o, amount }, [m]) : this;
+    if (!m) return this;
+    const { amount: _a, mid = 0.5, ...rest } = o;
+    // translate moves the image, displace moves the lookup — opposite signs
+    const negated = typeof amount === 'function' ? (t) => -amount(t) : -amount;
+    return this._n('transform', { ...rest, translate: { map: m, amount: negated, mid } });
   }
   // options object in the mode slot: .comp(layer, { mode, opacity })
   comp(layer, mode = 'over', opacity = 1) {
@@ -1250,9 +1338,15 @@ export class TopOp {
     const spec = SPECS[this.kind];
     // unreachable from a sketch — every kind here comes from a method above
     if (!spec) throw new Error(`unknown TOP: ${this.kind}`);
-    this.mat ??= makeMaterial(spec);
+    this.mat ??= makeMaterial(spec, this.texBinds);
     const out = this._rt(ctx);
-    runPass(ctx, this.mat, ins[0], ins[1], out, (u) => spec.update?.(u, this.params, ctx.t, ctx));
+    runPass(ctx, this.mat, ins[0], ins[1], out, (u) => {
+      for (const b of this.texBinds) {
+        u[b.tex].value = ins[b.slot];
+        u[b.mod].value.set(resolve(b.amount, ctx.t), resolve(b.mid, ctx.t));
+      }
+      spec.update?.(u, this.params, ctx.t, ctx);
+    });
     return out.texture;
   }
 
