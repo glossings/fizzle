@@ -123,6 +123,9 @@ const SPECS = {
 
   circle: {
     extras: { uCenter: [0.5, 0.5], uRadius: 0.25, uSoft: 0.01, uColA: '#ffffff', uColB: '#000000' },
+    // a texture in radius perturbs the rim per pixel: the disc stops being one
+    // and becomes whatever blob the map describes
+    texParams: { radius: 'uRadius', soft: 'uSoft', center: 'uCenter' },
     frag: `
       void main() {
         float d = length((vUv - uCenter) * vec2(uAspect, 1.0));
@@ -130,10 +133,10 @@ const SPECS = {
         gl_FragColor = vec4(mix(uColB, uColA, m), 1.0);
       }`,
     update(u, p, t) {
-      const c = p.center ?? [0.5, 0.5];
+      const c = par(p.center, [0.5, 0.5]);
       u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
-      u.uRadius.value = resolve(p.radius ?? 0.25, t);
-      u.uSoft.value = resolve(p.soft ?? 0.01, t);
+      u.uRadius.value = resolve(par(p.radius, 0.25), t);
+      u.uSoft.value = resolve(par(p.soft, 0.01), t);
       setColor(u.uColA.value, p.color ?? '#ffffff', t);
       setColor(u.uColB.value, p.bg ?? '#000000', t);
     },
@@ -181,6 +184,9 @@ const SPECS = {
 
   mirror: {
     extras: { uAxis: 0, uFlip: 0 },
+    // a texture in flip picks which half survives per pixel — the two mirror
+    // images interleaved by the map, which reads as shattered glass
+    texParams: { flip: 'uFlip' },
     frag: `
       void main() {
         vec2 uv = vUv;
@@ -192,7 +198,7 @@ const SPECS = {
       }`,
     update(u, p) {
       u.uAxis.value = { x: 0, y: 1, both: 2 }[p.axis ?? 'x'] ?? 0;
-      u.uFlip.value = p.flip ? 1 : 0;
+      u.uFlip.value = par(p.flip, false) ? 1 : 0;
     },
   },
 
@@ -274,25 +280,29 @@ const SPECS = {
   // behind "brightness"; scalar or [r,g,b] values, fns of t as usual.
   math: {
     extras: { uMul: [1, 1, 1], uAdd: [0, 0, 0] },
+    // the only vec3 slots in the toolkit: a texture here is read as RGB, so a
+    // colored map tints per channel rather than scaling all three alike
+    texParams: { mul: 'uMul', add: 'uAdd' },
     frag: `
       void main() {
         gl_FragColor = vec4(texture2D(tex0, vUv).rgb * uMul + uAdd, 1.0);
       }`,
     update(u, p, t) {
-      setVec3(u.uMul.value, p.mul ?? 1, t);
-      setVec3(u.uAdd.value, p.add ?? 0, t);
+      setVec3(u.uMul.value, par(p.mul, 1), t);
+      setVec3(u.uAdd.value, par(p.add, 0), t);
     },
   },
 
   posterize: {
     extras: { uSteps: 4 },
+    texParams: { steps: 'uSteps' },
     frag: `
       void main() {
         vec3 c = texture2D(tex0, vUv).rgb;
         float n = max(uSteps, 2.0);
         gl_FragColor = vec4(clamp(floor(c * n) / (n - 1.0), 0.0, 1.0), 1.0);
       }`,
-    update(u, p, t) { u.uSteps.value = resolve(p.steps ?? 4, t); },
+    update(u, p, t) { u.uSteps.value = resolve(par(p.steps, 4), t); },
   },
 
   // the two counts are separate floats rather than one vec2 so either can be
@@ -420,6 +430,7 @@ const SPECS = {
   // all three channels at one UV, so this is the only way to split them.
   chroma: {
     extras: { uAmount: 0.005, uRadial: 0, uAngle: 0, uCenter: [0.5, 0.5] },
+    texParams: { amount: 'uAmount', angle: 'uAngle', center: 'uCenter' },
     frag: `
       void main() {
         // radial: a scale about the center — zero split there, growing toward
@@ -435,25 +446,29 @@ const SPECS = {
           1.0);
       }`,
     update(u, p, t) {
-      u.uAmount.value = resolve(p.amount ?? 0.005, t);
+      u.uAmount.value = resolve(par(p.amount, 0.005), t);
       u.uRadial.value = resolve(p.radial ?? 0, t) ? 1 : 0;
-      u.uAngle.value = resolve(p.angle ?? 0, t);
-      const c = p.center ?? [0.5, 0.5];
+      u.uAngle.value = resolve(par(p.angle, 0), t);
+      const c = par(p.center, [0.5, 0.5]);
       u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
     },
   },
 
   threshold: {
     extras: { uLevel: 0.5, uSoft: 0 },
+    texParams: { level: 'uLevel', soft: 'uSoft' },
     frag: `
       void main() {
         float l = dot(texture2D(tex0, vUv).rgb, LUMA);
-        float m = uSoft > 0.0 ? smoothstep(uLevel - uSoft, uLevel + uSoft, l) : step(uLevel, l);
+        // read once into locals: a texture-driven level/soft is a fetch, and
+        // the #define would otherwise repeat it inside the branch
+        float lv = uLevel, sf = uSoft;
+        float m = sf > 0.0 ? smoothstep(lv - sf, lv + sf, l) : step(lv, l);
         gl_FragColor = vec4(vec3(m), 1.0);
       }`,
     update(u, p, t) {
-      u.uLevel.value = resolve(p.level ?? 0.5, t);
-      u.uSoft.value = resolve(p.soft ?? 0, t);
+      u.uLevel.value = resolve(par(p.level, 0.5), t);
+      u.uSoft.value = resolve(par(p.soft, 0), t);
     },
   },
 

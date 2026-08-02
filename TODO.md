@@ -20,20 +20,6 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 
 [ ] Check user-friendliness of the code
 
-## Texture-driven parameters
-
-The machinery — a `texParams` map on a spec, resolved by `bindTexParams`
-([src/textures.js:606](src/textures.js#L606)) — is in, and `transform`, `warp`,
-`kaleido`, `adjust` and `pixellate` are wired. What's left is extending it, one
-`texParams` line each:
-
-[ ] `threshold` (`level`, `soft`), `posterize` (`steps`), `chroma` (`amount`,
-  `angle`, `center`), `circle` (`radius`, `soft`, `center`), `mirror`. Each is
-  a slot where a per-pixel value is worth having and the cost when unused is
-  zero, so the only question is whether the result reads as anything.
-[ ] `math` (`mul`, `add`) wants vec3 slots reading RGB — the machinery already
-  emits that type, but nothing declares one yet, so it's untested.
-
 ## Vertex displacement from a texture
 
 [ ] `.displace(texture, { amount, mid })` on a geometry chain — move each vertex

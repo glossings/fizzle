@@ -809,12 +809,19 @@ The slots that take one:
 | `.kaleido()` | `sides`, `rotate` |
 | `.levels()` (and `.contrast/.saturation/.gamma/.hue`) | `contrast`, `saturation`, `gamma`, `hue` |
 | `.pixellate()` | `x`, `y` |
+| `.threshold()` | `level`, `soft` |
+| `.posterize()` | `steps` |
+| `.chroma()` | `amount`, `angle`, `center` |
+| `.mirror()` | `flip` |
+| `.mul()` / `.add()` | the value itself |
+| `circle()` | `radius`, `soft`, `center` |
 
 Two rules cover the whole set:
 
 - **Which channels.** A two-component slot (`translate`, `scale`, `center`)
-  reads **R and G**. A scalar slot (`rotate`, `sides`, `hue`, `barrel`, …)
-  reads **luma**. So a grayscale map drives a two-component slot along the
+  reads **R and G**, a three-component one (`.mul()`, `.add()`) reads **RGB**,
+  and a scalar slot (`rotate`, `sides`, `hue`, `barrel`, `level`, …) reads
+  **luma**. So a grayscale map drives a two-component slot along the
   diagonal — `noise({ channels: 2 })` when you want the axes independent.
 - **What the number is.** By default the sample *is* the value, in the units
   the number would have been: `.rotate(map)` turns each pixel by 0..1 radians.
@@ -834,8 +841,12 @@ pixels. `mid: 0.5` is the whole difference between `translate` and `displace`:
 without it a `noise()` map only ever pushes +x/+y, because it never goes
 negative. `amount` and `mid` take fns of `t` like anything else.
 
-A texture in a slot that has no per-pixel form (`.blur()`, `.threshold()`, …)
+A texture in a slot that has no per-pixel form (`.blur()`, `.bloom()`, …)
 warns and falls back to the default rather than taking the picture down.
+
+`circle()` is on the list too, and it is the odd one — a *generator* whose shape
+one texture decides. `circle({ radius: noise({ freq: 3 }).mul(0.1).add(0.25) })`
+is a disc whose rim wanders: a blob, and a mask that no longer looks stamped on.
 
 ## buses, layers & feedback
 
