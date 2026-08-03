@@ -10,9 +10,8 @@ torusKnot({ radius: 1, tube: 0.3, res: 128 })
   .material({ color: '#22ddaa', roughness: 0.35, metalness: 0.4 })
   .out()
 
-// one linear ramp, repeated with mirror wrap = a triangle wave of soft stripes
-const scanlines = ramp({ angle: Math.PI / 2, a: '#585858', b: '#ffffff' })
-  .transform({ scale: [1, 1 / 160], wrap: 'mirror' })
+// a triangle wave up the frame = 80 soft stripes, dark trough to bright crest
+const scanlines = ramp({ angle: Math.PI / 2, period: 1 / 80, shape: 'tri', a: '#585858', b: '#ffffff' })
 
 const vignette = ramp({ type: 'radial', a: '#ffffff', b: '#303030' })
 

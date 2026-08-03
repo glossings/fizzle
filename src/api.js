@@ -1036,6 +1036,9 @@ export function makeApi(engine) {
     // input() = last frame's display output; input('name') = the buffer
     // published by .out('name'). ('in' is a JS reserved word, hence 'input'.)
     input: (name) => new TextureOp(engine, 'in', name != null ? { name: String(name) } : {}),
+    // constant('#f0f') — a flat fill. The object form is tolerated so that
+    // constant({ color }) behaves like every other generator's signature.
+    constant: (color) => new TextureOp(engine, 'constant', color?.color !== undefined ? color : { color }),
     ramp: (o) => new TextureOp(engine, 'ramp', o ?? {}),
     circle: (o) => new TextureOp(engine, 'circle', o ?? {}),
     noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),

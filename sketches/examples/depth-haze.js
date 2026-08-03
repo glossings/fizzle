@@ -59,6 +59,6 @@ scene()
 
 // more to try:
 // .mask(depth(), s => s.blur(10))                         // sharp near, soft far
-// .mask(depth(), s => s.comp(ramp({ a: '#7d88a6', b: '#7d88a6' }), 'over'))  // haze
+// .mask(depth(), s => s.comp(constant('#7d88a6'), 'over'))  // haze
 // .mask(depth().invert(), s => s.mul(0))                  // silhouette the far end
 // depth({ near: 2, far: 12 }).out()                       // just look at the map

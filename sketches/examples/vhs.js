@@ -58,9 +58,8 @@ const lineJitter = noise({ channels: 2, freq: 140, speed: 30 })
 const headSwitch = ramp({ angle: -Math.PI / 2 }).threshold(0.976, { soft: 0.005 })
 const flagging = ramp({ angle: Math.PI / 2 }).threshold(0.978, { soft: 0.04 })
 
-// a repeating ramp is a sawtooth; thresholding it is a band that drifts
-const tracking = ramp({ angle: Math.PI / 2 })
-  .translate(0, t => t * 0.07, { wrap: 'repeat' })
+// a wrapping phase is a sawtooth that scrolls; thresholding it is a drifting band
+const tracking = ramp({ angle: Math.PI / 2, period: 1, phase: t => -t * 0.07 })
   .threshold(0.94, { soft: 0.05 })
 
 const dropouts = noise({ freq: 240, octaves: 1, speed: 9 })
@@ -84,9 +83,8 @@ const played = composite
 
 // --- the television ---
 
-// one ramp, mirror-wrapped into a triangle wave = 240 soft stripes
-const scanlines = ramp({ a: '#8a8a8a', b: '#ffffff', angle: Math.PI / 2 })
-  .transform({ scale: [1, 1 / 480], wrap: 'mirror' })
+// a triangle wave up the frame = 240 soft stripes
+const scanlines = ramp({ a: '#8a8a8a', b: '#ffffff', angle: Math.PI / 2, period: 1 / 240, shape: 'tri' })
 
 const readout = t => {
   const s = Math.floor(t)

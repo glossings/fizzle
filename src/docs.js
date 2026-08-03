@@ -38,9 +38,10 @@ export const GLOBALS = {
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. depth() picks the same range up by default. Positional fog(color, near, far) also works.'],
 
   scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
-  depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far, empty space white. Give it a focus instead and it measures distance from that plane, a ready-made depth-of-field mask.\nMostly you hand it to .mask(m, fn) to treat the image by distance: .mask(depth(), s => s.blur(8)) blurs the far, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, .mask(depth(), s => s.comp(ramp({ a: '#8a97a8', b: '#8a97a8' }), 'over')) is haze."],
+  depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far, empty space white. Give it a focus instead and it measures distance from that plane, a ready-made depth-of-field mask.\nMostly you hand it to .mask(m, fn) to treat the image by distance: .mask(depth(), s => s.blur(8)) blurs the far, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, .mask(depth(), s => s.comp(constant('#8a97a8'), 'over')) is haze."],
   input: ['input(name?)', "Texture source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a texture chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
-  ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })", 'Texture generator: two-color gradient.'],
+  constant: ['constant(color)', "Texture generator: one flat color, whole frame. Hex, CSS name or [r, g, b], and a fn of t like any other color slot.\nThe thing to comp with when a wash is wanted rather than an image: .mask(depth(), s => s.comp(constant('#8a97a8'), 'over')) is haze."],
+  ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it.\nperiod is how much of the frame one cycle spans, so anything under 1 repeats it into bands, and shape waveshapes each cycle — the same four shapes signals have. ramp({ angle: Math.PI / 2, period: 1 / 80, shape: 'tri' }) is scanlines, shape: 'sqr' is hard stripes, type: 'angular' a pinwheel, type: 'radial' rings. Animate phase to scroll them."],
   circle: ['circle({ radius, soft, center, color, bg })', 'Texture generator: soft-edged disc. radius, soft and center each take a fn of t, or a texture for a value that varies across the frame — a texture in radius bends the rim into a blob.'],
   video: ['video(name?)', "Texture generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera, and the console lists the available sources on start. Permission prompt on first use; black until the stream is live."],
   videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Drag a file in to import it (stored in the browser, survives reloads); an empty call opens a picker and fills the name in. name = filename, exact or substring.\nctrl+r or restartMedia() rewinds everything by hand."],
@@ -351,7 +352,9 @@ const GLOBAL_KEY_DOCS = {
     a: 'Color at the low end. Default black.',
     b: 'Color at the high end. Default white.',
     angle: 'Direction of a linear ramp, or where an angular one starts, in radians. Default 0.',
-    phase: 'Slides the gradient along itself. Default 0 — animate it for a scrolling wipe.',
+    phase: 'Slides the sweep along itself, in cycles. Default 0. With period or shape named it wraps, so animating it scrolls the bands forever; on a plain ramp it runs into the clamped ends instead — which is the point of a negative phase on a radial one, giving a vignette with a flat center.',
+    period: 'How much of the frame one cycle of the sweep spans. Default 1, a single gradient across it. Below that it repeats into bands — 0.5 is two, 1 / 80 is scanlines, and with type angular or radial the same number gives a pinwheel or rings. The whole useful range lives in 0..1, so a bare signal drops in: period: rand({ freq: 2 }) or audio() rewrites the pattern without a .mul() in front of it. Naming it also makes phase wrap.',
+    shape: "Waveshape of each period, the same four signals have: 'saw' (default, the plain ramp, hard seam where it wraps), 'tri' (up then back down — the seamless one, and what soft stripes want), 'sin' (smoother still), 'sqr' (flat a, flat b — hard bands). Threshold a tri to make the bands thin.",
   },
   circle: {
     radius: 'Radius in UV units, so 0.5 touches the frame edge. Default 0.25. A texture here is the radius at that pixel — noise({ freq: 3 }).mul(0.1).add(0.25) is a wobbling blob.',
@@ -567,7 +570,7 @@ const names = (s) => s.trim().split(/\s+/);
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder icosa model text3d',
   light: 'ambient directional point spot hemi',
-  texture: 'scene depth input ramp circle video videofile imagefile imageseq noise voronoi text',
+  texture: 'scene depth input constant ramp circle video videofile imagefile imageseq noise voronoi text',
   signal: 'beat audio audiofile rand sig',
 };
 

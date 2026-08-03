@@ -627,7 +627,19 @@ scene()
   re-runs, frozen while paused). Comp it back in for trails.
 - `input('name')` — a named bus published elsewhere with `.out('name')` — see
   **buses, layers & feedback**.
-- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase })` — two-color gradient.
+- `constant(color)` — one flat color over the whole frame. Hex, CSS name or
+  `[r, g, b]`, and a fn of `t` like any other color slot. The wash to comp
+  with when what's wanted is a color rather than an image:
+  `.mask(depth(), s => s.comp(constant('#8a97a8'), 'over'))` is haze.
+- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, shape })` — a
+  two-color sweep: straight across (`angle` aims it), out from the center, or
+  around it. `period` is how much of the frame one cycle of that sweep spans —
+  1 by default, and anything under it repeats into bands — while `shape`
+  waveshapes each cycle: `'saw'` (the plain ramp, and a hard seam where it
+  wraps), `'tri'` (up then back down, the seamless one), `'sin'`, `'sqr'` (two
+  flat colors). They're the four shapes signals have, because a ramp is the
+  same 0..1 phase read across space instead of time. `phase` slides the sweep
+  along itself, in cycles.
 - `circle({ radius, soft, center, color, bg })` — soft-edged disc.
 - `noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
   animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
@@ -658,6 +670,28 @@ ramp({ type: 'radial', a: '#1a0533', b: '#ff5f9e' })
   .comp(text('fizzle'), 'add')
   .out()
 ```
+
+`period` and `shape` are what make `ramp()` a band generator — scanlines, hard
+stripes, a pinwheel, concentric rings, all the same call:
+
+```js
+scene()
+  .comp(ramp({ angle: Math.PI / 2, period: 1 / 80, shape: 'tri', a: '#585858' }), 'mult')
+  .comp(ramp({ type: 'angular', period: rand({ freq: 0.5 }), shape: 'sqr', phase: t => t * 0.1 }), 'add', 0.1)
+  .out()
+```
+
+The whole useful range of `period` lives in 0..1, which is exactly what a
+signal hands you — so `rand()`, `audio()` or `beat()` go straight in and sweep
+from one gradient to a dense grating without a `.mul()` in front of them.
+
+A `'saw'` cycle jumps back to `a` at its end, which is a visible seam when it
+repeats; `'tri'` runs back down instead and is the one soft bands want.
+
+Naming `period` or `shape` also puts `phase` into wrapping mode, so animating
+it scrolls the bands indefinitely. Left alone, a ramp holds its end colors past
+the edges instead — `ramp({ type: 'radial', phase: -0.15 })` is a vignette with
+a flat white center, which needs the clamp rather than the wrap.
 
 Two `voronoi()` calls that agree on `scale`, `speed` and `seed` see the same
 scatter of points, so their modes line up exactly and can be layered — cells

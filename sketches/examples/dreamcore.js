@@ -46,12 +46,12 @@ hemi({ sky: '#ffd6ee', ground: '#5d4f6e', intensity: 0.7 }).out()
 
 // --- room ---
 
-// A checkerboard with no image file in it: two ramps cut in half, differenced.
+// A checkerboard with no image file in it: two square-wave ramps, differenced.
 // |a - b| of two black/white halves is 1 where exactly one is white, which is
 // a 2×2 checker — then repeat tiles it down the hall. The last pass slides the
 // pattern at exactly the speed the columns move, so the floor comes with them.
-const checker = ramp().threshold(0.5)
-  .comp(ramp({ angle: Math.PI / 2 }).threshold(0.5), 'difference')
+const checker = ramp({ shape: 'sqr' })
+  .comp(ramp({ angle: Math.PI / 2, shape: 'sqr' }), 'difference')
   .mul(0.5).add(0.45)                     // a full black tile eats the light
   .translate(0, t => -t * SPEED / (TILE * 2), { wrap: 'repeat' })
 

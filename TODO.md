@@ -40,20 +40,14 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 `SPECS` entries take `frag`, plus `extras`/`update()` to declare and resolve
 uniforms (numbers or fns of `t`).
 
-[ ] `constant(color)` — a solid fill, whole frame, one color. Takes a fn of `t`
-  like any color slot. The haze recipe at [src/docs.js:41](src/docs.js#L41)
-  currently fakes it with a `ramp()` whose two colors are identical.
 [ ] `polygon(sides, { radius, smooth, angle, color, bg })` — filled regular
   n-gon, centered. Mirror `circle()`'s options ([src/textures.js:123](src/textures.js#L123))
   so the two are interchangeable; `smooth` is the edge falloff, `angle` spins it.
-[ ] `stripes({ freq, shape, speed, polar, a, b })` — a 1-D waveform swept across
-  the frame, so it reads as bands. `freq` = bands per frame, `shape` =
-  `'sin'|'saw'|'sqr'|'tri'`, `speed` scrolls them, `a`/`b` are the two colors.
-  `polar: true` sweeps by angle from center instead of by x, turning the bands
-  into a pinwheel.
 [ ] `checker({ nx, ny, a, b })` — alternating squares. `brick({ nx, ny, offset,
   gap, a, b })` — same but every other row shifted by `offset` (0.5 = running
-  bond), `gap` is the mortar line width.
+  bond), `gap` is the mortar line width. Two `ramp({ shape: 'sqr' })` at right
+  angles differenced is already a checker ([sketches/examples/dreamcore.js:53](sketches/examples/dreamcore.js#L53)),
+  so what these buy is `nx`/`ny` separately plus the brick offset and mortar.
 
 ## New texture filters
 

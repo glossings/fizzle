@@ -100,8 +100,22 @@ const SPECS = {
       }`,
   },
 
+  // one color, whole frame — the thing to comp, mask or multiply against when
+  // what's wanted is a flat wash rather than an image
+  constant: {
+    extras: { uColor: '#ffffff' },
+    frag: `void main() { gl_FragColor = vec4(uColor, 1.0); }`,
+    update(u, p, t) {
+      setColor(u.uColor.value, p.color ?? '#ffffff', t);
+    },
+  },
+
+  // A sweep across the frame (straight, out from center, or around it), read as
+  // a 0..1 phase — so the four waveshapes signals apply to a phase apply here
+  // too, and a period shorter than the frame is a band pattern. A ramp is
+  // beat() in space.
   ramp: {
-    extras: { uMode: 0, uColA: '#000000', uColB: '#ffffff', uAngle: 0, uPhase: 0 },
+    extras: { uMode: 0, uColA: '#000000', uColB: '#ffffff', uAngle: 0, uPhase: 0, uFreq: 1, uShape: 0, uRepeat: 0 },
     frag: `
       void main() {
         vec2 p = vUv - 0.5;
@@ -109,7 +123,13 @@ const SPECS = {
         if (uMode < 0.5) { vec2 d = vec2(cos(uAngle), sin(uAngle)); f = dot(p, d) + 0.5; }
         else if (uMode < 1.5) { f = length(p * vec2(uAspect, 1.0)) * 2.0; }
         else { f = fract(atan(p.y, p.x) / 6.2831853 + 0.5 + uAngle / 6.2831853); }
-        f = clamp(f + uPhase, 0.0, 1.0);
+        f = f * uFreq + uPhase;
+        // a single sweep holds its end colors past the edges (the flat middle a
+        // negative phase gives a radial vignette); cycles wrap instead
+        f = uRepeat > 0.5 ? fract(f) : clamp(f, 0.0, 1.0);
+        if (uShape > 2.5) f = step(0.5, f);
+        else if (uShape > 1.5) f = 0.5 - 0.5 * cos(6.2831853 * f);
+        else if (uShape > 0.5) f = 1.0 - abs(2.0 * f - 1.0);
         gl_FragColor = vec4(mix(uColA, uColB, f), 1.0);
       }`,
     update(u, p, t) {
@@ -118,6 +138,19 @@ const SPECS = {
       setColor(u.uColB.value, p.b ?? '#ffffff', t);
       u.uAngle.value = resolve(p.angle ?? 0, t);
       u.uPhase.value = resolve(p.phase ?? 0, t);
+      // period is what the sketch says (0..1 covers the whole useful range, so
+      // a bare signal drops in); the shader multiplies, so invert it here.
+      // The floor is only there to keep a period of 0 a number.
+      const period = resolve(p.period ?? 1, t);
+      u.uFreq.value = 1 / (Math.abs(period) > 1e-5 ? period : 1e-5);
+      const shapes = { saw: 0, tri: 1, sin: 2, sqr: 3 };
+      const shape = p.shape ?? 'saw';
+      if (shapes[shape] == null) warn(`ramp: no shape '${shape}' — saw, tri, sin or sqr; showing saw`);
+      u.uShape.value = shapes[shape] ?? 0;
+      // Naming either key is what asks for a repeating wave, and with it the
+      // wrap — so an untouched ramp keeps clamping, which is what the vignettes
+      // built on a negative phase rely on.
+      u.uRepeat.value = p.period !== undefined || p.shape !== undefined ? 1 : 0;
     },
   },
 
