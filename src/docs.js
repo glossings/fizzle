@@ -65,8 +65,8 @@ export const GLOBALS = {
 
 export const METHODS = {
   pos: ['.pos(x, y, z) | .pos(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works, so .pos(pts.sample(i)) goes straight in.'],
-  rotate: ['.rotate(x, y, z) | .rotate(v)', 'Geometry: rotation in radians (numbers or fns of t, or one vector) · Texture: .rotate(v, { wrap }) rotates the image around center.'],
-  scale: ['.scale(x, y?, z?) | .scale(v)', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
+  rotate: ['.rotate(x, y, z) | .rotate(v, { wrap })', 'Geometry: rotation in radians (numbers or fns of t, or one vector) · Texture: .rotate(v, { wrap }) rotates the image around center.'],
+  scale: ['.scale(x, y?, z?) | .scale(v, { wrap })', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
   translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame).\nA texture fills the whole slot rather than one component — the shift at each pixel is that map's R and G there, which is what .displace() is built on."],
   noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens. .sample()/.normal() on the chain see the same field, so a noised shape works as a layout source.'],
   instance: ['.instance(count, (x, i, n, t) => x.pos(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .pos/.rotate/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.\nFor a layout that follows another shape, .pos(pts.sample(i)) scatters the copies over its surface — see .sample().'],
@@ -432,6 +432,12 @@ const METHOD_KEY_DOCS = {
   },
   translate: {
     wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty. Default 'clamp'.",
+  },
+  scale: {
+    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty. Default 'clamp'.\nOn a flat source clamp looks like nothing happened — every edge pixel is the same color, so constant('red').scale(0.5) is still a full red frame. 'black' is what makes it a shape: .scale(0.5, { wrap: 'black' }) is a rectangle on an empty background, and [x, y] sets its proportions.",
+  },
+  rotate: {
+    wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty. Default 'clamp'.",
   },
   mirror: {
     axis: "'x' folds left onto right, 'y' bottom onto top, 'both' does each in turn. Default 'x'.",

@@ -43,6 +43,16 @@ uniforms (numbers or fns of `t`).
 [ ] `polygon(sides, { radius, smooth, angle, color, bg })` — filled regular
   n-gon, centered. Mirror `circle()`'s options ([src/textures.js:123](src/textures.js#L123))
   so the two are interchangeable; `smooth` is the edge falloff, `angle` spins it.
+  Measure in the same aspect-corrected space `circle` does (`(vUv - center) *
+  vec2(uAspect, 1.0)`), so `polygon(4)` is a true pixel square on any window
+  shape — the thing sketches currently can't get without `resolution()` or a
+  hand-computed per-axis scale. That also means no separate `rect`: a
+  non-uniform `.scale([2, 1], { wrap: 'black' })` stretches the square into any
+  rectangle, and with `bg` already black there's no seam at the wrap.
+  Pin the `angle` convention before building: 0 should mean flat-bottom, not a
+  vertex on +x, so `polygon(4)` lands axis-aligned and `polygon(3)` points up —
+  the two orientations sketches actually reach for, with no `Math.PI / 4` in
+  the call.
 [ ] `checker({ nx, ny, a, b })` — alternating squares. `brick({ nx, ny, offset,
   gap, a, b })` — same but every other row shifted by `offset` (0.5 = running
   bond), `gap` is the mortar line width. Two `ramp({ shape: 'sqr' })` at right
