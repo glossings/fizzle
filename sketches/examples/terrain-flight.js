@@ -1,15 +1,15 @@
 // programmed camera orbiting an evolving noise terrain
 
-bg('#0a0c18')
-fog({ color: '#0a0c18', near: 6, far: 45 })
-ambient({ intensity: 0.25 })
-directional({ color: '#ffd9a0', intensity: 1.6 }).pos(10, 6, -4).out()
+bg('#8e93af')
+fog({ color: '#686e92', near: 6, far: 45 })
+ambient({ intensity: 0.95 })
+directional({ color: '#ce933b', intensity: 4.6 }).pos(10, 6, -4).out()
 
 plane({ width: 90, height: 90, res: 220 })
   .pos(0, -2, 0)
   .rotate(-Math.PI / 2, 0, 0)
   .noise({ amp: 2.2, freq: 0.09, octaves: 5, speed: 0.06 })
-  .material({ color: '#233247', roughness: 0.9, flatShading: true })
+  .material({ color: '#364963', roughness: 0.9, flatShading: true })
   .out()
 
 // function args -> the sketch drives the camera (orbit controls disabled)

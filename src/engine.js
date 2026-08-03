@@ -58,6 +58,11 @@ export class Engine {
     this.pendingPick = null;        // an empty videofile()/... asked for a file picker
 
     this.cameraProgrammed = false;     // a camera(fn...) call disables orbit controls
+    this.cameraTouched = false;        // this run called camera() at all
+    // where orbiting last left the camera. A sketch that drives the camera
+    // moves it out of here; the next sketch that doesn't gets it back rather
+    // than opening wherever that one parked.
+    this.orbitPose = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
     this.textureNodes = [];            // texture graph nodes from the current sketch
     this.textureOutput = null;         // texture chain marked with .out(), if any
     this.textureBuffers = new Map();   // name -> node published with .out(name)
@@ -592,6 +597,7 @@ export class Engine {
     this.geoLayers.clear();
 
     this.cameraProgrammed = false;
+    this.cameraTouched = false;
     this.controls.enabled = true;
     // dropping the resolution() call goes back to filling the window
     this.resolution = null;
@@ -624,11 +630,23 @@ export class Engine {
   // throws restores the last good sketch: mid-edit errors show in the status
   // bar while the visuals keep playing (err.restored says that happened).
   run(code, api) {
+    // Only worth saving when the camera is the user's to move: after a run
+    // that programmed it, the pose on screen is the sketch's, and the one
+    // worth coming back to is still the one saved before it took over.
+    if (!this.cameraTouched) {
+      this.orbitPose.pos.copy(this.camera.position);
+      this.orbitPose.target.copy(this.controls.target);
+    }
     this.clearPatch();
     const names = Object.keys(api);
     const values = names.map((n) => api[n]);
     const exec = (src) => {
       new Function(...names, `"use strict";\n${src}`)(...values);
+      if (!this.cameraTouched) {
+        this.camera.position.copy(this.orbitPose.pos);
+        this.controls.target.copy(this.orbitPose.target);
+        this.camera.lookAt(this.orbitPose.target);
+      }
       this.syncResolution(); // before the settle below, so the aspect is right
       // settle the new patch at current sketch time (matters when paused)
       for (const fn of this.updaters) {

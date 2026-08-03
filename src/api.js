@@ -952,6 +952,7 @@ export function makeApi(engine) {
     // until the next re-run without a programmed camera.
     camera(x = 0, y = 2, z = 8, target = [0, 0, 0]) {
       const dynamic = [x, y, z, ...target].some((v) => typeof v === 'function');
+      engine.cameraTouched = true;
       if (!dynamic) {
         engine.camera.position.set(x, y, z);
         engine.controls.target.set(...target);

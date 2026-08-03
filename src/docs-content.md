@@ -565,6 +565,8 @@ plane({ width: 24, height: 24, res: 128 })
 - `camera(x, y, z, [tx, ty, tz])` with static numbers places the camera and
   leaves orbit controls live. If **any** argument is a function of time, the
   sketch drives the camera and orbiting is disabled until you re-run without it.
+  Either way the camera is the sketch's for as long as it calls `camera()` —
+  drop the call, and the next run hands you back the view you last orbited to.
 - `bg(color)` and `fog({ color, near, far })` set the scene backdrop.
 
 ### shadows

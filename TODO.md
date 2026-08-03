@@ -46,8 +46,9 @@ uniforms (numbers or fns of `t`).
 [ ] `checker({ nx, ny, a, b })` — alternating squares. `brick({ nx, ny, offset,
   gap, a, b })` — same but every other row shifted by `offset` (0.5 = running
   bond), `gap` is the mortar line width. Two `ramp({ shape: 'sqr' })` at right
-  angles differenced is already a checker ([sketches/examples/dreamcore.js:53](sketches/examples/dreamcore.js#L53)),
-  so what these buy is `nx`/`ny` separately plus the brick offset and mortar.
+  angles differenced is already a checker (`ramp({ shape: 'sqr' }).comp(ramp({
+  angle: Math.PI / 2, shape: 'sqr' }), 'difference')`), so what these buy is
+  `nx`/`ny` separately plus the brick offset and mortar.
 
 ## New texture filters
 
