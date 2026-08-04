@@ -84,9 +84,11 @@ uniform float uTime;
 #define LUMA vec3(0.2126, 0.7152, 0.0722)
 
 // what happens outside [0,1] after a UV transform — 0 clamp, 1 repeat,
-// 2 mirror, 3 black. Shared by transform and warp.
+// 2 mirror, 3 black, 4 polar. Shared by transform and warp.
 vec4 wrapSample(sampler2D tex, vec2 p, float mode) {
-  if (mode > 2.5) {
+  // polar: x is an angle, so it comes back around; y is a radius and doesn't
+  if (mode > 3.5) p = vec2(fract(p.x), clamp(p.y, 0.0, 1.0));
+  else if (mode > 2.5) {
     if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
   }
   else if (mode > 1.5) { vec2 m = mod(p, 2.0); p = 1.0 - abs(m - 1.0); }
@@ -329,6 +331,31 @@ const SPECS = {
     update(u, p, t) {
       u.uSides.value = resolve(par(p.sides, 6), t);
       u.uRot.value = resolve(par(p.rotate, 0), t);
+    },
+  },
+
+  // the coordinate change under .radial(): forward resamples the frame into
+  // angle (x) × radius (y), inverse reads such a buffer back onto the screen.
+  // Radius 1 is the frame *corner* — anything closer in and a round trip would
+  // crop the corners off rather than come back where it started.
+  polar: {
+    extras: { uInverse: 0 },
+    frag: `
+      void main() {
+        float rmax = 0.5 * length(vec2(uAspect, 1.0));
+        if (uInverse > 0.5) {
+          vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+          float r = length(p);
+          float a = r > 0.0 ? atan(p.y, p.x) : 0.0;   // atan(0, 0) is undefined
+          gl_FragColor = texture2D(tex0, vec2(fract(a / 6.2831853), r / rmax));
+        } else {
+          float a = vUv.x * 6.2831853;
+          vec2 p = vec2(cos(a), sin(a)) * (vUv.y * rmax);
+          gl_FragColor = texture2D(tex0, clamp(p / vec2(uAspect, 1.0) + 0.5, 0.0, 1.0));
+        }
+      }`,
+    update(u, p, t) {
+      u.uInverse.value = resolve(par(p.inverse, false), t) ? 1 : 0;
     },
   },
 
@@ -670,7 +697,7 @@ const SPECS = {
   },
 };
 
-const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, black: 3 };
+const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, black: 3, polar: 4 };
 
 // First spelling of each mode is the canonical one — that's the set docs and
 // completion offer (BLEND_MODE_NAMES); the rest are aliases.
@@ -1038,6 +1065,26 @@ ${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c =
 }
 `;
 
+// Everything .radial() puts between its two resamples is reading a buffer whose
+// x axis is an angle: at the 0/2π seam a blur or a translate has to come around
+// the other side, or it pulls in the clamped edge and leaves a hairline crack
+// down the frame. Mark the span so its targets repeat horizontally and its UV
+// ops default to the matching wrap — neither is something the ops could know on
+// their own, which is why the sandwich is one call and not two.
+function markPolar(node, src, seen = new Set()) {
+  if (node === src) { node._polar = true; return true; }
+  if (seen.has(node)) return node._polar === true;
+  seen.add(node);
+  let inSpan = false;
+  for (const n of node.inputs) if (markPolar(n, src, seen)) inSpan = true;
+  if (inSpan) {
+    node._polar = true;
+    if (node.params.wrap === undefined && (node.kind === 'transform' || node.kind === 'warp'))
+      node.params.wrap = 'polar';
+  }
+  return inSpan;
+}
+
 // ---------------------------------------------------------------------------
 // the chainable node
 
@@ -1071,6 +1118,24 @@ export class TextureOp {
   // --- generators-as-filters & filters ---
   mirror(o = {}) { return this._n('mirror', o); }
   kaleido(sides = 6, o = {}) { return this._n('kaleido', { sides, ...o }); }
+
+  // .radial(s => ...) — run the fn in polar space, where x is the angle around
+  // the center and y the distance from it, then come back. .translate(0, 0.1)
+  // is a tunnel, .translate(0.1, 0) spins the frame, .blur([8, 0]) smears
+  // around the ring. Both resamples are ours: an unbalanced pair isn't a look
+  // anyone means, and only this end knows the span is angular (see markPolar).
+  radial(fn) {
+    const src = this._n('polar');
+    const inner = src._texture(fn, 'radial');   // fn's arg is the chain *in* polar space
+    if (!inner) return this;
+    markPolar(inner, src);
+    return inner._n('polar', { inverse: true });
+  }
+
+  // one way, as an effect rather than a coordinate change: forward unrolls the
+  // frame into a ring chart, `inverse` wraps it into a disc (a horizon becomes
+  // a little planet). The round trip is .radial().
+  polar(o = {}) { return this._n('polar', o); }
   edge(o = {}) { return this._n('neighbor', { mode: 'edge', ...o }); }
   slope(o = {}) { return this._n('neighbor', { mode: 'slope', ...o }); }
   normalMap(o = {}) { return this._n('neighbor', { mode: 'normal', ...o }); }
@@ -1217,6 +1282,11 @@ export class TextureOp {
       // target up — so a node feeding a tiled material map has to be marked
       // before that happens, and re-marked whenever the size forces a realloc
       if (this._tiled) rt.texture.wrapS = rt.texture.wrapT = THREE.RepeatWrapping;
+      // inside .radial(): x is an angle, y a radius (see markPolar)
+      else if (this._polar) {
+        rt.texture.wrapS = THREE.RepeatWrapping;
+        rt.texture.wrapT = THREE.ClampToEdgeWrapping;
+      }
     }
     return rt;
   }

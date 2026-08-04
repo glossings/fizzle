@@ -94,11 +94,6 @@ uniforms (numbers or fns of `t`).
 [ ] `.repeat(nx, ny, { mirror, offset })` — `fract(uv * n)`, one texture read,
   identical cells. Distinct from `.tile()`, which renders a pass per distinct
   cell variant so each cell can be its own chain. Document the difference.
-[ ] `.polar()` — resample so x becomes angle and y becomes radius from center.
-  `.cartesian()` inverts it. Sandwiching an effect between the two makes it act
-  radially: `.polar().translate(0, 0.1).cartesian()` is a tunnel, a `.blur()`
-  in between is a radial smear. Keep `.kaleido()` — the mirror fold is the
-  effect, not just the coordinate change.
 [ ] More radial distortions as extra `.warp()` keys ([src/textures.js:392](../src/textures.js#L392))
   rather than new ops — each is a different function applied to the radius
   before resampling: `invert` (1/r, turns the frame inside out), `sqrt`

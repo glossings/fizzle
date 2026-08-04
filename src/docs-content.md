@@ -791,6 +791,8 @@ scene()
   UV units (1 = a full frame); scale zooms around center.
 - `.mirror({ axis: 'x'|'y'|'both', flip })` — reflect one half onto the other.
 - `.kaleido(sides, { rotate })` — polar kaleidoscope fold.
+- `.radial(s => ...)` — run the fn in polar space (see below).
+- `.polar({ inverse })` — the one-way coordinate change, as an effect.
 - `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
   chain: return `src`, a treatment of it, or any other texture chain. `x` runs
   left→right, `y` bottom→top, `i = y * nx + x`. Cells with structurally
@@ -907,6 +909,51 @@ circle({ radius: 0.35, color: '#ffd166' })
 
 `.remap(map)` is the absolute version: sample the chain at the map's RG
 coordinates directly (the map **is** the UV space).
+
+### radial
+
+`.radial(s => ...)` runs the fn in **polar space** — x is the angle around the
+center, y the distance from it — and resamples back afterwards. Every ordinary
+op then acts radially, which is cheaper to remember than a radial variant of
+each one:
+
+```js
+scene()
+  .radial(s => s.translate(0, 0.1))   // a tunnel: pull everything outward
+  .out()
+```
+
+| inside `.radial()` | on screen |
+| --- | --- |
+| `.translate(0, y)` | tunnel — outward for `y > 0`, drain inward for `y < 0` |
+| `.translate(x, 0)` | spins the frame (x is the angle) |
+| `.blur([8, 0])` | smears **around** the ring |
+| `.blur([0, 8])` | smears **along** the radius — a zoom streak |
+| `.mirror()` | fold the angle: a kaleidoscope without `.kaleido()` |
+| `.pixellate(24, 8)` | 24 wedges × 8 rings |
+
+Two details the call handles because it owns both ends:
+
+- **The seam wraps.** x = 0 and x = 1 are the same angle, so an op that samples
+  past the edge comes around the other side instead of smearing the last
+  column. Without that a `.blur([8, 0])` leaves a hairline crack down the
+  frame. UV ops in the span default to it; pass an explicit `{ wrap }` to
+  override — on a tunnel, `'black'` leaves the middle empty rather than
+  smearing the innermost ring outward.
+- **Radius 1 is the frame corner**, so a round trip covers the whole frame
+  rather than cropping it to the inscribed circle.
+
+The center is one source pixel stretched across an entire row of the polar
+buffer, so expect a starburst there — `.kaleido()` has the same tell, and it
+reads as part of the look.
+
+`.polar({ inverse })` is the one-way half, for when the coordinate change *is*
+the effect: naked it unrolls the frame into a ring chart, and `inverse: true`
+wraps an image into a disc — a horizon becomes a little planet.
+
+```js
+scene().polar({ inverse: true }).out()
+```
 
 ## a texture where a number goes
 

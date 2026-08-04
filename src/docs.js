@@ -83,6 +83,8 @@ export const METHODS = {
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other. A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
+  radial: ['.radial(s => ...)', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. Ordinary ops then act radially: .radial(s => s.translate(0, 0.1)) is a tunnel, .translate(0.1, 0) spins the whole frame, .blur([8, 0]) smears around the ring and .blur([0, 8]) along it.\nBoth resamples belong to the call, so the span between them knows x is an angle and wraps at the seam — a hand-rolled .polar() pair can't. The center is one pixel stretched across a whole row, so expect a starburst there."],
+  polar: ['.polar({ inverse })', "Texture: the one-way coordinate change, as an effect. Naked, it unrolls the frame into angle × radius (a ring chart, rings become bands). With inverse: true it reads the image as if it already were angle × radius and wraps it into a disc — a horizon becomes a little planet.\nFor treating an image radially you want .radial(s => ...), which is this pass either side of your fn."],
   edge: ['.edge({ strength, spread })', 'Texture: Sobel edge magnitude (grayscale).'],
   slope: ['.slope({ strength, spread })', 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
   normalMap: ['.normalMap({ strength, spread })', 'Texture: tangent-space normal map from luma height.'],
@@ -457,6 +459,9 @@ const METHOD_KEY_DOCS = {
   kaleido: {
     rotate: 'Spins the fold pattern, in radians. Animate it for the turning-kaleidoscope look.',
   },
+  polar: {
+    inverse: 'false (default) unrolls the frame into angle × radius. true goes the other way, reading the image as angle × radius and wrapping it into a disc. Takes a fn of t, so it can flip mid-set.',
+  },
   edge: {
     strength: 'Multiplies the detected edges. Default 1. Push to 3-4 before .threshold() for clean line art.',
     spread: 'How many pixels apart the samples sit. Default 1; larger finds chunkier, softer edges.',
@@ -602,7 +607,7 @@ const methodKinds = {
   geo: 'position rotation scale align shadow noise instance material color sample normal out',
   light: 'position target out',
   inst: 'position rotation scale align color material',
-  texture: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
+  texture: `mirror kaleido radial polar edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
         remap lookup tint displace comp mask blur bloom when tile out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
@@ -623,7 +628,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 // .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
 export const CALLBACK_KIND = {
   instance: 'inst',
-  tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture',
+  tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture',
   displace: 'texture', remap: 'texture', lookup: 'texture',
 };
 
