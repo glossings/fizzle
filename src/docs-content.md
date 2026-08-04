@@ -789,6 +789,17 @@ scene()
   — UV-space transform. Or the shorthands `.translate(x, y)`, `.rotate(v)`,
   `.scale(v)` — each takes `{ wrap }` as a trailing option. Translation is in
   UV units (1 = a full frame); scale zooms around center.
+- `.crop(w, h?, { center })` — keep the middle `w`×`h` and drop the rest to
+  black. Nothing is resampled: the picture stays the size it was and the black
+  closes in around it, the way `resolution()`'s own letterboxing does. It's
+  `.mask(constant('white').scale(0.5, { wrap: 'black' }))` with the rectangle
+  written in pixels.
+  Sizes above 1 count pixels of the frame's own grid — the numbers
+  `resolution()` was given, or the canvas as displayed when a sketch didn't set
+  one, so neither retina nor `quality()` moves the count. 0..1 is a fraction of
+  the frame instead, and `h` follows `w` when it's left out. Sizes and `center`
+  all take fns of `t`; keep an animated pixel size on its own side of 1, since
+  crossing it swaps which reading applies.
 - `.mirror({ axis: 'x'|'y'|'both', flip })` — reflect one half onto the other.
 - `.kaleido(sides, { rotate })` — polar kaleidoscope fold.
 - `.radial(s => ...)` — run the fn in polar space (see below).

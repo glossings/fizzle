@@ -125,6 +125,7 @@ export const METHODS = {
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. Cells keep the color of the image under them until you name one.\nchars is a set name — 'ascii', 'dense', 'blocks', 'numbers', 'letters', 'binary', 'dots' — or any string of your own, ordered dark→bright. Contrast decides how much of the set gets used, so .levels() ahead of it is the real dial."],
   transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v).\ntranslate, scale and rotate each take a texture in place of a number and become per-pixel: two-component slots read the map's R and G, scalar ones its luma, and { map, amount, mid } scales and biases what comes back. .displace() is this pass with mid: 0.5."],
+  crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to black. Nothing is resampled — the picture stays the size it was and the black closes in around it, so this is .mask() against a white rectangle, with the rectangle written in pixels.\nSizes above 1 are pixels of the frame's own grid: the numbers resolution() was given, or the canvas as displayed when a sketch didn't set one. Neither retina nor quality() moves the count. 0..1 is a fraction of the frame instead, and h defaults to w — .crop(400) is a 400px square, .crop(0.5) the middle half either way. Sizes and center all take fns of t, so the window can breathe and pan; keep an animated pixel size above 1, since crossing it hands the number to the other reading."],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t.\nbarrel, twist, zoom and center also take a texture, which makes the lens vary across the frame — luma for the scalars, R/G for center."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch, and it takes a fn of t.\namount, angle and center also take a texture, which makes the split vary across the frame — luma for the scalars, R/G for center."],
   mask: ['.mask(mask, fn?)', 'Texture: without fn, multiply by the mask\'s luma (cutout). With fn, apply it only where the mask is bright: .mask(circle(), s => s.displace(...)) displaces inside the circle only. Mask and fn both accept fn-of-chain.'],
@@ -498,6 +499,9 @@ const METHOD_KEY_DOCS = {
     rotate: 'Rotation about the center, in radians. Default 0. A texture here turns each pixel by its own angle, and since a rotation keeps the radius, everything slides along concentric circles — the map decides how far around, never how far out.',
     wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'black'. Default 'clamp'.",
   },
+  crop: {
+    center: '[x, y] the window sits on, in UV, 0..1 from bottom-left. Default [0.5, 0.5]. Takes a fn of t, which slides the window over a picture that stays put — the pan of a locked-off camera.',
+  },
   warp: {
     barrel: 'Bulges the image outward like a CRT face. Default 0; 0.2-0.4 reads as a screen, negative pinches inward.',
     twist: 'Rotates by distance from center, in radians — the middle holds still and the edges spiral. Default 0.',
@@ -608,7 +612,7 @@ const methodKinds = {
   light: 'position target out',
   inst: 'position rotation scale align color material',
   texture: `mirror kaleido radial polar edge slope normalMap levels add mul contrast saturation gamma hue
-        posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
+        posterize pixellate ascii transform warp chroma translate rotate scale crop threshold invert
         remap lookup tint displace comp mask blur bloom when tile out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,

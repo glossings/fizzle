@@ -551,6 +551,40 @@ const SPECS = {
     },
   },
 
+  // Keep a window of the frame and drop the rest. Nothing is resampled: the
+  // picture stays exactly where it was and the black closes in around it, the
+  // same way resolution()'s letterboxing does. It's .mask() against a white
+  // rectangle, with the rectangle written in pixels.
+  crop: {
+    extras: { uSize: [1, 1], uCenter: [0.5, 0.5] },
+    frag: `
+      void main() {
+        vec2 inside = step(abs(vUv - uCenter), uSize * 0.5);
+        gl_FragColor = texture2D(tex0, vUv) * inside.x * inside.y;
+      }`,
+    update(u, p, t, ctx) {
+      // A size > 1 counts pixels of the frame's own grid — resolution()'s
+      // numbers when the sketch set them, the canvas as displayed otherwise.
+      // Both are what's on screen, and neither retina nor quality() moves them,
+      // unlike the drawing buffer. <= 1 is already the fraction the shader wants.
+      const el = ctx.renderer.domElement;
+      const grid = ctx.res ?? [el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight];
+      const frac = (v, px) => {
+        // a size that isn't a number would reach the uniform as NaN, and every
+        // comparison against NaN is false — an all-black frame with no clue why
+        if (!Number.isFinite(v)) {
+          warn('crop: expected a number (or a fn of t) for the size — the crop is skipped');
+          return 1;
+        }
+        return Math.max(0, v > 1 ? v / Math.max(1, px) : v);
+      };
+      const w = resolve(p.w ?? 1, t);
+      u.uSize.value.set(frac(w, grid[0]), frac(resolve(p.h ?? w, t), grid[1]));
+      const c = par(p.center, [0.5, 0.5]);
+      u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
+    },
+  },
+
   // radial UV warp — barrel/pincushion, twist, zoom. displace() can't express
   // this: nothing in the toolkit *generates* a radial vector field.
   warp: {
@@ -1163,6 +1197,13 @@ export class TextureOp {
   }
   rotate(v = 0, o = {}) { return this._n('transform', { rotate: v, ...o }); }
   scale(v = 1, o = {}) { return this._n('transform', { scale: v, ...o }); }
+  // .crop(400, 300) — keep the middle 400×300 pixels, black around it. A size
+  // <= 1 is a fraction of the frame instead, and one size alone squares it.
+  crop(w = 1, h, o = {}) {
+    // options object in the height slot: .crop(400, { center })
+    if (h !== null && typeof h === 'object') { o = h; h = undefined; }
+    return this._n('crop', { w, h, ...o });
+  }
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
   invert() { return this._n('invert'); }
   remap(map) {
@@ -1696,6 +1737,9 @@ export function renderTextures(engine) {
     t: engine.time,
     w: size.x,
     h: size.y,
+    // the grid a sketch counts in when it set one — the drawing buffer above is
+    // that times quality(), which is a perf dial and must not move a framing
+    res: engine.resolution,
     aspect: size.x / size.y,
     sceneTex: needsScene ? st.sceneRT.texture : null,
     sceneDepthTex: needsDepth ? st.sceneRT.depthTexture : null,
