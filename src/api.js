@@ -1134,8 +1134,22 @@ export function makeApi(engine) {
       if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed = 0 } = freq);
       return sig((t) => valueNoise(t * resolve(freq, t) + seed * 137.31));
     },
-    // lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth()
-    sig: (fn) => sig((t) => resolve(fn, t)),
+    // Pointer position as a signal, -1..1 with 0 at the center — the range a
+    // .pos() wants, so mouse() drops straight into one. 'down' is a 1/0 gate
+    // (feed it .smooth() for a ramp, .counter() to step on clicks). The
+    // projector window reports its own pointer, so this follows the visuals.
+    mouse(axis = 'x') {
+      const key = String(axis).toLowerCase();
+      if (!['x', 'y', 'down'].includes(key)) {
+        warn(`mouse: no axis '${axis}' — x, y or down; using x`);
+        return sig(() => engine.pointer.x);
+      }
+      return sig(() => engine.pointer[key]);
+    },
+    // lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth().
+    // Bare sig() is t itself — the seconds-based phase source, so
+    // sig().sin().range(0, 10) is a 1 Hz oscillation over 0..10.
+    sig: (fn = (t) => t) => sig((t) => resolve(fn, t)),
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },

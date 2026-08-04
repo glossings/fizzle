@@ -57,7 +57,8 @@ export const GLOBALS = {
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and analysed like audio(): it returns its level as a signal, so chain .kicks/.lowpass/.smooth/etc. Empty call = picker; drag a file in to import. ctrl+r or restartMedia() rewinds by hand.'],
   restartMedia: ['restartMedia(name?)', 'Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute; ctrl+r does the same from the keyboard.'],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() texture. Positional rand(freq, seed) also works.\nrand().beat(4).mul(4).round() = random 0..4 per bar; rand().hold(audio().kicks()) = a new value per kick.'],
-  sig: ['sig(fn)', 'Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.'],
+  sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.\nBare sig() is t itself — the seconds-based phase source beat() is the tempo-synced version of. sig().sin() is a 1 Hz LFO over 0..1, sig().mul(0.5).sin().range(0, 10) a slower one over 0..10."],
+  mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up — the range .pos() wants, so .pos(mouse('x'), mouse('y'), 0) tracks the cursor directly. Default axis is x.\nmouse('down') is a 1/0 gate: .smooth(0.2) ramps it, .counter() steps on clicks, and it drives .when() like any other gate. Reads the picture rather than the page, so the letterbox bars and the projector window both land where you'd expect.\nIt's the one signal that isn't 0..1 — .range(0, 10, { from: [-1, 1] }) rescales it."],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
@@ -89,6 +90,10 @@ export const METHODS = {
   add: ['.add(v)', 'Texture: add v to every pixel (scalar or [r, g, b]; negative darkens) · audio signal: plain addition/offset.\nA texture in place of v is read as RGB, so the offset is per pixel and per channel — .add(map) is an additive comp with the range under your control.'],
   mul: ['.mul(v)', "Texture: multiply every pixel by v (scalar or [r, g, b]) · audio signal: plain gain.\nA texture in place of v is read as RGB, so the gain is per pixel and per channel — .mul(circle({ soft: 0.3 })) is a vignette, .mul(map) a colored mask."],
   pow: ['.pow(v)', 'Audio signal: raise to a power — <1 expands quiet detail, >1 emphasizes peaks.'],
+  sub: ['.sub(v)', 'Signal: subtraction/offset. v may be a number, a fn of t or another signal.'],
+  div: ['.div(v)', 'Signal: division. Worth having over .mul(1 / v) because v can move — .div(audio().add(1)) ducks with the level. A divisor at 0 is floored rather than returning Infinity.'],
+  range: ['.range(min, max, { from, to })', "Signal: rescale to min..max. The input is taken as 0..1 — what the shapers, rand() and audio() all produce — so audio().range(1, 4) is the usual .mul(3).add(1) said once.\nGive from for the signals that aren't 0..1: mouse().range(0, 10, { from: [-1, 1] }), sig(t => Math.sin(t)).range(0, 10, { from: [-1, 1] }). .range({ from, to }) names both spans instead of the positional pair. Every bound takes a fn of t.\nIt doesn't clamp — an input past its from span lands past min..max. Follow with .clamp() to fence it."],
+  clamp: ['.clamp(lo = 0, hi = 1)', 'Signal: limit to lo..hi without rescaling — the fence .range() deliberately leaves off. Both bounds take fns of t.'],
   smooth: ['.smooth(up, down?)', 'Audio signal: exponential lag (one-pole lowpass on the value), time constants in seconds. Two args = separate attack/release — fast up + slow down makes a nice envelope.'],
   kicks: ['.kicks({ threshold: 1.5, decay: 6, floor: 0.05 })', 'Audio signal: onset detector — 1 when the value jumps past threshold × its own moving average, exponential decay after. audio().bandpass(30, 160).kicks() for kick drums; move the band for snares/hats.'],
   lowpass: ['.lowpass(hz)', "Audio signal: energy below hz (0..1) from the input's spectrum — bass level."],
@@ -108,6 +113,7 @@ export const METHODS = {
   floor: ['.floor()', 'Signal: round down to an integer.'],
   ceil: ['.ceil()', 'Signal: round up to an integer.'],
   abs: ['.abs()', 'Signal: absolute value.'],
+  tint: ['.tint(color, { bg })', "Texture: recolor by brightness — black becomes bg, white becomes color, everything between mixes. The answer to \"I have a white image and I want it in my color\": edge().tint('#ff00ff') is magenta line art on black.\ncolor and bg take every color form, fns of t included, so .tint(beat(4).counter().select(palette)) recolors on the bar. For more than two stops it's .lookup(ramp) — this is that with the ramp spelled inline."],
   when: ['.when(cond, s => ...)', 'Texture: per-frame switch — while cond >= 0.5 the chain becomes fn(chain), otherwise it passes through. E.g. .when(audio().gte(0.3), s => s.kaleido(6)). Only the active branch renders.'],
   contrast: ['.contrast(v)', 'Texture: contrast around mid-gray (1 = unchanged). A texture in place of v sets it per pixel.'],
   saturation: ['.saturation(v)', 'Texture: 0 = grayscale, 1 = unchanged, >1 boosts. A texture in place of v sets it per pixel.'],
@@ -464,6 +470,13 @@ const METHOD_KEY_DOCS = {
     gamma: 'Default 1. Below 1 lifts the shadows, above 1 crushes them.',
     hue: 'Rotation in turns: 0.5 is the opposite color, 1 a full lap. Default 0.',
   },
+  range: {
+    from: 'The span the incoming signal actually covers, as [lo, hi]. Default [0, 1], which is what every shaper, rand() and audio() produce. Raw trigonometry and mouse() are [-1, 1].',
+    to: 'The span to map onto, as [lo, hi] — the same thing the two positional arguments say, for when naming both ends reads better. Default [min, max].',
+  },
+  tint: {
+    bg: "What black in the source becomes. Default '#000000', so a white-on-black image keeps its background and only the marks take the color.",
+  },
   kicks: {
     threshold: 'How far above its own moving average the level must jump to fire. Default 1.5 — lower catches more hits, higher only the hardest.',
     decay: 'How fast the 1 falls back to 0, per second. Default 6; lower leaves a longer tail to ride.',
@@ -577,7 +590,7 @@ const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder icosa model text3d',
   light: 'ambient directional point spot hemi',
   texture: 'scene depth input constant ramp circle video videofile imagefile imageseq noise voronoi text',
-  signal: 'beat audio audiofile rand sig',
+  signal: 'beat audio audiofile rand sig mouse',
 };
 
 const methodKinds = {
@@ -586,9 +599,9 @@ const methodKinds = {
   inst: 'pos rotate scale align color material',
   texture: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
-        remap lookup displace comp mask blur bloom when tile out`,
-  signal: `add mul pow round floor ceil abs gte lte counter select sin tri saw sqr beat hold
-           kicks smooth lowpass highpass bandpass`,
+        remap lookup tint displace comp mask blur bloom when tile out`,
+  signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
+           sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
 };
 
 export const GLOBAL_KIND = {};

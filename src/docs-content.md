@@ -711,7 +711,20 @@ geometry.
 
 ## color & filters
 
-- `.add(v)` / `.mul(v)` — per-pixel math; scalar or `[r, g, b]`, negative `add` darkens.
+- `.add(v)` / `.mul(v)` — per-pixel math; scalar or `[r, g, b]`, negative `add`
+  darkens. A color works in either (`.mul('#ff00ff')` is a multiply tint).
+- `.tint(color, { bg })` — recolor by brightness: black becomes `bg`, white
+  becomes `color`. This is the one to reach for when a pass has handed you a
+  white-on-black image — `edge()`, `text()`, `.threshold()`, a mask — and you
+  want it in your own color rather than gray:
+
+  ```js
+  scene().edge({ strength: 2 }).tint('#ff00ff', { bg: '#120018' }).out()
+  ```
+
+  Both colors take fns of `t` and signals, so `.tint(beat(4).counter().select(palette))`
+  recolors on the bar. More than two stops is `.lookup(ramp)` — `.tint()` is
+  that with the ramp written inline.
 - `.contrast(v)` · `.saturation(v)` · `.gamma(v)` — 1 = unchanged. Or combined: `.levels({ contrast, saturation, gamma, hue })`.
 - `.hue(v)` — hue rotation in turns: `.hue(0.5)` flips the palette, `.hue(t => t * 0.1)` drifts it.
 - `.posterize(steps)` — quantize values · `.pixellate(x, y?)` — quantize position.
@@ -1202,7 +1215,19 @@ icosa({ radius: 1 })
   to 1 when the value leaps past `threshold ×` its own moving average, then
   decays. Chain after a band — `.bandpass(30, 160).kicks()` for kick drums,
   `.highpass(5000).kicks()` for hats.
-- `.add` `.mul` `.pow` — arithmetic (`pow < 1` lifts quiet detail).
+- `.add` `.sub` `.mul` `.div` `.pow` — arithmetic (`pow < 1` lifts quiet
+  detail). Each takes a number, a fn of `t` or another signal, which is why
+  `.div(v)` earns its place over `.mul(1 / v)`: the divisor is allowed to move.
+- `.range(min, max)` — rescale, and the method that removes most of the
+  arithmetic above. Signals are 0..1 by convention (that's what `audio()`,
+  `rand()` and every shaper produce), so `.range()` reads the level as 0..1 and
+  hands back the span you actually want: `audio().range(1, 4)` instead of
+  `.mul(3).add(1)`. `.clamp(lo, hi)` fences a value without rescaling it —
+  `.range()` deliberately lets an out-of-span input overshoot.
+
+  For the signals that aren't 0..1 — `mouse()`, and raw trigonometry — name the
+  input span: `.range(0, 10, { from: [-1, 1] })`. `.range({ from, to })` spells
+  both ends out when that reads better than the positional pair.
 
 The sidebar's **audio out** setting passes the captured input through to an
 output device — handy for monitoring an interface channel. Mind feedback:
@@ -1263,6 +1288,52 @@ sphere({ res: 96 })
 `sig(fn)` lifts any `t => ...` into a chainable signal when you want the
 processing methods on it: `sig(t => Math.sin(t)).smooth(0.2)`. Free-running
 LFOs don't need it — `t => Math.sin(t)` is already idiomatic everywhere.
+
+Bare `sig()` is `t` itself: the seconds-based phase source that `beat()` is the
+tempo-synced version of. That's usually the shorter road to a shaped
+oscillation, because the shapers are already normalized — `sig().sin()` is a
+1 Hz LFO over 0..1, so ranging it needs no arithmetic about amplitude:
+
+```js
+sig().sin().range(0, 10)              // 0..10, once a second
+sig().mul(0.25).sin().range(0, 10)    // the same, every four seconds
+sig(t => Math.sin(t)).range(0, 10, { from: [-1, 1] })  // raw Math.sin, said the long way
+```
+
+The last line is why `.sin()` on a signal is a *waveshaper* (0..1 out) rather
+than `Math.sin`: the house convention keeps every source in the same span, so
+`.range()` never has to be told what it's being handed.
+
+## mouse
+
+`mouse()` is the pointer as a signal — **-1..1 with 0 at the center**, y up.
+That's the range a `.pos()` wants, so it goes straight in:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).pos(3, 5, 2).out()
+
+sphere({ radius: 0.6, res: 48 })
+  .pos(mouse('x').mul(4), mouse('y').mul(2.5), 0)
+  .color('#4fd1c5')
+  .out()
+```
+
+- `mouse('x')` / `mouse('y')` — one axis; bare `mouse()` is x.
+- `mouse('down')` — a 1/0 gate while a button is held. `.smooth(0.2)` turns it
+  into a ramp, `.counter()` steps a value per click, and it drives `.when()`
+  like any other gate.
+
+It reads the *picture*, not the page: positions normalize against the rendered
+image, so `resolution()`'s letterbox bars don't skew it, and the projector
+window reports its own pointer — put the visuals on the second screen and the
+mouse still follows them.
+
+It's the one signal that isn't 0..1, so `.range()` needs telling:
+`mouse('x').range(0, 10, { from: [-1, 1] })`.
+
+Mouse-driven parameters are laggy by nature — `.smooth(0.08)` on the way in
+costs nothing and takes the stutter out of a hand-held move.
 
 ## escape hatches
 

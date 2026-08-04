@@ -196,8 +196,36 @@ export function sig(fn, ae = null) {
   const f = (t) => fn(t);
   const mk = (g) => sig(g, ae);
   f.add = (v = 0) => mk((t) => f(t) + resolve(v, t));
+  f.sub = (v = 0) => mk((t) => f(t) - resolve(v, t));
   f.mul = (v = 1) => mk((t) => f(t) * resolve(v, t));
+  // a moving divisor is why this can't be .mul(1 / v); the floor keeps a zero
+  // one from handing Infinity to a uniform, the same guard ramp's period uses
+  f.div = (v = 1) => mk((t) => {
+    const d = resolve(v, t);
+    return f(t) / (Math.abs(d) > 1e-6 ? d : (Math.sign(d) || 1) * 1e-6);
+  });
   f.pow = (v = 1) => mk((t) => Math.pow(Math.max(f(t), 0), resolve(v, t)));
+  // Rescale to a useful span. The input is assumed 0..1 — what every shaper,
+  // rand() and audio() already produce — so `from` is only there for the
+  // signals that aren't: raw trigonometry (-1..1) and mouse().
+  // .range({ from, to }) names both ends when the positional pair reads worse.
+  f.range = (min = 0, max = 1, o = {}) => {
+    // .range([lo, hi]) is the same span the two positional args name — reading
+    // it as an options object instead would make the call a silent no-op
+    if (Array.isArray(min)) { o = { ...o, to: min }; }
+    else if (min !== null && typeof min === 'object') { o = min; min = 0; max = 1; }
+    const [f0, f1] = o.from ?? [0, 1];
+    const [t0, t1] = o.to ?? [min, max];
+    return mk((t) => {
+      const a = resolve(f0, t), span = resolve(f1, t) - a;
+      const u = span === 0 ? 0 : (f(t) - a) / span; // a zero-width source maps to the low end
+      const lo = resolve(t0, t);
+      return lo + u * (resolve(t1, t) - lo);
+    });
+  };
+  // limit without rescaling — .range() is free to overshoot, this is the fence
+  f.clamp = (lo = 0, hi = 1) =>
+    mk((t) => Math.min(Math.max(f(t), resolve(lo, t)), resolve(hi, t)));
   f.round = () => mk((t) => Math.round(f(t)));
   f.floor = () => mk((t) => Math.floor(f(t)));
   f.ceil = () => mk((t) => Math.ceil(f(t)));

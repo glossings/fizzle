@@ -43,6 +43,12 @@ export class Engine {
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
 
     this.bpm = 120;                 // tempo for beat(), set in the sidebar
+    // Pointer as a control source, in the render's own space: -1..1 with 0 at
+    // the center and y up, clamped so a pointer out over the sidebar or the
+    // letterbox bars reads as the edge rather than flying past it. Written from
+    // the canvas rect below and from the projector's stage rect over there, so
+    // whichever window the pointer is in drives the same mouse().
+    this.pointer = { x: 0, y: 0, down: 0 };
 
     this.audio = null;              // AudioEngine, created lazily by audio()
     this.audios = new Map();        // named audio captures, shared across re-runs
@@ -71,6 +77,16 @@ export class Engine {
     this._textureState = {};           // persistent RTs/quad (feedback survives re-runs)
 
     window.addEventListener('resize', () => this.resize());
+    window.addEventListener('pointermove', (e) =>
+      this.setPointer(e.clientX, e.clientY, canvas.getBoundingClientRect()));
+    // only presses on the picture count — clicking into the editor or the
+    // sidebar would otherwise fire the gate mid-edit
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target === canvas) this.pointer.down = 1;
+    });
+    for (const ev of ['pointerup', 'pointercancel']) {
+      window.addEventListener(ev, () => { this.pointer.down = 0; });
+    }
     this.resize();
 
     // a throw escaping the loop callback would end the loop for good (three
@@ -78,6 +94,15 @@ export class Engine {
     this.renderer.setAnimationLoop(() => {
       try { this.tick(); } catch (e) { warn(e.message ?? String(e)); }
     });
+  }
+
+  // A pointer position against the rect the render occupies in whichever window
+  // reported it — the canvas here, the mirrored stage in the projector.
+  setPointer(clientX, clientY, rect) {
+    if (!rect?.width || !rect.height) return;
+    const unit = (v) => Math.min(1, Math.max(-1, v * 2 - 1));
+    this.pointer.x = unit((clientX - rect.left) / rect.width);
+    this.pointer.y = -unit((clientY - rect.top) / rect.height); // page y is down, ours is up
   }
 
   resize() {

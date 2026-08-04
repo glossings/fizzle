@@ -9,7 +9,10 @@ import { initProjector } from './projector.js';
 import DEFAULT_SKETCH from '../sketches/examples/welcome.js?raw';
 
 const engine = new Engine(document.getElementById('gl'));
-const projector = initProjector(document.getElementById('gl'), () => engine.resolution);
+const projector = initProjector(document.getElementById('gl'), () => engine.resolution, {
+  move: (x, y, rect) => engine.setPointer(x, y, rect),
+  down: (v) => { engine.pointer.down = v; },
+});
 const api = makeApi(engine);
 const status = document.getElementById('status');
 // the asset browser an empty hdri() / .material() opens; builds its DOM lazily

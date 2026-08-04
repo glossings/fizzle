@@ -36,10 +36,19 @@ const par = (v, d) => (v == null || typeof v.tex === 'number' ? d : v);
 // means "already in working space": no conversion.
 const setColor = (target, v, t) => writeColor(target, v, t, THREE.LinearSRGBColorSpace);
 
+// A per-channel value: one number broadcast to all three, an [r, g, b], or a
+// color in any of the forms color.js takes — .mul('#ff00ff') is a tint, and
+// without the last branch it would quietly hand the uniform three strings.
+// (A hex *number* stays a scalar: .mul(2) has to keep meaning gain.)
+const _vecColor = new THREE.Color();
 const setVec3 = (target, v, t) => {
   v = resolve(v, t);
   if (Array.isArray(v)) target.set(resolve(v[0], t), resolve(v[1], t), resolve(v[2], t));
-  else target.set(v, v, v);
+  else if (typeof v === 'number') target.set(v, v, v);
+  else {
+    setColor(_vecColor, v, t); // Vector3 target, Color source — no .copy() between them
+    target.set(_vecColor.r, _vecColor.g, _vecColor.b);
+  }
 };
 
 const VERT = /* glsl */ `
@@ -452,6 +461,22 @@ const SPECS = {
         float l = clamp(dot(texture2D(tex0, vUv).rgb, LUMA), 0.0, 1.0);
         gl_FragColor = texture2D(tex1, vec2(l, 0.5));
       }`,
+  },
+
+  // Luma between two colors — the two-stop case of lookup(), which is what a
+  // white-on-black source (edge, text, threshold, a mask) always wanted and had
+  // to build a ramp to say.
+  tint: {
+    extras: { uColor: '#ffffff', uBg: '#000000' },
+    frag: `
+      void main() {
+        float l = clamp(dot(texture2D(tex0, vUv).rgb, LUMA), 0.0, 1.0);
+        gl_FragColor = vec4(mix(uBg, uColor, l), 1.0);
+      }`,
+    update(u, p, t) {
+      setColor(u.uColor.value, p.color ?? '#ffffff', t);
+      setColor(u.uBg.value, p.bg ?? '#000000', t);
+    },
   },
 
   // tex0 = dry chain, tex1 = mask (luma), tex2 = wet chain (when blending)
@@ -1073,6 +1098,7 @@ export class TextureOp {
     const r = this._texture(ramp, 'lookup');
     return r ? this._n('lookup', {}, [r]) : this;
   }
+  tint(color = '#ffffff', o = {}) { return this._n('tint', { color, ...o }); }
   // Sugar over .transform({ translate: map }): the only thing displace adds is
   // the mid 0.5 bias, without which an unsigned map only ever pushes one way.
   displace(map, amount = 0.1, o = {}) {

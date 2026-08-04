@@ -151,7 +151,10 @@ function fitWindow(win, res) {
   win.resizeTo(Math.round(w * room) + chromeW, Math.round(h * room) + chromeH);
 }
 
-export function initProjector(canvas, getResolution) {
+// onPointer: { move(clientX, clientY, rect), down(0|1) } — the projector reports
+// its own pointer so mouse() keeps working when the visuals are the window
+// you're actually looking at.
+export function initProjector(canvas, getResolution, onPointer) {
   let win = null;
   let view = null;
   let codeEl = null;
@@ -274,6 +277,14 @@ export function initProjector(canvas, getResolution) {
     });
     win.addEventListener('dblclick', fullscreen);
     win.addEventListener('resize', layoutStage);
+    // mouse() over here too: the stage is the mirrored image and nothing else,
+    // so its rect normalizes to the same -1..1 the main canvas does
+    win.addEventListener('pointermove', (e) =>
+      onPointer?.move(e.clientX, e.clientY, visual.getBoundingClientRect()));
+    win.addEventListener('pointerdown', () => onPointer?.down(1));
+    for (const ev of ['pointerup', 'pointercancel']) {
+      win.addEventListener(ev, () => onPointer?.down(0));
+    }
     // a reload of the main window orphans the stream; don't leave a frozen frame
     win.addEventListener('pagehide', () => { if (win) close(); });
     fitWindow(win, getResolution?.());

@@ -154,12 +154,6 @@ already has, so they want `res`.
 Chain methods go next to `.smooth()` at
 [src/audio.js:283](../src/audio.js#L283), where each is attached onto the signal fn.
 
-[ ] `.range(lo, hi)` — map 0..1 to lo..hi. `.clamp(lo, hi)` — limit to the
-  range, no scaling. Both are `.mul().add()` by hand today, everywhere.
-[ ] `mouse()` — pointer position as a signal, normalized -1..1 with 0 at
-  center. `mouse('x')` / `mouse('y')` for one axis; also want a `.down` gate.
-  Must read from the canvas, and keep working in the projector window
-  ([src/projector.js](../src/projector.js)).
 [ ] `.read(texture, x, y)` — sample one pixel of a texture back down into a signal, so
   an image can drive geometry. `x`/`y` in 0..1, returns luma (or a channel).
   The only GPU→CPU bridge in the app. Real cost: `readRenderTargetPixelsAsync`
