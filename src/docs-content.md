@@ -100,6 +100,11 @@ address bar is always a shareable link — copy it, or use the sidebar's
 *copy link* button to include unsaved edits. Opening a link loads its code
 straight into the editor, and a refresh recovers whatever last ran.
 
+Because each run is a real history entry, the browser's **back and forward
+buttons step through the sketches you actually ran** — a coarse undo above the
+editor's own `ctrl + z`, which still walks your keystrokes untouched. Only runs
+that changed something get an entry, so back always lands somewhere different.
+
 ## time is a parameter
 
 The core idiom: **every numeric parameter accepts a function of time.**

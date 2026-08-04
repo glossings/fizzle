@@ -3,7 +3,7 @@
 // be git-versioned; when no server API is available (e.g. a static build)
 // they fall back to localStorage. Examples are bundled read-only.
 
-import { codeToHash } from './share.js';
+import { syncHash } from './share.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
@@ -257,8 +257,9 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   });
   $('#sb-saveas').addEventListener('click', () => saveAs(current.name));
   $('#sb-share').addEventListener('click', async () => {
-    // encode what's in the editor right now (may be newer than the last run)
-    history.replaceState(null, '', '#' + (await codeToHash(getCode())));
+    // encode what's in the editor right now (may be newer than the last run);
+    // sharing isn't a navigation, so it replaces rather than pushes
+    await syncHash(getCode());
     const btn = $('#sb-share');
     try {
       await navigator.clipboard.writeText(location.href);

@@ -30,6 +30,34 @@ export async function codeToHash(code) {
   }
 }
 
+// The address bar mirrors the code, so it's always a shareable link and a
+// refresh recovers the last-run sketch. Explicit runs push an entry instead of
+// replacing one, which is what makes back/forward step through the sketches you
+// actually ran — coarser than the editor's own ctrl+z, and a separate stack.
+let current = null; // what the address bar will say once `pending` settles
+let pending = Promise.resolve(); // await before reading location.href
+let serial = 0; // encoding is async; only the newest result may land
+
+export function syncHash(code, push = false) {
+  // unchanged code must not push: it would cost a back-press and land nowhere
+  if (code === current) return pending;
+  current = code;
+  const mine = ++serial;
+  pending = codeToHash(code).then((h) => {
+    if (mine !== serial) return; // a newer sync overtook this encode
+    history[push ? 'pushState' : 'replaceState'](null, '', '#' + h);
+  });
+  return pending;
+}
+
+// A back/forward landed on `code`: adopt it as the address bar's contents
+// without writing history, so the run that follows doesn't push the entry we
+// just navigated away from straight back on.
+export function adoptHash(code) {
+  current = code;
+  serial++; // and drops any encode still in flight from before the navigation
+}
+
 export async function codeFromHash(hash = location.hash) {
   const m = /^#(z|c)=([\w-]+)$/.exec(hash);
   if (!m) return null;

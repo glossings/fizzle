@@ -1,8 +1,9 @@
+import { Transaction } from '@codemirror/state';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor } from './editor.js';
 import { initSidebar } from './sidebar.js';
-import { codeToHash, codeFromHash } from './share.js';
+import { syncHash, adoptHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
@@ -17,12 +18,6 @@ const api = makeApi(engine);
 const status = document.getElementById('status');
 // the asset browser an empty hdri() / .material() opens; builds its DOM lazily
 const polyhaven = initPolyhaven();
-
-// every run mirrors the code into the URL hash, so the address bar is always a
-// shareable link and a refresh recovers the last-run code (even unsaved)
-function syncHash(code) {
-  codeToHash(code).then((h) => history.replaceState(null, '', '#' + h));
-}
 
 function flash(msg) {
   status.textContent = msg;
@@ -42,8 +37,10 @@ window.addEventListener('fizzle-warning', (e) => {
   setTimeout(() => { if (status.textContent === msg) status.className = ''; }, 5000);
 });
 
-function run(code) {
-  syncHash(code);
+// `push` leaves a history entry behind: true for the runs a person asked for,
+// false for the ones the app did on their behalf (page load, live color drag).
+function run(code, push = false) {
+  syncHash(code, push);
   warned = false;
   const err = engine.run(code, api);
   if (err) {
@@ -73,7 +70,7 @@ function fillCall(fn, args) {
     const lineStart = doc.lastIndexOf('\n', m.index) + 1;
     if (doc.slice(lineStart, m.index).includes('//')) continue;
     view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${fn}(${args})` } });
-    run(view.state.doc.toString());
+    run(view.state.doc.toString(), true);
     return;
   }
   // nothing left to fill: edited away while the picker was open
@@ -173,7 +170,7 @@ function togglePause() {
 // explicit runs (ctrl+enter, loading a sketch) resume playback if paused
 function runResume(code) {
   engine.paused = false;
-  run(code);
+  run(code, true);
 }
 
 // dragging the color wheel fires rapidly; rebuild the patch at most ~8x/sec
@@ -185,9 +182,25 @@ function liveRun(code) {
 }
 
 let view;
-const setCode = (code) => {
-  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code } });
+// `undoable` false keeps the swap out of the editor's own undo stack — after a
+// back/forward, ctrl+z should undo your last edit, not the navigation.
+const setCode = (code, undoable = true) => {
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: code },
+    annotations: undoable ? [] : [Transaction.addToHistory.of(false)],
+  });
 };
+
+// Back/forward walk the sketches that were actually run. The URL is the whole
+// state, so there's nothing to restore but the code — but adopting it first is
+// what stops the run below from pushing the entry we just left back on.
+window.addEventListener('popstate', async () => {
+  const code = await codeFromHash();
+  if (code == null || !view) return;
+  adoptHash(code);
+  setCode(code, false);
+  runResume(code);
+});
 
 // Drop a snippet on its own line at the cursor and leave the cursor after it.
 // Shared by media drops and the material browser.

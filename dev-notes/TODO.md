@@ -19,7 +19,6 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 ## General
 
 [ ] Check user-friendliness of the code
-[ ] Actually visit webpages as code is edited so back/forward can be used to un/re-do
 
 ## Vertex displacement from a texture
 
