@@ -21,6 +21,7 @@ export const GLOBALS = {
   torus: ['torus({ radius, tube, res })', 'Torus geometry op.'],
   torusKnot: ['torusKnot({ radius, tube, res, p, q })', 'Torus knot geometry op.'],
   cylinder: ['cylinder({ radiusTop, radiusBottom, height, res })', 'Cylinder geometry op.'],
+  capsule: ['capsule({ radius, height, res })', 'Capsule geometry op — a cylinder with hemispherical caps, standing along Y. height is the straight middle only, so the shape is height + 2 * radius end to end.'],
   icosa: ['icosa({ radius, res })', 'Icosahedron geometry op — even triangle distribution, ideal for noise blobs.'],
   model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx — chain .position/.rotation/.scale/.noise/.instance/.material/.out() like any other shape.\nDrag a model in to import it (stored in the browser, survives reloads); an empty call opens a picker. name = filename, exact or substring.\nEvery mesh in the file merges into one geometry and its own materials are dropped, so shade it with .material()."],
 
@@ -42,7 +43,8 @@ export const GLOBALS = {
   input: ['input(name?)', "Texture source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a texture chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
   constant: ['constant(color)', "Texture generator: one flat color, whole frame. Hex, CSS name or [r, g, b], and a fn of t like any other color slot.\nThe thing to comp with when a wash is wanted rather than an image: .mask(depth(), s => s.comp(constant('#8a97a8'), 'over')) is haze."],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it.\nperiod is how much of the frame one cycle spans, so anything under 1 repeats it into bands, and shape waveshapes each cycle — the same four shapes signals have. ramp({ angle: Math.PI / 2, freq: 80, shape: 'tri' }) is scanlines, shape: 'sqr' is hard stripes, type: 'angular' a pinwheel, type: 'radial' rings. Animate phase to scroll them."],
-  circle: ['circle({ radius, soft, center, color, bg })', 'Texture generator: soft-edged disc. radius, soft and center each take a fn of t, or a texture for a value that varies across the frame — a texture in radius bends the rim into a blob.'],
+  circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (antialiased, not feathered — soft is what feathers it), or a ring once thickness cuts the middle back out. radius, thickness, soft and center each take a fn of t, or a texture for a value that varies across the frame — a texture in radius bends the rim into a blob.'],
+  ring: ['ring({ inner, outer, soft, center, color, bg })', "Texture generator: a hard-edged annulus — circle() addressed by its two edges, for when the hole is the point rather than the band. Everything else is circle()'s.\ninner and outer take fns of t; a texture belongs on circle({ radius, thickness }), since a map can't be subtracted into a width."],
   video: ['video(name?)', "Texture generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera, and the console lists the available sources on start. Permission prompt on first use; black until the stream is live."],
   videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Drag a file in to import it (stored in the browser, survives reloads); an empty call opens a picker and fills the name in. name = filename, exact or substring.\nctrl+r or restartMedia() rewinds everything by hand."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
@@ -296,6 +298,11 @@ const GLOBAL_KEY_DOCS = {
     height: 'Length along Y. Default 1.5.',
     res: 'Segments around and along. Default 48.',
   },
+  capsule: {
+    radius: 'Radius of the tube and of both caps. Default 0.5.',
+    height: 'Length of the straight middle section along Y. Default 1 — the whole capsule measures height + 2 * radius, so height: 0 is a sphere.',
+    res: 'Segments around the circumference. Default 48; the caps and the middle each get a quarter of it, which keeps the vertices evenly spaced for .noise().',
+  },
   icosa: {
     radius: 'Radius in world units. Default 1.',
     res: 'Subdivision level, 0..9 — a level, not a segment count, so it climbs fast. Default 8. Triangles stay evenly sized at any level, which is why this is the shape to .noise() into a blob.',
@@ -369,10 +376,19 @@ const GLOBAL_KEY_DOCS = {
   },
   circle: {
     radius: 'Radius in UV units, so 0.5 touches the frame edge. Default 0.25. A texture here is the radius at that pixel — noise({ freq: 3 }).mul(0.1).add(0.25) is a wobbling blob.',
-    soft: 'Width of the fade at the rim. Default 0.01, near-hard; 0.2 is a soft glow. A texture makes the rim crisp in places and vague in others.',
+    soft: 'Width of the fade at the rim, in UV units. Default 0 — a hard edge, antialiased to a pixel rather than left stepped. 0.05 is a visible feather, 0.2 a soft glow. A texture makes the rim crisp in places and vague in others.',
     center: '[x, y] in UV, 0..1 from bottom-left. Default [0.5, 0.5]. A texture takes x from red and y from green.',
     color: 'Color inside the disc. Default white.',
     bg: 'Color outside it. Default black.',
+    thickness: 'Width of the band, measured inward from the rim, leaving a hole in the middle. Unnamed is a solid disc, and so is any thickness at or past the radius; an explicit 0 is the other end — a band with no width left, which draws nothing. A texture here thins and fattens the band around its circumference, closing it where the map goes black.',
+  },
+  ring: {
+    inner: 'Radius of the hole, in UV units. Default 0.15. At or past outer the band has no width left and nothing is drawn, so animating inner up to outer closes the ring rather than filling it.',
+    outer: 'Radius of the rim, in UV units, so 0.5 touches the frame edge. Default 0.25.',
+    soft: "Width of the fade, applied to both edges. Default 0 — hard, antialiased to a pixel. A soft big enough to swallow the band is how a ring becomes a glowing hoop. Takes circle()'s texture too.",
+    center: '[x, y] in UV, 0..1 from bottom-left. Default [0.5, 0.5]. A texture takes x from red and y from green.',
+    color: 'Color of the band. Default white.',
+    bg: 'Color of the hole and everything outside. Default black.',
   },
   videofile: {
     speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t.',
@@ -601,9 +617,9 @@ if (import.meta.env?.DEV) {
 const names = (s) => s.trim().split(/\s+/);
 
 const globalKinds = {
-  geo: 'sphere box plane torus torusKnot cylinder icosa model text3d',
+  geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   light: 'ambient directional point spot hemi',
-  texture: 'scene depth input constant ramp circle video videofile imagefile imageseq noise voronoi text',
+  texture: 'scene depth input constant ramp circle ring video videofile imagefile imageseq noise voronoi text',
   signal: 'beat audio audiofile rand sig mouse',
 };
 

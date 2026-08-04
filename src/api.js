@@ -211,6 +211,12 @@ function buildGeometry(type, o = {}, extra = {}) {
       return new THREE.TorusKnotGeometry(o.radius ?? 1, o.tube ?? 0.3, (o.res ?? 64) * 2, o.res ?? 64, o.p ?? 2, o.q ?? 3);
     case 'cylinder':
       return new THREE.CylinderGeometry(o.radiusTop ?? 0.5, o.radiusBottom ?? 0.5, o.height ?? 1.5, o.res ?? 48, o.res ?? 48);
+    // a quarter of res on the caps and the middle keeps the vertex spacing
+    // even all the way round, which is what .noise() wants to displace
+    case 'capsule': {
+      const r = o.res ?? 48;
+      return new THREE.CapsuleGeometry(o.radius ?? 0.5, o.height ?? 1, Math.ceil(r / 4), r, Math.ceil(r / 4));
+    }
     case 'icosa':
       return new THREE.IcosahedronGeometry(o.radius ?? 1, o.res ?? o.detail ?? 8);
     case 'text3d': {
@@ -902,6 +908,7 @@ export function makeApi(engine) {
     torus: geo('torus'),
     torusKnot: geo('torusKnot'),
     cylinder: geo('cylinder'),
+    capsule: geo('capsule'),
     icosa: geo('icosa'),
     text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
 
@@ -1052,6 +1059,28 @@ export function makeApi(engine) {
     constant: (color) => new TextureOp(engine, 'constant', color?.color !== undefined ? color : { color }),
     ramp: (o) => new TextureOp(engine, 'ramp', o ?? {}),
     circle: (o) => new TextureOp(engine, 'circle', o ?? {}),
+    // the same shader as circle(), addressed by its two edges instead of by a
+    // radius and a thickness in from it — inner/outer is how you think about an
+    // annulus when the hole is the point
+    ring(o = {}) {
+      let outer = o.outer ?? 0.25;
+      let inner = o.inner ?? 0.15;
+      // the shader wants a width, which a texture in an edge can't be turned
+      // into — that pairing is what circle({ radius, thickness }) is for
+      if (outer instanceof TextureOp || inner instanceof TextureOp) {
+        warn('ring: inner/outer take numbers or fns of t — for a map, drive circle({ radius, thickness }) instead');
+        if (outer instanceof TextureOp) outer = 0.25;
+        if (inner instanceof TextureOp) inner = 0.15;
+      }
+      const width = (t) => Math.max(0, resolve(outer, t) - resolve(inner, t));
+      const { inner: _i, outer: _o, ...rest } = o;
+      return new TextureOp(engine, 'circle', {
+        ...rest,
+        radius: outer,
+        // a fn either side means the width moves, so it stays a fn of t
+        thickness: typeof outer === 'function' || typeof inner === 'function' ? width : width(0),
+      });
+    },
     noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),
     voronoi: (o) => new TextureOp(engine, 'voronoi', o ?? {}),
     text: (text, o) => new TextureOp(engine, 'textGen', { ...o, text }),

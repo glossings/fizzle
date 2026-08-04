@@ -176,21 +176,36 @@ const SPECS = {
   },
 
   circle: {
-    extras: { uCenter: [0.5, 0.5], uRadius: 0.25, uSoft: 0.01, uColA: '#ffffff', uColB: '#000000' },
+    // uThick < 0 is "no thickness named", i.e. a solid disc — which a width of
+    // 0 is not: that's a band with nothing left in it, and it draws nothing.
+    // The distinction is what lets ring()'s hole grow into its rim and close.
+    extras: { uCenter: [0.5, 0.5], uRadius: 0.25, uSoft: 0, uThick: -1, uColA: '#ffffff', uColB: '#000000' },
     // a texture in radius perturbs the rim per pixel: the disc stops being one
     // and becomes whatever blob the map describes
-    texParams: { radius: 'uRadius', soft: 'uSoft', center: 'uCenter' },
+    texParams: { radius: 'uRadius', soft: 'uSoft', center: 'uCenter', thickness: 'uThick' },
     frag: `
       void main() {
         float d = length((vUv - uCenter) * vec2(uAspect, 1.0));
-        float m = 1.0 - smoothstep(uRadius - uSoft, uRadius + uSoft, d);
+        // read once into locals: a texture-driven param is a fetch, and the
+        // #define would otherwise repeat it at every mention.
+        // The floor keeps a hard rim antialiased rather than stepped: under
+        // half a texel the smoothstep has no pixels left to fade across. d is
+        // measured in aspect-corrected space, where y is the unscaled axis, so
+        // uTexel.y is the one that means "a pixel" here.
+        float r = uRadius, sf = max(uSoft, uTexel.y * 0.5), th = uThick;
+        float m = 1.0 - smoothstep(r - sf, r + sf, d);
+        // thickness cuts the middle back out, measured in from the rim — and a
+        // thickness past the radius puts the inner edge behind the center,
+        // where there is nothing left to cut
+        if (th >= 0.0) m *= smoothstep(r - th - sf, r - th + sf, d);
         gl_FragColor = vec4(mix(uColB, uColA, m), 1.0);
       }`,
     update(u, p, t) {
       const c = par(p.center, [0.5, 0.5]);
       u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
       u.uRadius.value = resolve(par(p.radius, 0.25), t);
-      u.uSoft.value = resolve(par(p.soft, 0.01), t);
+      u.uSoft.value = resolve(par(p.soft, 0), t);
+      u.uThick.value = resolve(par(p.thickness, -1), t);
       setColor(u.uColA.value, p.color ?? '#ffffff', t);
       setColor(u.uColB.value, p.bg ?? '#000000', t);
     },

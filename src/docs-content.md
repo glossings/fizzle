@@ -186,6 +186,7 @@ Geometry ops start a chain; `.out()` builds the mesh and adds it to the scene.
 | `torus` | `radius: 1, tube: 0.35, res: 48` |
 | `torusKnot` | `radius: 1, tube: 0.3, res: 64, p: 2, q: 3` |
 | `cylinder` | `radiusTop/Bottom: 0.5, height: 1.5, res: 48` |
+| `capsule` | `radius: 0.5, height: 1, res: 48` — `height` is the middle only |
 | `icosa` | `radius: 1, res: 8` — even triangles, ideal for noise blobs |
 | `model` | `name, center: true, fit: 2` — an imported `.obj`/`.fbx` |
 
@@ -654,7 +655,16 @@ scene()
   flat colors). They're the four shapes signals have, because a ramp is the
   same 0..1 phase read across space instead of time. `phase` slides the sweep
   along itself, in cycles.
-- `circle({ radius, soft, center, color, bg })` — soft-edged disc.
+- `circle({ radius, thickness, soft, center, color, bg })` — a disc, hard-edged
+  by default (antialiased to a pixel, not feathered; `soft` is the dial that
+  feathers it). A `thickness` cuts the middle back out, measured inward from
+  the rim, leaving a band.
+- `ring({ inner, outer, soft, center, color, bg })` — the same shader addressed
+  by its two edges, for when the hole is the point rather than the band.
+  `ring({ inner: 0.2, outer: 0.25 })` and `circle({ radius: 0.25, thickness:
+  0.05 })` draw the same hoop; reach for whichever one the sketch is thinking
+  in. (A texture only goes in `circle`'s `radius`/`thickness` — a map can't be
+  subtracted into a width.)
 - `noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
   animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
   stacks detail layers; `lacunarity` is the frequency step per octave, `gain`
@@ -993,7 +1003,7 @@ The slots that take one:
 | `.chroma()` | `amount`, `angle`, `center` |
 | `.mirror()` | `flip` |
 | `.mul()` / `.add()` | the value itself |
-| `circle()` | `radius`, `soft`, `center` |
+| `circle()` | `radius`, `thickness`, `soft`, `center` |
 | `voronoi()` | `blend` |
 
 Two rules cover the whole set:

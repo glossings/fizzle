@@ -108,9 +108,11 @@ Each is one `three` constructor wired into `buildGeometry`
 ([src/api.js:835](../src/api.js#L835)). Keep the `res` convention the existing
 primitives use, since `.noise()` and the deformers need the subdivisions.
 
-[ ] `capsule({ radius, height, res })` — `CapsuleGeometry`.
-[ ] `ring({ inner, outer, res })` — `RingGeometry`, a flat annulus. `disc()` is
-  `inner: 0`; decide whether that's worth its own name.
+[ ] `ring({ inner, outer, res })` — `RingGeometry`, a flat annulus. Held: the
+  names went to the texture generators instead (`ring()` next to `circle()`,
+  which grew a `thickness`), and a *solid* ring — a hoop with depth, not a
+  flat washer — falls out of `cylinder` minus `cylinder` if the booleans below
+  land. Revisit after those; if they don't, `RingGeometry` is still five lines.
 [ ] `tube({ path, radius, res, closed })` — `TubeGeometry` sweeps a circle along
   a curve. Blocked on the `path()` API below — same question, so settle it once.
 [ ] `lathe({ profile, res })` — `LatheGeometry`, surface of revolution. Takes a
@@ -122,6 +124,67 @@ primitives use, since `.noise()` and the deformers need the subdivisions.
 [ ] Open call on `cone()`: three does export `ConeGeometry`, but it's literally
   `class ConeGeometry extends CylinderGeometry` with `radiusTop = 0`. Primitive
   by the letter, helper by the spirit.
+
+## Booleans: `.union()` / `.subtract()` / `.intersect()`
+
+The Blender move — a hoop is a cylinder minus a cylinder, a bead is a sphere
+minus a sphere, a chamfer is a box intersected with an octahedron. Every
+primitive we'd otherwise hand-write becomes an expression in the two we have.
+
+First, the thing that isn't in the way: **nothing needs filling in.** A
+`sphere()` is a shell of triangles with no interior, and that's fine — booleans
+don't read an interior, they compute one. What they need is a *closed,
+consistently wound* surface, so that "inside" is answerable by counting how
+many times a ray crosses it. Our primitives already qualify (sphere, box,
+cylinder with its caps, capsule, icosa, torus, `text3d`); `plane()` and an
+imported `model()` are the two that may not, and an open shell gives a boolean
+nothing to bite on. So a `fill()` op would have nothing to do — the honest
+version of that idea is a *validator* that says "this mesh is open, the
+boolean will be garbage" instead of returning garbage.
+
+Two routes, and they are not the same feature:
+
+[ ] **Mesh CSG**, via `three-bvh-csg` (0.0.18, peers `three-mesh-bvh` ≥0.9.7 —
+  both current against our three 0.185). `Evaluator` + `Brush` in, a new
+  `BufferGeometry` out. Fits the architecture almost suspiciously well: geometry
+  is built once in `.out()` ([src/api.js:582](../src/api.js#L582)), not per
+  frame, so a boolean is just a costlier `buildGeometry` and the existing
+  `pointSets` cache keys it the same way. Wants a nested-op shape rather than a
+  flat one, since the second operand is a whole chain:
+  `cylinder({ radius: 1 }).subtract(cylinder({ radius: 0.8 }))`.
+
+  Two things to get straight before writing it:
+
+  - **It sees the undisplaced mesh.** `.noise()` is a vertex-shader patch
+    ([src/noise.js](../src/noise.js)), so the CPU geometry never moves —
+    subtracting from a noised sphere cuts the smooth one and the displacement
+    then rides over the cut. Either document the order (booleans first, noise
+    last) or bake via the `noise-cpu.js` twin before evaluating, which is
+    already written and already the thing `.sample()` uses.
+  - **It can't animate.** Re-evaluating CSG per frame is off the table above a
+    few thousand triangles, so operands are static numbers only — the one
+    place in the API where a fn of `t` isn't accepted. Worth saying out loud in
+    the tooltip.
+
+  Seams are the known cosmetic cost: the cut edge gets its own vertices and no
+  smoothing across them, which reads as a hard crease. Usually what you want on
+  a chamfer, never what you want on a blend.
+
+[ ] **SDFs**, the version with a real interior — and the one that would actually
+  suit a livecoding tool. A signed distance function is defined at every point
+  in space, negative inside, so union is `min`, intersection `max`, difference
+  `max(a, -b)`, and *smooth* min gives blends mesh CSG cannot express at all.
+  All shader-side, so every operand animates for free. The cost is that it's a
+  second renderer: a raymarched SDF shares nothing with the mesh pipeline —
+  not `.instance()`, not shadows, not `.sample()`, not the deformers — so it's
+  a parallel world with its own versions of everything, or a deliberately small
+  island (`sdf(...).out()` as its own layer). Big. Note it, don't start it.
+
+[ ] Cheap consolation prize, worth doing either way: `.clip(plane)` on
+  `material.clippingPlanes`, plus a stencil cap pass so the cut face reads
+  solid instead of showing the inside of the far shell. That's the "cut a
+  sphere in half and it looks like a solid object" trick without any geometry
+  work at all, and it's maybe forty lines.
 
 ## Geometry deformers
 
