@@ -12,7 +12,7 @@
 // small enough to be exact in both (the permute chain peaks around 2.8e6, well
 // under float32's 2^24), and the smooth half differs only in the last bits of a
 // float32. Nothing renders from this — it runs a few thousand times a frame for
-// sampled points, not per vertex. NOISE-PARITY.md records what was verified,
+// sampled points, not per vertex. dev-notes/NOISE-PARITY.md records what was verified,
 // the known benign discrepancies, and how to re-test after editing.
 
 // --- snoise: Ashima / stegu 3D simplex, SNOISE_GLSL ------------------------

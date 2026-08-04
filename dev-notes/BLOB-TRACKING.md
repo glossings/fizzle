@@ -8,7 +8,7 @@ decision is which one you actually want:
 
 - **Blob visuals** — the segmented/labeled blob image. Pure GPU, no readback, no
   tracking. Jump-flood label propagation in a fragment shader, fits the existing
-  `SPECS` pattern in [textures.js:71](src/textures.js#L71) with no new machinery. Half a
+  `SPECS` pattern in [textures.js:71](../src/textures.js#L71) with no new machinery. Half a
   day.
 - **Blob data** — positions and sizes driving other parameters. Needs everything
   below.
@@ -17,11 +17,11 @@ The rest of this file is about the data path.
 
 ## What already exists
 
-Webcam capture is done: [engine.js:197](src/engine.js#L197) handles
+Webcam capture is done: [engine.js:197](../src/engine.js#L197) handles
 `getUserMedia` and case-insensitive device-label matching for the `video()` texture.
 The RT pipeline already renders nodes at arbitrary scale
-([textures.js:953](src/textures.js#L953)), so thresholding and downsampling need no new
-code. And [`sig()`](src/audio.js#L193) is the precedent for a live external
+([textures.js:953](../src/textures.js#L953)), so thresholding and downsampling need no new
+code. And [`sig()`](../src/audio.js#L193) is the precedent for a live external
 signal chained into parameters.
 
 ## What's missing
@@ -59,7 +59,7 @@ a variable-length array of structs. Two options:
 - **Fixed slots** — `blobs(video(), { max: 8 })` gives 8 always-present slots,
   each exposing `.x` / `.y` / `.size` as sigs, unoccupied ones zeroed. Needs no
   changes to the parameter system, and plays well with the per-instance fan-out
-  already in [textures.js:919](src/textures.js#L919).
+  already in [textures.js:919](../src/textures.js#L919).
 - **Dynamic array** — more honest about what blobs are, but every consumer has
   to handle variable length and it doesn't fit `fn(t) => number` at all.
 
@@ -69,9 +69,9 @@ nothing else.
 ## Estimate
 
 About a day for a working data path. Another day or two for what every operator
-here owes: doc entries in [docs.js](src/docs.js), autocomplete in
-[complete.js](src/complete.js), a section in
-[docs-content.md](src/docs-content.md), and an example sketch.
+here owes: doc entries in [docs.js](../src/docs.js), autocomplete in
+[complete.js](../src/complete.js), a section in
+[docs-content.md](../src/docs-content.md), and an example sketch.
 
 The core 80% is genuinely cheap. The last 20% — motion prediction, merge/split
 heuristics, aspect-ratio filtering — is where the fiddly time hides, and most of

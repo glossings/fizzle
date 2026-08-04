@@ -6,7 +6,7 @@
 // normal reconstruction below, so geo.sample() can put points on the deformed
 // surface. Edit the two together — a change here that isn't mirrored there
 // doesn't break anything visibly, it just floats sampled points off the shape.
-// NOISE-PARITY.md records the known precision traps and how to re-verify.
+// dev-notes/NOISE-PARITY.md records the known precision traps and how to re-verify.
 
 // Ashima / stegu 3D simplex noise — pure functions, shared with the texture
 // noise generator in textures.js

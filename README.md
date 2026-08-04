@@ -66,6 +66,7 @@ to zoom.
 - [vite.config.js](vite.config.js) — dev-server API for `sketches/user/`
 - [api/gfont/[family].js](api/gfont/[family].js) — the same Google Fonts proxy as a serverless function, for the hosted build
 - [sketches/examples/](sketches/examples/) — bundled example sketches
+- [dev-notes/](dev-notes/) — TODO list, deployment notes, scoping documents
 
 ## License
 

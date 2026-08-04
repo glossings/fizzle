@@ -8,11 +8,11 @@ Ordered roughly by leverage.
 
 Most of what follows is "add an operator." That's four edits, and the last two
 are the ones easy to forget: the implementation (a `SPECS` entry in
-[src/textures.js:79](src/textures.js#L79) for a texture op, a `buildGeometry` case in
-[src/api.js:143](src/api.js#L143) for geometry), the chain method or `api.js`
-export, a `DOCS` entry in [src/docs.js](src/docs.js) (tooltip says what the call
+[src/textures.js:79](../src/textures.js#L79) for a texture op, a `buildGeometry` case in
+[src/api.js:143](../src/api.js#L143) for geometry), the chain method or `api.js`
+export, a `DOCS` entry in [src/docs.js](../src/docs.js) (tooltip says what the call
 does and which params exist; per-param detail goes on the param), and the
-category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
+category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion.
 
 ---
 
@@ -24,10 +24,10 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 
 [ ] `.displace(texture, { amount, mid })` on a geometry chain — move each vertex
   along its normal by what the texture says at its UV. Textures already feed
-  materials as maps ([src/materials.js](src/materials.js)) but can't move
+  materials as maps ([src/materials.js](../src/materials.js)) but can't move
   vertices. Reuses the `.noise()` vertex machinery — `displacePoint`
-  ([src/noise.js:90](src/noise.js#L90)) and the `NORMAL_CHUNK`/`DEPTH_CHUNK`
-  hooks ([src/noise.js:116-134](src/noise.js#L116-L134)) — with a texture fetch
+  ([src/noise.js:90](../src/noise.js#L90)) and the `NORMAL_CHUNK`/`DEPTH_CHUNK`
+  hooks ([src/noise.js:116-134](../src/noise.js#L116-L134)) — with a texture fetch
   replacing the fbm call, and the same finite-difference normal recomputation. Needs the geometry's `res` raised to have vertices to move, same as
   `.noise()`.
 [ ] `.sample()`/`.normal()` can't follow this one — the CPU has no cheap way to
@@ -41,7 +41,7 @@ category strings at [src/docs.js:541](src/docs.js#L541) that drive completion.
 uniforms (numbers or fns of `t`).
 
 [ ] `polygon(sides, { radius, smooth, angle, color, bg })` — filled regular
-  n-gon, centered. Mirror `circle()`'s options ([src/textures.js:123](src/textures.js#L123))
+  n-gon, centered. Mirror `circle()`'s options ([src/textures.js:123](../src/textures.js#L123))
   so the two are interchangeable; `smooth` is the edge falloff, `angle` spins it.
   Measure in the same aspect-corrected space `circle` does (`(vUv - center) *
   vec2(uAspect, 1.0)`), so `polygon(4)` is a true pixel square on any window
@@ -64,7 +64,7 @@ uniforms (numbers or fns of `t`).
 
 [ ] `sharpen`, `emboss`, `erode`, `dilate` — all four are 3×3 neighbor
   operations, so add them as `mode`s of the existing `neighbor` spec
-  ([src/textures.js:220](src/textures.js#L220)) behind
+  ([src/textures.js:220](../src/textures.js#L220)) behind
   `.edge()`/`.slope()`/`.normalMap()`, not new specs. Erode/dilate take the
   min/max of the neighborhood; emboss is a directional difference plus 0.5.
 [ ] `.dither({ mode, levels })` — quantize to `levels` steps per channel, but
@@ -86,7 +86,7 @@ uniforms (numbers or fns of `t`).
 [ ] `.pixelSort({ threshold, dir })` — cheap per frame (one neighbor fetch, same
   as sharpen), but it's an odd–even transposition sort: it converges over many
   frames and must read its own previous output. Needs a per-node ping-pong
-  buffer + frame parity; [src/textures.js](src/textures.js) only has last-frame via
+  buffer + frame parity; [src/textures.js](../src/textures.js) only has last-frame via
   named `.out()` cycles today.
 
 ## Coordinates
@@ -99,7 +99,7 @@ uniforms (numbers or fns of `t`).
   radially: `.polar().translate(0, 0.1).cartesian()` is a tunnel, a `.blur()`
   in between is a radial smear. Keep `.kaleido()` — the mirror fold is the
   effect, not just the coordinate change.
-[ ] More radial distortions as extra `.warp()` keys ([src/textures.js:392](src/textures.js#L392))
+[ ] More radial distortions as extra `.warp()` keys ([src/textures.js:392](../src/textures.js#L392))
   rather than new ops — each is a different function applied to the radius
   before resampling: `invert` (1/r, turns the frame inside out), `sqrt`
   (compresses the center, expands the edge), `log`, `ripple` (a sine of r, with
@@ -109,8 +109,8 @@ uniforms (numbers or fns of `t`).
 ## New geometry primitives
 
 Each is one `three` constructor wired into `buildGeometry`
-([src/api.js:143](src/api.js#L143)) plus a factory next to `sphere`/`box`
-([src/api.js:835](src/api.js#L835)). Keep the `res` convention the existing
+([src/api.js:143](../src/api.js#L143)) plus a factory next to `sphere`/`box`
+([src/api.js:835](../src/api.js#L835)). Keep the `res` convention the existing
 primitives use, since `.noise()` and the deformers need the subdivisions.
 
 [ ] `capsule({ radius, height, res })` — `CapsuleGeometry`.
@@ -122,7 +122,7 @@ primitives use, since `.noise()` and the deformers need the subdivisions.
   profile as an array of 2-D points or a fn of 0..1 returning `[x, y]`, spun
   about +Y. A wine glass in one call.
 [ ] `extrude(path, { depth, bevel, res })` — `ExtrudeGeometry` on a closed 2-D
-  outline. `text3d` already drives this ([src/api.js:165](src/api.js#L165)), so
+  outline. `text3d` already drives this ([src/api.js:165](../src/api.js#L165)), so
   the pattern is set; the new part is accepting a user-supplied outline.
 [ ] Open call on `cone()`: three does export `ConeGeometry`, but it's literally
   `class ConeGeometry extends CylinderGeometry` with `radiusTop = 0`. Primitive
@@ -131,8 +131,8 @@ primitives use, since `.noise()` and the deformers need the subdivisions.
 ## Geometry deformers
 
 Chainable siblings of `.noise()` — same GPU vertex plumbing
-([src/noise.js](src/noise.js)), and each needs the matching CPU version in
-[src/noise-cpu.js](src/noise-cpu.js) so `.sample()`/`.normal()` still land on
+([src/noise.js](../src/noise.js)), and each needs the matching CPU version in
+[src/noise-cpu.js](../src/noise-cpu.js) so `.sample()`/`.normal()` still land on
 the deformed surface. Normals must be recomputed or lighting goes wrong. All
 take fns of `t`. Like `.noise()`, they can only move vertices the geometry
 already has, so they want `res`.
@@ -152,14 +152,14 @@ already has, so they want `res`.
 ## Signals
 
 Chain methods go next to `.smooth()` at
-[src/audio.js:283](src/audio.js#L283), where each is attached onto the signal fn.
+[src/audio.js:283](../src/audio.js#L283), where each is attached onto the signal fn.
 
 [ ] `.range(lo, hi)` — map 0..1 to lo..hi. `.clamp(lo, hi)` — limit to the
   range, no scaling. Both are `.mul().add()` by hand today, everywhere.
 [ ] `mouse()` — pointer position as a signal, normalized -1..1 with 0 at
   center. `mouse('x')` / `mouse('y')` for one axis; also want a `.down` gate.
   Must read from the canvas, and keep working in the projector window
-  ([src/projector.js](src/projector.js)).
+  ([src/projector.js](../src/projector.js)).
 [ ] `.read(texture, x, y)` — sample one pixel of a texture back down into a signal, so
   an image can drive geometry. `x`/`y` in 0..1, returns luma (or a channel).
   The only GPU→CPU bridge in the app. Real cost: `readRenderTargetPixelsAsync`
@@ -169,9 +169,9 @@ Chain methods go next to `.smooth()` at
 ## `glsl()` escape hatch
 
 [ ] `.glsl(source)` for a custom fragment pass — the texture-side counterpart to
-  exposing `THREE` on the 3D side ([src/docs.js:61](src/docs.js#L61)). Compile
+  exposing `THREE` on the 3D side ([src/docs.js:61](../src/docs.js#L61)). Compile
   the string through the same `SPECS` machinery
-  ([src/textures.js:640](src/textures.js#L640)) so `HEADER`, `vUv` and `tex0` are
+  ([src/textures.js:640](../src/textures.js#L640)) so `HEADER`, `vUv` and `tex0` are
   already in scope, and allow a uniforms object whose values take fns of `t`.
   A compile error must `warn()` and pass the input through untouched, never
   throw — see the errors-never-block-playback rule.
@@ -186,13 +186,13 @@ to need its own design pass; noting it here so it isn't forgotten.
 
 ## See-through shadows
 
-`out()` ([src/api.js:373](src/api.js#L373)) decides `castShadow` from
+`out()` ([src/api.js:373](../src/api.js#L373)) decides `castShadow` from
 `transmission > 0 || opacity < 1`, because the depth pass ignores both and would
 throw a solid black silhouette. Two problems with the rule as written:
 
 [ ] It resolves function-driven values at t=0 only, so `opacity: t => ...` that
   starts at 1 casts a hard shadow forever, even at 0.05. `applyMaterialScalars`
-  ([src/materials.js:161](src/materials.js#L161)) takes the safer line and treats
+  ([src/materials.js:161](../src/materials.js#L161)) takes the safer line and treats
   any fn opacity as transparent — match it.
 
 [ ] Proportional shadows are reachable: stochastic discard (kill a fragment with
@@ -203,7 +203,7 @@ throw a solid black silhouette. Two problems with the rule as written:
 
 ## Instance orientation + `path()`
 
-`InstanceHandle` ([src/api.js:177](src/api.js#L177)) exposes only
+`InstanceHandle` ([src/api.js:177](../src/api.js#L177)) exposes only
 `pos`/`rotate`/`scale`, and `rotate` is Euler XYZ. Wrapping chain links around a
 curve needs a Frenet frame (tangent/normal/binormal), and converting that to
 Euler by hand inside a sketch is miserable.
@@ -224,8 +224,8 @@ Euler by hand inside a sketch is miserable.
 ## `box().noise()` comes apart at the edges
 
 Displacement is `p + n * d * uAmp` along the vertex normal
-([src/noise.js:82](src/noise.js#L82)). `BoxGeometry`
-([src/api.js:136](src/api.js#L136)) stores each of the 6 faces separately, so
+([src/noise.js:82](../src/noise.js#L82)). `BoxGeometry`
+([src/api.js:136](../src/api.js#L136)) stores each of the 6 faces separately, so
 the corner at (0.5, 0.5, 0.5) is three vertices with normals +X, +Y and +Z.
 Same position means the same `d`, but three different directions — the faces
 slide apart and the box reads as falling to pieces rather than deforming. Gap

@@ -1,8 +1,8 @@
 # GPU/CPU noise parity
 
 `geo.sample()` on a `.noise()`d chain re-runs the shader's displacement on the
-CPU ([src/noise-cpu.js](src/noise-cpu.js), a deliberate line-by-line twin of
-[src/noise.js](src/noise.js)). This file records what was verified, what still
+CPU ([src/noise-cpu.js](../src/noise-cpu.js), a deliberate line-by-line twin of
+[src/noise.js](../src/noise.js)). This file records what was verified, what still
 differs, and how to re-verify after touching either file.
 
 ## Findings
