@@ -100,7 +100,8 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       <ul id="sb-user"><li class="sb-empty">none yet — save one!</li></ul>
       <h2>examples</h2>
       <ul id="sb-examples"></ul>
-    </section>`;
+    </section>
+    <footer id="sb-footer">© 2026 <a href="https://glossing.dev" target="_blank" rel="noopener">Glossing</a></footer>`;
   document.body.appendChild(el);
 
   const toggleBtn = document.createElement('button');
