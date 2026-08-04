@@ -17,22 +17,22 @@ ambient({ intensity: 0.1, color: '#8fa2c8' })
 const lampZ = (i) => (t) => (((t * 3.5 + i * 12) % 36) - 32)
 
 for (let i = 0; i < 3; i++) {
-  point({ color: '#ffe0a8', intensity: 55, distance: 18 }).pos(0, 3.1, lampZ(i)).out()
+  point({ color: '#ffe0a8', intensity: 55, distance: 18 }).position(0, 3.1, lampZ(i)).out()
 }
 
 box({ width: 1.8, height: 0.12, depth: 0.5 })
-  .instance(3, (x, i, n, t) => x.pos(0, 3.25, lampZ(i)(t)))
+  .instance(3, (x, i, n, t) => x.position(0, 3.25, lampZ(i)(t)))
   .material({ color: '#fff4de', emissive: '#ffdca0', emissiveIntensity: 4 })
   .out()
 
 // the corridor: floor, ceiling, two walls
-plane({ width: 7, height: 90 }).rotate(-Math.PI / 2, 0, 0).pos(0, -2.2, -32)
+plane({ width: 7, height: 90 }).rotation(-Math.PI / 2, 0, 0).position(0, -2.2, -32)
   .material({ color: '#2a2622', roughness: 0.95 }).out()
-plane({ width: 7, height: 90 }).rotate(Math.PI / 2, 0, 0).pos(0, 3.4, -32)
+plane({ width: 7, height: 90 }).rotation(Math.PI / 2, 0, 0).position(0, 3.4, -32)
   .material({ color: '#191921', roughness: 1 }).out()
 
 for (const side of [-1, 1]) {
-  plane({ width: 90, height: 5.6 }).rotate(0, (side * Math.PI) / 2, 0).pos(side * 3.5, 0.6, -32)
+  plane({ width: 90, height: 5.6 }).rotation(0, (side * Math.PI) / 2, 0).position(side * 3.5, 0.6, -32)
     .material({ color: '#3a3630', roughness: 0.9 }).out()
 }
 
@@ -40,7 +40,7 @@ for (const side of [-1, 1]) {
 box({ width: 0.25, height: 2.6, depth: 1.1 })
   .instance(28, (x, i, n, t) => {
     const side = i % 2 ? 1 : -1
-    x.pos(side * 3.3, -0.9, (((Math.floor(i / 2) * 5 + t * 3.5) % 70) - 66))
+    x.position(side * 3.3, -0.9, (((Math.floor(i / 2) * 5 + t * 3.5) % 70) - 66))
   })
   .material({ color: '#151319', roughness: 1 })
   .out()

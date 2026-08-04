@@ -5,14 +5,14 @@
 bg('#07070c')
 fog({ color: '#07070c', near: 8, far: 40 })
 ambient({ intensity: 0.15 })
-directional({ intensity: 1.4 }).pos(4, 6, 3).out()
-point({ color: '#ff5f9e', intensity: 60 }).pos(t => Math.sin(t) * 6, 3, -4).out()
-point({ color: '#4fd1ff', intensity: 40 }).pos(-5, -2, 5).out()
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
+point({ color: '#ff5f9e', intensity: 60 }).position(t => Math.sin(t) * 6, 3, -4).out()
+point({ color: '#4fd1ff', intensity: 40 }).position(-5, -2, 5).out()
 
 // center blob: sphere -> noise displacement -> lit render
 sphere({ radius: 1.4, res: 128 })
   .noise({ amp: t => 0.35 + 0.2 * Math.sin(t * 0.7), freq: 1.8, octaves: 4, speed: 0.4 })
-  .rotate(0, t => t * 0.15, 0)
+  .rotation(0, t => t * 0.15, 0)
   .material({ color: '#b48cff', roughness: 0.25, metalness: 0.4 })
   .out()
 
@@ -23,8 +23,8 @@ box({ width: 0.5, height: 0.5, depth: 0.5, res: 12 })
   .instance(80, (x, i, n, t) => {
     const a = (i / n) * Math.PI * 2 + t * 0.1
     const r = 4 + Math.sin(i * 7.3) * 1.2
-    x.pos(Math.cos(a) * r, Math.sin(a * 3 + t * 0.5) * 1.5, Math.sin(a) * r)
-      .rotate(t * 0.5 + i, a, 0)
+    x.position(Math.cos(a) * r, Math.sin(a * 3 + t * 0.5) * 1.5, Math.sin(a) * r)
+      .rotation(t * 0.5 + i, a, 0)
       .scale(0.4 + 0.3 * Math.sin(i + t * 2))
   })
   .material({ color: '#4fd1c5', roughness: 0.4, metalness: 0.6 })
@@ -32,9 +32,9 @@ box({ width: 0.5, height: 0.5, depth: 0.5, res: 12 })
 
 // ground: plane -> noise terrain
 plane({ width: 60, height: 60, res: 160 })
-  .pos(0, -3.5, 0)
-  .rotate(-Math.PI / 2, 0, 0)
-  .noise({ amp: 1.2, freq: 0.12, octaves: 5, speed: 0.05 })
+  .position(0, -3.5, 0)
+  .rotation(-Math.PI / 2, 0, 0)
+  .noise({ amp: 1.2, period: 8.3, octaves: 5, speed: 0.05 })
   .material({ color: '#1a2036', roughness: 0.9, flatShading: true })
   .out()
 

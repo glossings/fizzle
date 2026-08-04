@@ -57,7 +57,7 @@ box({ res: 1 })
   .instance(walls.length, (x, i) => {
     const w = walls[i]
     // scale happens before rotation, so one unit box makes both orientations
-    x.pos(w[0], WALL_H / 2, w[1]).rotate(0, w[2] ? Math.PI / 2 : 0, 0).scale(C + TH, WALL_H, TH)
+    x.position(w[0], WALL_H / 2, w[1]).rotation(0, w[2] ? Math.PI / 2 : 0, 0).scale(C + TH, WALL_H, TH)
   })
   .material({ color: '#d9c47e', roughness: 0.92 })
   .out()
@@ -65,9 +65,9 @@ box({ res: 1 })
 const SPAN = Math.max(W, H) * C + C * 2
 const MID = [(W - 1) * C / 2, (H - 1) * C / 2]
 
-plane({ width: SPAN, height: SPAN, res: 1 }).rotate(-Math.PI / 2, 0, 0).pos(MID[0], 0, MID[1])
+plane({ width: SPAN, height: SPAN, res: 1 }).rotation(-Math.PI / 2, 0, 0).position(MID[0], 0, MID[1])
   .material({ color: '#7d6b3c', roughness: 1 }).out()
-plane({ width: SPAN, height: SPAN, res: 1 }).rotate(Math.PI / 2, 0, 0).pos(MID[0], WALL_H, MID[1])
+plane({ width: SPAN, height: SPAN, res: 1 }).rotation(Math.PI / 2, 0, 0).position(MID[0], WALL_H, MID[1])
   .material({ color: '#ddd2a6', roughness: 1 }).out()
 
 const lamps = []
@@ -77,7 +77,7 @@ for (let j = 0; j < H; j++)
 // hung 0.14 clear of the ceiling: flush against it they z-fight away down the
 // long sightlines, where a near of 0.01 leaves only ~15mm of depth precision
 box({ res: 1 })
-  .instance(lamps.length, (x, i) => x.pos(lamps[i][0], WALL_H - 0.14, lamps[i][1]).scale(2.3, 0.1, 1.2))
+  .instance(lamps.length, (x, i) => x.position(lamps[i][0], WALL_H - 0.14, lamps[i][1]).scale(2.3, 0.1, 1.2))
   .material({ color: '#fffdf2', emissive: '#fff3cc', emissiveIntensity: 7 })
   .out()
 
@@ -144,9 +144,9 @@ ambient({ intensity: 0.58, color: '#d8c98f' })
 
 const buzz = rand(13, 4)
 point({ color: '#fff6d6', intensity: (t) => 12 * (0.82 + 0.24 * buzz(t)), distance: 26, decay: 1.3 })
-  .pos((t) => eye(t).x, WALL_H - 0.35, (t) => eye(t).z).out()
+  .position((t) => eye(t).x, WALL_H - 0.35, (t) => eye(t).z).out()
 point({ color: '#ffeec4', intensity: (t) => 9 * (0.8 + 0.28 * buzz(t + 3.1)), distance: 22, decay: 1.3 })
-  .pos((t) => ahead(t).x, WALL_H - 0.35, (t) => ahead(t).z).out()
+  .position((t) => ahead(t).x, WALL_H - 0.35, (t) => ahead(t).z).out()
 
 // --- tape ---
 

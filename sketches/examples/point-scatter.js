@@ -4,8 +4,8 @@
 
 bg('#05060c')
 ambient({ intensity: 0.3 })
-directional({ color: '#ffe8c0', intensity: 2.2 }).pos(5, 6, 3).out()
-point({ color: '#4fd1c5', intensity: 60 }).pos(-4, -2, 3).out()
+directional({ color: '#ffe8c0', intensity: 2.2 }).position(5, 6, 3).out()
+point({ color: '#4fd1c5', intensity: 60 }).position(-4, -2, 3).out()
 
 const shell = torusKnot({ radius: 2.2, tube: 0.7, res: 64 })
 
@@ -19,7 +19,7 @@ const tint = Array.from({ length: 900 }, (_, i) => {
 // spikes standing off the surface: .align() aims each cone along the normal
 cylinder({ radiusTop: 0, radiusBottom: 0.09, height: 0.5, res: 8 })
   .instance(900, (x, i, n, t) => x
-    .pos(shell.sample(i))
+    .position(shell.sample(i))
     .align(shell.normal(i))
     .scale(1, 1 + 0.6 * Math.sin(t * 2 + i), 1)
     .color(tint[i]))
@@ -29,7 +29,7 @@ cylinder({ radiusTop: 0, radiusBottom: 0.09, height: 0.5, res: 8 })
 // the same point set, indexed from the far end: a sparse dusting of beads that
 // can't collide with the spikes, since sample(i) is stable per index
 sphere({ radius: 0.05, res: 8 })
-  .instance(120, (x, i) => x.pos(shell.sample(2000 + i)).scale(1 + (i % 3)))
+  .instance(120, (x, i) => x.position(shell.sample(2000 + i)).scale(1 + (i % 3)))
   .material({ color: '#fff2cc', emissive: '#ffcc66', roughness: 0.5 })
   .out()
 

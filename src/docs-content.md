@@ -13,10 +13,10 @@ the full app in a new tab. Try it:
 ```js autorun
 bg('#05060a')
 ambient({ intensity: 0.25 })
-directional({ intensity: 1.6 }).pos(4, 6, 3).out()
+directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
 torusKnot({ radius: 1.1, tube: 0.32, res: 96 })
-  .rotate(t => t * 0.4, t => t * 0.23, 0)
+  .rotation(t => t * 0.4, t => t * 0.23, 0)
   .noise({ amp: 0.18, freq: 2.2, octaves: 4, speed: 0.5 })
   .material({ color: '#4fd1c5', roughness: 0.25, metalness: 0.6 })
   .out()
@@ -109,10 +109,10 @@ frame, so animation uses the same syntax as static values.
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.5 }).pos(3, 5, 2).out()
+directional({ intensity: 1.5 }).position(3, 5, 2).out()
 
 sphere({ radius: 1, res: 64 })
-  .pos(t => Math.sin(t) * 2, 0, 0)
+  .position(t => Math.sin(t) * 2, 0, 0)
   .scale(t => 1 + 0.3 * Math.sin(t * 3))
   .color('#8899ff')
   .out()
@@ -140,7 +140,7 @@ than out of a list:
 
 ```js
 ambient({ intensity: 0.4 })
-directional({ intensity: 1.4 }).pos(3, 5, 2).out()
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
 
 sphere({ radius: 1.4, res: 96 })
   .color([t => Math.sin(t) * 0.5 + 0.5, 0.3, t => Math.cos(t * 0.7) * 0.5 + 0.5])
@@ -160,7 +160,7 @@ This is a livecoding environment, so a mistake never blanks the screen:
   the status bar with *(previous sketch still playing)*, and the visuals carry
   on until the next run that works. Half-typed code is a normal state to be in.
 - **Anything a call can't honour is a warning, not a stop** — a `.material()`
-  property that doesn't exist, `.pos()` on an `ambient()` light, `.noise()` on
+  property that doesn't exist, `.position()` on an `ambient()` light, `.noise()` on
   an instance handle. The status bar says what was ignored and the frame goes
   out anyway.
 - **A throw inside a per-frame fn doesn't kill the loop.** It's reported once
@@ -181,7 +181,7 @@ Geometry ops start a chain; `.out()` builds the mesh and adds it to the scene.
 | `torus` | `radius: 1, tube: 0.35, res: 48` |
 | `torusKnot` | `radius: 1, tube: 0.3, res: 64, p: 2, q: 3` |
 | `cylinder` | `radiusTop/Bottom: 0.5, height: 1.5, res: 48` |
-| `icosa` | `radius: 1, detail: 8` — even triangles, ideal for noise blobs |
+| `icosa` | `radius: 1, res: 8` — even triangles, ideal for noise blobs |
 | `model` | `name, center: true, fit: 2` — an imported `.obj`/`.fbx` |
 
 `res` matters for `.noise()` — displacement is per-vertex, so more resolution
@@ -201,12 +201,12 @@ fizzle, so this runs before you've imported anything of your own — see
 
 ```js
 ambient({ intensity: 0.2 })
-directional({ intensity: 1.4 }).pos(4, 6, 3).out()
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
 
 model('ship.obj')
   .instance(40, (x, i, n, t) => {
     const a = (i / n) * Math.PI * 2
-    x.pos(Math.cos(a) * 4, 0, Math.sin(a) * 4).rotate(0, t * 0.5 + i, 0).scale(0.4)
+    x.position(Math.cos(a) * 4, 0, Math.sin(a) * 4).rotation(0, t * 0.5 + i, 0).scale(0.4)
   })
   .material({ color: '#ffd166', roughness: 0.4 })
   .out()
@@ -230,8 +230,14 @@ times is exactly as heavy as it sounds.
 
 ### transforms
 
-`.pos(x, y, z)` · `.rotate(x, y, z)` (radians) · `.scale(x, y?, z?)` — one
+`.position(x, y, z)` · `.rotation(x, y, z)` (radians) · `.scale(x, y?, z?)` — one
 argument to `.scale` is uniform. Every component takes numbers or fns of `t`.
+
+**Short forms.** `.pos` and `.rot` are the same calls under shorter names — the
+docs and autocomplete teach the long ones, but nobody types `position` twice
+during a set. (`.rotate` still works on geometry too, from before the split; on
+a texture chain it's a real and different thing — a UV rotation, not a
+placement.) Textures get `.trans` and `.rot` for the same reason.
 
 ### .noise — vertex displacement
 
@@ -240,16 +246,17 @@ the vertex shader so lighting stays correct.
 
 ```js
 ambient({ intensity: 0.15 })
-directional({ intensity: 0.8 }).pos(-3, 4, 5).out()
-point({ color: '#ff5f9e', intensity: 80 }).pos(t => Math.sin(t) * 4, 3, 2).out()
+directional({ intensity: 0.8 }).position(-3, 4, 5).out()
+point({ color: '#ff5f9e', intensity: 80 }).position(t => Math.sin(t) * 4, 3, 2).out()
 
-icosa({ radius: 1.3, detail: 16 })
-  .noise({ amp: 0.35, freq: 2, octaves: 4, speed: 0.4 })
+icosa({ radius: 1.3, res: 16 })
+  .noise({ amp: 0.35, period: 0.5, octaves: 4, speed: 0.4 })
   .material({ color: '#8899ff', roughness: 0.3 })
   .out()
 ```
 
-- `amp` — displacement distance · `freq` — spatial frequency
+- `amp` — displacement distance · `period` — world units between peaks (or
+  `freq`, bumps per unit — the same number the other way up)
 - `octaves` (1–8) — how many detail layers get stacked
 - `lacunarity` — frequency step per octave (2 = each layer twice as fine)
 - `gain` — amplitude falloff per octave: low ≈ only the smooth base layer,
@@ -260,19 +267,19 @@ icosa({ radius: 1.3, detail: 16 })
 
 `.instance(count, fn)` renders the chain as a single `InstancedMesh`.
 `fn(x, i, count, t)` hands you each copy as `x` and you transform it with the
-same verbs as the chain — `.pos` · `.rotate` · `.scale`, chainable, numbers or
+same verbs as the chain — `.position` · `.rotation` · `.scale`, chainable, numbers or
 fns of `t`. It runs every frame, so instances animate. Each instance seeds the
 noise field from its own position, so copies deform differently.
 
 ```js
 ambient({ intensity: 0.2 })
-directional({ intensity: 1.4 }).pos(4, 6, 3).out()
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
 
 box({ res: 4 })
   .instance(80, (x, i, n, t) => {
     const a = (i / n) * Math.PI * 2
-    x.pos(Math.cos(a) * 3, Math.sin(t + i * 0.4) * 0.8, Math.sin(a) * 3)
-      .rotate(0, a, 0)
+    x.position(Math.cos(a) * 3, Math.sin(t + i * 0.4) * 0.8, Math.sin(a) * 3)
+      .rotation(0, a, 0)
       .scale(0.35)
   })
   .material({ color: '#ffd166', roughness: 0.4 })
@@ -296,8 +303,8 @@ last call left it.
 
 ```js
 const ball = sphere({ radius: 0.5 }).material({ color: '#4fd1c5' })
-ball.pos(-3).out()
-ball.pos(3).out()          // one op, so both meshes sit at x = 3
+ball.position(-3).out()
+ball.position(3).out()          // one op, so both meshes sit at x = 3
 ```
 
 `.instance()` is the answer when the copies share a material. When they need to
@@ -308,8 +315,8 @@ copy. Each call builds a fresh op, so each `.out()` gets its own:
 ```js
 const ball = (color) => sphere({ radius: 0.5 }).material({ color })
 
-ball('#4fd1c5').pos(-3).out()
-ball('#7ee787').pos(3).out()
+ball('#4fd1c5').position(-3).out()
+ball('#7ee787').position(3).out()
 ```
 
 Parameterise it however you like — the function is ordinary JavaScript, so a
@@ -405,7 +412,7 @@ Two ways to get a set in:
 
 ```js
 ambient({ intensity: 0.35 })
-directional({ intensity: 1.6 }).pos(4, 6, 3).out()
+directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
 sphere({ radius: 1.4, res: 128 })
   .material()   // ctrl+enter -> browse -> .material({ pbr: 'moss_2k', repeat: 2 })
@@ -424,18 +431,18 @@ substring, like every other file here), or mix with a set:
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.6 }).pos(4, 8, 6).out()
+directional({ intensity: 1.6 }).position(4, 8, 6).out()
 camera(0, 3, 9)
 
 plane({ width: 20, height: 20, res: 200 })
-  .rotate(-Math.PI / 2, 0, 0)
-  .pos(0, -1.5, 0)
+  .rotation(-Math.PI / 2, 0, 0)
+  .position(0, -1.5, 0)
   .material({ pbr: 'cobblestone_floor_08_1k', repeat: 8, displaceScale: 0.4 })
   .out()
 
 box({ res: 2 })
   .scale(2)
-  .rotate(0, t => t * 0.3, 0)
+  .rotation(0, t => t * 0.3, 0)
   .material({
     map: 'cobblestone_floor_08_1k/diff.jpg',
     normalMap: 'cobblestone_floor_08_1k/nor_gl.jpg',
@@ -483,8 +490,8 @@ hdri('kloofendal_43d_clear_puresky_1k.hdr', {
   rotation: t => t * 0.05,      // drift the whole rig
 })
 
-icosa({ radius: 1.2, detail: 6 })
-  .noise({ amp: 0.15, freq: 2.5, speed: 0.3 })
+icosa({ radius: 1.2, res: 6 })
+  .noise({ amp: 0.15, period: 0.4, speed: 0.3 })
   .material({ color: '#ffffff', roughness: 0.15, metalness: 1 })
   .out()
 ```
@@ -520,10 +527,10 @@ Cambria to Caladea. Same widths, so the line breaks land in the same places.
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.6 }).pos(2, 4, 6).out()
+directional({ intensity: 1.6 }).position(2, 4, 6).out()
 
 text3d('fizzle', { size: 1.2, depth: 0.3, bevel: 0.03 })
-  .rotate(0, t => Math.sin(t * 0.6) * 0.4, 0)
+  .rotation(0, t => Math.sin(t * 0.6) * 0.4, 0)
   .color('#7ee787')
   .out()
 ```
@@ -541,12 +548,12 @@ bg('#07070c')
 fog({ color: '#07070c', near: 6, far: 30 })
 ambient({ intensity: 0.1 })
 hemi({ sky: '#333366', ground: '#221100' }).out()
-point({ color: '#4fd1c5', intensity: 70 }).pos(t => Math.cos(t) * 4, 2, t => Math.sin(t) * 4).out()
+point({ color: '#4fd1c5', intensity: 70 }).position(t => Math.cos(t) * 4, 2, t => Math.sin(t) * 4).out()
 camera(t => Math.sin(t * 0.15) * 9, 4, t => Math.cos(t * 0.15) * 9)
 
 plane({ width: 24, height: 24, res: 128 })
-  .rotate(-Math.PI / 2, 0, 0)
-  .noise({ amp: 1.2, freq: 0.35, octaves: 5, speed: 0.15 })
+  .rotation(-Math.PI / 2, 0, 0)
+  .noise({ amp: 1.2, period: 2.9, octaves: 5, speed: 0.15 })
   .material({ color: '#222233', roughness: 0.9, flatShading: true })
   .out()
 ```
@@ -554,11 +561,11 @@ plane({ width: 24, height: 24, res: 128 })
 - Every light is configured the same way — `ambient({ intensity })`,
   `directional({ intensity, color })`, `point({ intensity, distance, decay })`
   — and every value takes a fn of `t`.
-- `directional` / `point` / `spot` / `hemi` chain `.pos(x, y, z).out()`, and
-  `.pos` accepts fns of `t` for moving lights. `ambient` is the exception: it
+- `directional` / `point` / `spot` / `hemi` chain `.position(x, y, z).out()`, and
+  `.position` accepts fns of `t` for moving lights. `ambient` is the exception: it
   arrives evenly from everywhere, so it has no position and adds itself without
   an `.out()`.
-- `spot({ angle, penumbra })` is a cone from `.pos()` toward `.target()` —
+- `spot({ angle, penumbra })` is a cone from `.position()` toward `.target()` —
   `angle` is its half-width in radians, `penumbra` (0..1) how soft the rim is.
   `directional` takes a `.target(x, y, z)` too; both aim at the origin without
   one, and both animate.
@@ -574,13 +581,13 @@ plane({ width: 24, height: 24, res: 128 })
 Off until a light asks for them, on for every mesh once one does:
 
 ```js
-directional({ intensity: 3, shadow: true }).pos(12, 8, 6).target(0, 0, -8).out()
-spot({ intensity: 90, angle: 0.5, shadow: { soft: 5 } }).pos(0, 6, 4).out()
+directional({ intensity: 3, shadow: true }).position(12, 8, 6).target(0, 0, -8).out()
+spot({ intensity: 90, angle: 0.5, shadow: { soft: 5 } }).position(0, 6, 4).out()
 
-plane({ width: 40, height: 40, res: 1 }).rotate(-Math.PI / 2, 0, 0)
+plane({ width: 40, height: 40, res: 1 }).rotation(-Math.PI / 2, 0, 0)
   .shadow({ cast: false })                     // flat — only catches
   .material({ color: '#8d879b', roughness: 0.8 }).out()
-torus({ radius: 1.4, tube: 0.4 }).pos(0, 2, 0).rotate(t => t * 0.4, 0, 0).out()
+torus({ radius: 1.4, tube: 0.4 }).position(0, 2, 0).rotation(t => t * 0.4, 0, 0).out()
 ```
 
 - `shadow: true` on `directional` / `spot` / `point`. Ambient and hemisphere
@@ -598,7 +605,7 @@ torus({ radius: 1.4, tube: 0.4 }).pos(0, 2, 0).rotate(t => t * 0.4, 0, 0).out()
   2048 by default), `near`/`far` (the light's own view range — a `far` far
   larger than the scene wastes depth precision and stripes flat surfaces),
   and for `directional` only, `area`: half the width of the box it shadows,
-  measured around the `.pos()` → `.target()` axis. Too big and the map's
+  measured around the `.position()` → `.target()` axis. Too big and the map's
   texels spread thin, too small and the shadow stops mid-floor.
 - A `point` light shadows in every direction at once — a cube map, so six
   renders. It's the expensive one.
@@ -613,8 +620,8 @@ it the display output. With no texture `.out()`, the scene renders directly.
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.5 }).pos(4, 6, 3).out()
-torus({ radius: 1.2, tube: 0.4, res: 64 }).rotate(t => t * 0.5, t => t * 0.3, 0).color('#ff5f9e').out()
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+torus({ radius: 1.2, tube: 0.4, res: 64 }).rotation(t => t * 0.5, t => t * 0.3, 0).color('#ff5f9e').out()
 
 scene()
   .kaleido(6)
@@ -633,7 +640,7 @@ scene()
   `[r, g, b]`, and a fn of `t` like any other color slot. The wash to comp
   with when what's wanted is a color rather than an image:
   `.mask(depth(), s => s.comp(constant('#8a97a8'), 'over'))` is haze.
-- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, shape })` — a
+- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape })` — a
   two-color sweep: straight across (`angle` aims it), out from the center, or
   around it. `period` is how much of the frame one cycle of that sweep spans —
   1 by default, and anything under it repeats into bands — while `shape`
@@ -643,7 +650,7 @@ scene()
   same 0..1 phase read across space instead of time. `phase` slides the sweep
   along itself, in cycles.
 - `circle({ radius, soft, center, color, bg })` — soft-edged disc.
-- `noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
+- `noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
   animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
   stacks detail layers; `lacunarity` is the frequency step per octave, `gain`
   the amplitude falloff per octave (low = smooth blobs, high = rough grain —
@@ -651,7 +658,7 @@ scene()
   for `.contrast()` / `.mul()` to change level). `channels: 2`–`4` puts
   independent fields in R/G(/B/A) instead of the a→b ramp — what you want for
   `.displace()` maps.
-- `voronoi({ scale, speed, blend, seed, mode, a, b })` — scattered points
+- `voronoi({ period, freq, speed, blend, seed, mode, a, b })` — scattered points
   drifting over the frame, each pixel colored by the nearest one. `mode` is
   what gets drawn: `'cells'` fills each cell flat (its own point on the a→b
   ramp), `'distance'` shades by distance to the nearest point, `'edges'` lights
@@ -678,7 +685,7 @@ stripes, a pinwheel, concentric rings, all the same call:
 
 ```js
 scene()
-  .comp(ramp({ angle: Math.PI / 2, period: 1 / 80, shape: 'tri', a: '#585858' }), 'mult')
+  .comp(ramp({ angle: Math.PI / 2, freq: 80, shape: 'tri', a: '#585858' }), 'mult')
   .comp(ramp({ type: 'angular', period: rand({ freq: 0.5 }), shape: 'sqr', phase: t => t * 0.1 }), 'add', 0.1)
   .out()
 ```
@@ -687,21 +694,30 @@ The whole useful range of `period` lives in 0..1, which is exactly what a
 signal hands you — so `rand()`, `audio()` or `beat()` go straight in and sweep
 from one gradient to a dense grating without a `.mul()` in front of them.
 
+**`period` or `freq`, whichever avoids a fraction.** Every periodic generator —
+`ramp()`, `noise()`, `voronoi()` and geometry `.noise()` — takes both spellings
+of the same number: `period` is how much of the frame one cycle spans, `freq` is
+how many fit across it, and `freq: 80` and `period: 1 / 80` are the same
+scanlines. Neither is the real one. A period reads better near 1 and for a
+signal that has to land in 0..1; a frequency reads better once you're counting
+bands or cells in the dozens. (`voronoi`'s old `scale` is its `freq`, still
+accepted.)
+
 A `'saw'` cycle jumps back to `a` at its end, which is a visible seam when it
 repeats; `'tri'` runs back down instead and is the one soft bands want.
 
-Naming `period` or `shape` also puts `phase` into wrapping mode, so animating
+Naming `period` (or `freq`) or `shape` also puts `phase` into wrapping mode, so animating
 it scrolls the bands indefinitely. Left alone, a ramp holds its end colors past
 the edges instead — `ramp({ type: 'radial', phase: -0.15 })` is a vignette with
 a flat white center, which needs the clamp rather than the wrap.
 
-Two `voronoi()` calls that agree on `scale`, `speed` and `seed` see the same
+Two `voronoi()` calls that agree on `freq`, `speed` and `seed` see the same
 scatter of points, so their modes line up exactly and can be layered — cells
 with their own seams lit on top:
 
 ```js
-voronoi({ scale: 9, speed: 0.4, blend: 0.05, a: '#0d1030', b: '#7ee8ff' })
-  .comp(voronoi({ scale: 9, speed: 0.4, mode: 'edges', b: '#ffd9a0' }), 'add')
+voronoi({ freq: 9, speed: 0.4, blend: 0.05, a: '#0d1030', b: '#7ee8ff' })
+  .comp(voronoi({ freq: 9, speed: 0.4, mode: 'edges', b: '#ffd9a0' }), 'add')
   .bloom({ threshold: 0.6, strength: 0.8 })
   .out()
 ```
@@ -839,7 +855,7 @@ ramp({ type: 'angular', a: '#000000', b: '#334455' })
 
 ```js
 noise({ freq: 3, speed: 0.3, a: '#031018', b: '#4fd1c5' })
-  .mask(circle({ radius: 0.32, soft: 0.15 }), s => s.displace(noise({ channels: 2, freq: 2, speed: 0.5 }), { amount: 0.2 }).invert())
+  .mask(circle({ radius: 0.32, soft: 0.15 }), s => s.displace(noise({ channels: 2, period: 0.5, speed: 0.5 }), { amount: 0.2 }).invert())
   .out()
 ```
 
@@ -871,7 +887,7 @@ displacement map. (`.displace(map, amount)` works as a positional shorthand.)
 
 ```js
 text('fizzle')
-  .displace(noise({ channels: 2, freq: 2, speed: 0.4 }), { amount: t => 0.04 + 0.03 * Math.sin(t) })
+  .displace(noise({ channels: 2, period: 0.5, speed: 0.4 }), { amount: t => 0.04 + 0.03 * Math.sin(t) })
   .out()
 ```
 
@@ -960,8 +976,8 @@ have to be a single expression.
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.5 }).pos(4, 6, 3).out()
-icosa({ radius: 1.2 }).noise({ amp: 0.3, freq: 2, speed: 0.4 }).color('#8899ff').out()
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+icosa({ radius: 1.2 }).noise({ amp: 0.3, period: 0.5, speed: 0.4 }).color('#8899ff').out()
 
 scene().kaleido(6).out('kal')
 noise({ freq: 3, channels: 2, speed: 0.4 }).out('warp')
@@ -996,9 +1012,9 @@ a light's own `.out('name')` restricts it to one layer.
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.4 }).pos(4, 6, 3).out()
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
 
-torusKnot({ res: 96 }).rotate(0, t => t * 0.5, 0).color('#8899ff').out('knot')
+torusKnot({ res: 96 }).rotation(0, t => t * 0.5, 0).color('#8899ff').out('knot')
 icosa({ radius: 1.2 }).noise({ amp: 0.3, speed: 0.4 }).color('#ff5f9e').out('blob')
 
 input('knot').edge({ strength: 2 })
@@ -1013,10 +1029,10 @@ filename goes. The chain re-renders every frame, so the surface is live.
 
 ```js
 ambient({ intensity: 0.5 })
-directional({ intensity: 2.4 }).pos(3, 5, 4).out()
+directional({ intensity: 2.4 }).position(3, 5, 4).out()
 
 box({ width: 4.4, height: 2.8, depth: 0.25, res: 2 })
-  .rotate(0, t => Math.sin(t * 0.4) * 0.6, 0)
+  .rotation(0, t => Math.sin(t * 0.4) * 0.6, 0)
   .material({
     map: noise({ freq: 3, octaves: 4, speed: 0.3, a: '#1a0533', b: '#4fd1c5' })
       .kaleido(6)
@@ -1030,7 +1046,7 @@ box({ width: 4.4, height: 2.8, depth: 0.25, res: 2 })
 Any source works — generators as above, `video()`, `imagefile()`, a bus. Every
 slot takes one too: `map` for color, but also `normalMap`, `roughnessMap`,
 `displacementMap`, `aoMap`, `metalnessMap`, and `arm` to feed the packed three
-at once. `noise({ freq: 8 }).normalMap()` is a live bumpy surface; `noise()`
+at once. `noise({ period: 0.125 }).normalMap()` is a live bumpy surface; `noise()`
 into `displacementMap` on a high-`res` shape is a moving terrain.
 
 `repeat` / `offset` / `uvRotate` work as usual, and each binding gets its own
@@ -1041,18 +1057,18 @@ hang it on several surfaces — or just keep the wiring readable:
 
 ```js
 ambient({ intensity: 0.4 })
-directional({ intensity: 1.4 }).pos(3, 5, 6).out()
+directional({ intensity: 1.4 }).position(3, 5, 6).out()
 
 ramp({ type: 'angular', a: '#1a0533', b: '#ff5f9e' })
   .rotate(t => t * 0.3)
   .posterize(6)
   .out('feed')
 
-plane({ width: 4, height: 2.5 }).pos(-2.5, 0, 0)
+plane({ width: 4, height: 2.5 }).position(-2.5, 0, 0)
   .material({ map: input('feed') })
   .out()
 
-box({ res: 2 }).scale(2).pos(2.5, 0, 0)
+box({ res: 2 }).scale(2).position(2.5, 0, 0)
   .material({ map: input('feed').invert(), roughness: 0.3 })
   .out()
 ```
@@ -1071,16 +1087,16 @@ the scene showing the scene, one frame behind:
 ```js
 bg('#101a2e')
 ambient({ intensity: 0.35 })
-directional({ intensity: 1.5 }).pos(3, 5, 6).out()
+directional({ intensity: 1.5 }).position(3, 5, 6).out()
 
 plane({ width: 4, height: 3 })
-  .pos(0, 1, -2)
+  .position(0, 1, -2)
   .material({ map: scene().transform({ scale: 0.98 }).hue(0.02) })
   .out()
 
 torus({ radius: 0.6, tube: 0.22, res: 48 })
-  .pos(t => Math.sin(t) * 1.6, 1, 0.6)
-  .rotate(t => t * 0.7, t => t * 0.4, 0)
+  .position(t => Math.sin(t) * 1.6, 1, 0.6)
+  .rotation(t => t * 0.7, t => t * 0.4, 0)
   .color('#ffd166')
   .out()
 ```
@@ -1192,10 +1208,10 @@ const kick = audio().bandpass(30, 160).kicks()
 const bass = audio().lowpass(150).smooth(0.03, 0.2)
 
 ambient({ intensity: 0.2 })
-directional({ intensity: 1.5 }).pos(4, 6, 3).out()
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
 
 icosa({ radius: 1 })
-  .noise({ amp: bass.mul(1.2).add(0.1), freq: 2.5, speed: 0.4 })
+  .noise({ amp: bass.mul(1.2).add(0.1), period: 0.4, speed: 0.4 })
   .scale(kick.mul(0.5).add(1))
   .color(kick.counter().select(['#ff5f9e', '#4fd1c5', '#ffd166']))
   .out()
@@ -1277,7 +1293,7 @@ per trigger:
 const hit = beat(1).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())
 
 ambient({ intensity: 0.25 })
-directional({ intensity: 1.5 }).pos(4, 6, 3).out()
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
 
 sphere({ res: 96 })
   .noise({ amp: 0.35, freq: 3, seed: rand().hold(hit).mul(4).round() })
@@ -1307,14 +1323,14 @@ than `Math.sin`: the house convention keeps every source in the same span, so
 ## mouse
 
 `mouse()` is the pointer as a signal — **-1..1 with 0 at the center**, y up.
-That's the range a `.pos()` wants, so it goes straight in:
+That's the range a `.position()` wants, so it goes straight in:
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.4 }).pos(3, 5, 2).out()
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
 
 sphere({ radius: 0.6, res: 48 })
-  .pos(mouse('x').mul(4), mouse('y').mul(2.5), 0)
+  .position(mouse('x').mul(4), mouse('y').mul(2.5), 0)
   .color('#4fd1c5')
   .out()
 ```
@@ -1343,7 +1359,7 @@ costs nothing and takes the stutter out of a hand-held move.
 
 ```js
 ambient({ intensity: 0.3 })
-directional({ intensity: 1.5 }).pos(4, 6, 3).out()
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
 
 // THREE for math the API doesn't wrap: lerp between two colors over time
 const c1 = new THREE.Color('#ff5f9e')
@@ -1354,7 +1370,7 @@ let spin = 0
 onFrame((t, dt) => { spin += dt * (1.5 + Math.sin(t)) })   // custom integrator
 
 torus({ radius: 1.2, tube: 0.4, res: 64 })
-  .rotate(0, () => spin, 0)
+  .rotation(0, () => spin, 0)
   .color(blend)
   .out()
 ```

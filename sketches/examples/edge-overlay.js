@@ -3,12 +3,12 @@
 
 bg('#04040a')
 ambient({ intensity: 0.3 })
-point({ color: '#88aaff', intensity: 60 }).pos(4, 3, 3).out()
-point({ color: '#ffaa66', intensity: 40 }).pos(-3, -2, 4).out()
+point({ color: '#88aaff', intensity: 60 }).position(4, 3, 3).out()
+point({ color: '#ffaa66', intensity: 40 }).position(-3, -2, 4).out()
 
-icosa({ radius: 1.3, detail: 12 })
+icosa({ radius: 1.3, res: 12 })
   .noise({ amp: 0.35, freq: 1.8, octaves: 4, speed: 0.4 })
-  .rotate(0, t => t * 0.25, 0)
+  .rotation(0, t => t * 0.25, 0)
   .material({ color: '#223355', roughness: 0.4, metalness: 0.3 })
   .out()
 

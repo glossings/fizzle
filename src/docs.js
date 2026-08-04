@@ -15,19 +15,19 @@ import { BLEND_MODE_NAMES, ASCII_SET_NAMES } from './textures.js';
 // Line breaks and `- ` bullets are yours to place; see the rendering section.
 
 export const GLOBALS = {
-  sphere: ['sphere({ radius, res })', 'Sphere geometry op. Chain .pos/.rotate/.scale/.noise/.instance/.material, end with .out().'],
+  sphere: ['sphere({ radius, res })', 'Sphere geometry op. Chain .position/.rotation/.scale/.noise/.instance/.material, end with .out().'],
   box: ['box({ width, height, depth, res })', 'Box geometry op. res adds subdivisions for .noise displacement.'],
   plane: ['plane({ width, height, res })', 'Plane geometry op (double-sided). Great for noise terrain.'],
   torus: ['torus({ radius, tube, res })', 'Torus geometry op.'],
   torusKnot: ['torusKnot({ radius, tube, res, p, q })', 'Torus knot geometry op.'],
   cylinder: ['cylinder({ radiusTop, radiusBottom, height, res })', 'Cylinder geometry op.'],
-  icosa: ['icosa({ radius, detail })', 'Icosahedron geometry op — even triangle distribution, ideal for noise blobs.'],
-  model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx — chain .pos/.rotate/.scale/.noise/.instance/.material/.out() like any other shape.\nDrag a model in to import it (stored in the browser, survives reloads); an empty call opens a picker. name = filename, exact or substring.\nEvery mesh in the file merges into one geometry and its own materials are dropped, so shade it with .material()."],
+  icosa: ['icosa({ radius, res })', 'Icosahedron geometry op — even triangle distribution, ideal for noise blobs.'],
+  model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx — chain .position/.rotation/.scale/.noise/.instance/.material/.out() like any other shape.\nDrag a model in to import it (stored in the browser, survives reloads); an empty call opens a picker. name = filename, exact or substring.\nEvery mesh in the file merges into one geometry and its own materials are dropped, so shade it with .material()."],
 
   ambient: ['ambient({ intensity, color })', "Ambient light — an even fill from every direction at once, so it casts no shadows and has nowhere to be. The one light that adds itself: .out() is optional, and only worth chaining to light a single layer.\nPositional ambient(intensity, color) also works."],
-  directional: ['directional({ color, intensity, shadow })', 'Directional light — parallel rays, like the sun. Chain .pos(x,y,z).target(x,y,z).out(); pos, target, color and intensity take fns of t.'],
-  point: ['point({ color, intensity, distance, decay, shadow })', "Point light — a bare bulb, throwing light every way at once. Chain .pos(x,y,z).out(); pos, color and intensity take fns of t.\nintensity: t => 30 * (0.8 + 0.2 * rand(13)(t)) is a fluorescent buzz."],
-  spot: ['spot({ color, intensity, angle, penumbra, distance, decay, shadow })', 'Spot light — a cone from .pos(x,y,z) toward .target(x,y,z) (the origin without one). The natural partner for shadow: true, since a cone of light is a cone of shadow.'],
+  directional: ['directional({ color, intensity, shadow })', 'Directional light — parallel rays, like the sun. Chain .position(x,y,z).target(x,y,z).out(); position, target, color and intensity take fns of t.'],
+  point: ['point({ color, intensity, distance, decay, shadow })', "Point light — a bare bulb, throwing light every way at once. Chain .position(x,y,z).out(); position, color and intensity take fns of t.\nintensity: t => 30 * (0.8 + 0.2 * rand(13)(t)) is a fluorescent buzz."],
+  spot: ['spot({ color, intensity, angle, penumbra, distance, decay, shadow })', 'Spot light — a cone from .position(x,y,z) toward .target(x,y,z) (the origin without one). The natural partner for shadow: true, since a cone of light is a cone of shadow.'],
   hemi: ['hemi({ sky, ground, intensity })', 'Hemisphere light — sky color from above, bounce from below. Chain .out(). Ambient-ish, so it casts no shadows.'],
 
   hdri: ['hdri(name?, { background, intensity, blur, rotation, backgroundRotation, backgroundIntensity })', "Image-based lighting from an imported .hdr/.exr: it lights every material in the scene and shows behind it. Metalness only comes alive with one — a metal surface has nothing to reflect otherwise.\nAn empty hdri() opens the Poly Haven browser and writes your pick back into the call; you can also drag a file in. Every option but background takes a fn of t."],
@@ -41,14 +41,14 @@ export const GLOBALS = {
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far, empty space white. Give it a focus instead and it measures distance from that plane, a ready-made depth-of-field mask.\nMostly you hand it to .mask(m, fn) to treat the image by distance: .mask(depth(), s => s.blur(8)) blurs the far, .mask(depth({ focus: 8, range: 5 }), s => s.blur(6)) is DOF, .mask(depth(), s => s.comp(constant('#8a97a8'), 'over')) is haze."],
   input: ['input(name?)', "Texture source: with no name, last frame's display output (comp it back in for trails). With a name, whatever .out(name) published — a texture chain (same frame if acyclic, last frame if it loops — a named cycle is a feedback loop) or a geometry layer, rendered on black."],
   constant: ['constant(color)', "Texture generator: one flat color, whole frame. Hex, CSS name or [r, g, b], and a fn of t like any other color slot.\nThe thing to comp with when a wash is wanted rather than an image: .mask(depth(), s => s.comp(constant('#8a97a8'), 'over')) is haze."],
-  ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it.\nperiod is how much of the frame one cycle spans, so anything under 1 repeats it into bands, and shape waveshapes each cycle — the same four shapes signals have. ramp({ angle: Math.PI / 2, period: 1 / 80, shape: 'tri' }) is scanlines, shape: 'sqr' is hard stripes, type: 'angular' a pinwheel, type: 'radial' rings. Animate phase to scroll them."],
+  ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it.\nperiod is how much of the frame one cycle spans, so anything under 1 repeats it into bands, and shape waveshapes each cycle — the same four shapes signals have. ramp({ angle: Math.PI / 2, freq: 80, shape: 'tri' }) is scanlines, shape: 'sqr' is hard stripes, type: 'angular' a pinwheel, type: 'radial' rings. Animate phase to scroll them."],
   circle: ['circle({ radius, soft, center, color, bg })', 'Texture generator: soft-edged disc. radius, soft and center each take a fn of t, or a texture for a value that varies across the frame — a texture in radius bends the rim into a blob.'],
   video: ['video(name?)', "Texture generator: live camera. name matches a camera label (case-insensitive substring, e.g. video('facetime')); no name = default camera, and the console lists the available sources on start. Permission prompt on first use; black until the stream is live."],
   videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Drag a file in to import it (stored in the browser, survives reloads); an empty call opens a picker and fills the name in. name = filename, exact or substring.\nctrl+r or restartMedia() rewinds everything by hand."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped) — imageseq(names, beat(1).counter()) steps each beat, .counter() of .kicks() steps on kicks. Default index: one per second.\nDropping several images at once types this call for you. Empty call = multi-file picker.'],
-  noise: ['noise({ freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from color a to color b — the workhorse source for .displace(), masks and lookups.\nThe output is normalized, so the octave keys change its texture rather than its level; reach for .contrast()/.mul() to set that. On a geometry chain .noise() displaces vertices instead.'],
-  voronoi: ["voronoi({ scale, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: scattered points drifting over the frame, every pixel colored by the nearest one — cracked glass, cell walls, stained glass, water caustics.\nmode picks what's drawn (flat cells, distance to the nearest point, or the seams between cells); all three shade from a to b, so any of them also works as a mask or a .displace() map. blend softens the boundaries and takes a texture."],
+  noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from color a to color b — the workhorse source for .displace(), masks and lookups.\nThe output is normalized, so the octave keys change its texture rather than its level; reach for .contrast()/.mul() to set that. On a geometry chain .noise() displaces vertices instead.'],
+  voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: scattered points drifting over the frame, every pixel colored by the nearest one — cracked glass, cell walls, stained glass, water caustics.\nmode picks what's drawn (flat cells, distance to the nearest point, or the seams between cells); all three shade from a to b, so any of them also works as a mask or a .displace() map. blend softens the boundaries and takes a texture."],
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text on a solid background — comp it over a scene with add or screen to drop the bg. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text, chainable like any other shape. Renders in helvetiker until the font you named arrives."],
 
@@ -58,27 +58,28 @@ export const GLOBALS = {
   restartMedia: ['restartMedia(name?)', 'Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute; ctrl+r does the same from the keyboard.'],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() texture. Positional rand(freq, seed) also works.\nrand().beat(4).mul(4).round() = random 0..4 per bar; rand().hold(audio().kicks()) = a new value per kick.'],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.\nBare sig() is t itself — the seconds-based phase source beat() is the tempo-synced version of. sig().sin() is a 1 Hz LFO over 0..1, sig().mul(0.5).sin().range(0, 10) a slower one over 0..10."],
-  mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up — the range .pos() wants, so .pos(mouse('x'), mouse('y'), 0) tracks the cursor directly. Default axis is x.\nmouse('down') is a 1/0 gate: .smooth(0.2) ramps it, .counter() steps on clicks, and it drives .when() like any other gate. Reads the picture rather than the page, so the letterbox bars and the projector window both land where you'd expect.\nIt's the one signal that isn't 0..1 — .range(0, 10, { from: [-1, 1] }) rescales it."],
+  mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up — the range .position() wants, so .position(mouse('x'), mouse('y'), 0) tracks the cursor directly. Default axis is x.\nmouse('down') is a 1/0 gate: .smooth(0.2) ramps it, .counter() steps on clicks, and it drives .when() like any other gate. Reads the picture rather than the page, so the letterbox bars and the projector window both land where you'd expect.\nIt's the one signal that isn't 0..1 — .range(0, 10, { from: [-1, 1] }) rescales it."],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
 };
 
 export const METHODS = {
-  pos: ['.pos(x, y, z) | .pos(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works, so .pos(pts.sample(i)) goes straight in.'],
-  rotate: ['.rotate(x, y, z) | .rotate(v, { wrap })', 'Geometry: rotation in radians (numbers or fns of t, or one vector) · Texture: .rotate(v, { wrap }) rotates the image around center.'],
+  position: ['.position(x, y, z) | .position(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works, so .position(pts.sample(i)) goes straight in.\nShort form: .position().'],
+  rotation: ['.rotation(x, y, z) | .rotation(v)', 'Geometry: rotation in radians. Each component is a number or fn of t, or one vector in the first slot like .position(v).\nShort form: .rot(). A texture chain rotates with .rotate() instead, which is a UV transform rather than a placement.'],
   scale: ['.scale(x, y?, z?) | .scale(v, { wrap })', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: .scale(v, { wrap }) zooms around center (scalar or [x, y]).'],
-  translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame).\nA texture fills the whole slot rather than one component — the shift at each pixel is that map's R and G there, which is what .displace() is built on."],
-  noise: ['.noise({ amp, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens. .sample()/.normal() on the chain see the same field, so a noised shape works as a layout source.'],
-  instance: ['.instance(count, (x, i, n, t) => x.pos(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .pos/.rotate/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.\nFor a layout that follows another shape, .pos(pts.sample(i)) scatters the copies over its surface — see .sample().'],
-  align: ['.align(v)', "Aim the shape's +Y axis along a direction vector — the rotation Euler angles can't state without a page of atan2. Its reason to exist is .align(pts.normal(i)), standing each copy up off the surface it was sampled from.\n+Y is the axis because that's where a cylinder() or a cone already points. .rotate() still applies, in the shape's own frame before the aim: a Y-only rotation rolls it about the aimed axis and leaves the aim alone, while an X or Z one leans it off by that angle. Components take fns of t."],
-  sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z} — a geometry used as a layout source rather than something drawn. The shape needn't be in the scene: an op that never reaches .out() renders nothing, so const pts = icosa({ radius: 3 }) then .instance(400, (x, i) => x.pos(pts.sample(i))) skins one shape onto another.\nPoints are area-weighted across the triangles and stable across re-runs, so editing a sketch doesn't reshuffle them. The source's whole chain applies: its .noise() puts the points on the deformed surface (the same field, re-run on the CPU), then its .pos/.rotate/.scale/.align place them, so a layout can be noised, placed, or spun. Either one makes the points a fn of t, so results can only be worked out ahead of the layout fn while the source is still."],
+  rotate: ['.rotate(v, { wrap })', 'Texture: rotate the image around center, in radians. v takes a fn of t, or a texture to turn each pixel by its own angle.\nShort form: .rot(). Geometry is placed with .rotation() instead.'],
+  translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame). Short form: .trans().\nA texture fills the whole slot rather than one component — the shift at each pixel is that map's R and G there, which is what .displace() is built on."],
+  noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens. .sample()/.normal() on the chain see the same field, so a noised shape works as a layout source.'],
+  instance: ['.instance(count, (x, i, n, t) => x.position(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with the same verbs as the chain — .position/.rotation/.scale, plus .color() to tint that copy. It runs every frame, so instances animate. i = copy index, n = count.\nFor a layout that follows another shape, .position(pts.sample(i)) scatters the copies over its surface — see .sample().'],
+  align: ['.align(v)', "Aim the shape's +Y axis along a direction vector — the rotation Euler angles can't state without a page of atan2. Its reason to exist is .align(pts.normal(i)), standing each copy up off the surface it was sampled from.\n+Y is the axis because that's where a cylinder() or a cone already points. .rotation() still applies, in the shape's own frame before the aim: a Y-only rotation rolls it about the aimed axis and leaves the aim alone, while an X or Z one leans it off by that angle. Components take fns of t."],
+  sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z} — a geometry used as a layout source rather than something drawn. The shape needn't be in the scene: an op that never reaches .out() renders nothing, so const pts = icosa({ radius: 3 }) then .instance(400, (x, i) => x.position(pts.sample(i))) skins one shape onto another.\nPoints are area-weighted across the triangles and stable across re-runs, so editing a sketch doesn't reshuffle them. The source's whole chain applies: its .noise() puts the points on the deformed surface (the same field, re-run on the CPU), then its .position/.rotation/.scale/.align place them, so a layout can be noised, placed, or spun. Either one makes the points a fn of t, so results can only be worked out ahead of the layout fn while the source is still."],
   normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. Hand it to .align() to stand copies up off the surface, or read a component to drive scale or color by facing.'],
   material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: a standard PBR material, upgraded to three's physical one the moment you name a glass or coating key — so a sketch that never mentions them pays nothing.\nAn empty .material() opens the Poly Haven browser and writes your pick back into the call. Every value takes a fn of t; every map slot takes an imported image by name, or a live texture chain."],
   color: ['.color(c)', "Shorthand for .material({ color }).\nFour forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] with channels 0..1. The whole color may be a fn of t or a signal — .color(kickCounter.select(palette)) — and each channel of the array may be its own, which is how you compute a color instead of listing one: .color([t => Math.sin(t) * 0.5 + 0.5, 0.2, audio()])."],
-  target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .pos(v). Point and hemisphere lights have no direction and reject it.'],
+  target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default and costs nothing until some light casts, so on a mesh this is really the opt-out: .shadow(false) for both, or one side of it. On a light, shadow: true turns casting on (directional/spot/point) and the same object tunes it.\nThe one exception to that default: glass (transmission) and blended (opacity < 1) surfaces don't cast, because the depth pass can't tell they're see-through and would throw the solid shadow of their silhouette. .shadow(true) insists."],
-  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output. With a name, publishes for input('name') instead: a texture chain (passthrough), a geometry as its own render layer, or a light lighting only that layer.\nAn op is mutable and its mesh re-reads it every frame, so .out() doesn't take a copy: moving one op between two .out() calls leaves both meshes on the last transform, stacked. Repeats want .instance(n, fn); copies that differ want the shape as a function — const ball = (color) => sphere({ radius: 0.5 }).material({ color }), then ball('#4fd1c5').pos(-3).out() builds a fresh op each call."],
+  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output. With a name, publishes for input('name') instead: a texture chain (passthrough), a geometry as its own render layer, or a light lighting only that layer.\nAn op is mutable and its mesh re-reads it every frame, so .out() doesn't take a copy: moving one op between two .out() calls leaves both meshes on the last transform, stacked. Repeats want .instance(n, fn); copies that differ want the shape as a function — const ball = (color) => sphere({ radius: 0.5 }).material({ color }), then ball('#4fd1c5').position(-3).out() builds a fresh op each call."],
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other. A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
@@ -271,7 +272,7 @@ const GLOBAL_KEY_DOCS = {
   },
   plane: {
     width: 'Size along X. Default 10.',
-    height: 'Size along Y (the plane starts upright — .rotate(-Math.PI/2, 0, 0) lays it flat). Default 10.',
+    height: 'Size along Y (the plane starts upright — .rotation(-Math.PI/2, 0, 0) lays it flat). Default 10.',
     res: 'Grid subdivisions per side. Default 128 — this is the vertex budget .noise() turns into terrain.',
   },
   torus: {
@@ -294,7 +295,7 @@ const GLOBAL_KEY_DOCS = {
   },
   icosa: {
     radius: 'Radius in world units. Default 1.',
-    detail: 'Subdivision level, 0..9. Default 8. Triangles stay evenly sized at any level, which is why this is the shape to .noise() into a blob.',
+    res: 'Subdivision level, 0..9 — a level, not a segment count, so it climbs fast. Default 8. Triangles stay evenly sized at any level, which is why this is the shape to .noise() into a blob.',
   },
   model: {
     center: "Sit the geometry's bounding box on the origin. Default true; false keeps the file's own placement.",
@@ -359,7 +360,8 @@ const GLOBAL_KEY_DOCS = {
     b: 'Color at the high end. Default white.',
     angle: 'Direction of a linear ramp, or where an angular one starts, in radians. Default 0.',
     phase: 'Slides the sweep along itself, in cycles. Default 0. With period or shape named it wraps, so animating it scrolls the bands forever; on a plain ramp it runs into the clamped ends instead — which is the point of a negative phase on a radial one, giving a vignette with a flat center.',
-    period: 'How much of the frame one cycle of the sweep spans. Default 1, a single gradient across it. Below that it repeats into bands — 0.5 is two, 1 / 80 is scanlines, and with type angular or radial the same number gives a pinwheel or rings. The whole useful range lives in 0..1, so a bare signal drops in: period: rand({ freq: 2 }) or audio() rewrites the pattern without a .mul() in front of it. Naming it also makes phase wrap.',
+    period: 'How much of the frame one cycle of the sweep spans. Default 1, a single gradient across it. Below that it repeats into bands — 0.5 is two, and with type angular or radial the same number gives a pinwheel or rings. The whole useful range lives in 0..1, so a bare signal drops in: period: rand({ freq: 2 }) or audio() rewrites the pattern without a .mul() in front of it. Naming it also makes phase wrap; freq says the same thing upside down, for the band counts that would otherwise be fractions.',
+    freq: 'How many cycles span the frame — the reciprocal of period, and the easier spelling for fine bands: freq: 80 is scanlines. Naming either one is what makes phase wrap.',
     shape: "Waveshape of each period, the same four signals have: 'saw' (default, the plain ramp, hard seam where it wraps), 'tri' (up then back down — the seamless one, and what soft stripes want), 'sin' (smoother still), 'sqr' (flat a, flat b — hard bands). Threshold a tri to make the bands thin.",
   },
   circle: {
@@ -376,7 +378,8 @@ const GLOBAL_KEY_DOCS = {
     restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(8).sqr(0.05) retriggers every 8 beats.',
   },
   noise: {
-    freq: 'How many cells of noise span the frame. Default 4 — low is big soft blobs, 30+ is fine grain.',
+    period: "How much of the frame one blob of noise spans. Default 0.25, four across — 0.5 is big soft shapes, 0.03 is fine grain. The useful range lives in 0..1 like ramp's, so a bare signal drops in: period: audio() churns the grain with the level.",
+    freq: 'The same number said the other way: how many blobs span the frame, so freq: 4 is period: 0.25. Reach for whichever avoids a fraction — a period reads better near 1, a frequency better in the hundreds. Naming both is period.',
     octaves: 'Layers of finer detail stacked on top, 1..8. Default 3.',
     lacunarity: 'How much finer each octave is than the last. Default 2, meaning twice.',
     gain: 'How much quieter each octave is than the last. Default 0.5. Near 0 stays smooth and cloudy, near 1 goes rough and grainy.',
@@ -387,7 +390,8 @@ const GLOBAL_KEY_DOCS = {
     b: 'Color the high end shades to. Default white.',
   },
   voronoi: {
-    scale: 'How many cells span the frame. Default 6 — 2 is a few big plates, 40 is fine crazing.',
+    period: 'How much of the frame one cell spans. Default 1/6 — 0.5 is a few big plates, 0.025 is fine crazing. Same 0..1 range every period key has.',
+    freq: 'How many cells span the frame — the reciprocal of period, and usually the easier of the two here, since cells are things you can count. Default 6: 2 is a few big plates, 40 is fine crazing. scale is the old name for this key and still works.',
     speed: 'How fast the points drift inside their cells. Default 0.3; 0 freezes the pattern into a still.',
     blend: "How far past its own cell a pixel listens, in cell widths. Default 0 — hard edges. Raising it melts neighbouring cells into each other ('cells'), rounds the wells ('distance') and fattens the seams ('edges'). A texture here makes the pattern crisp in some places and molten in others.",
     seed: 'Picks a different scatter of the same character. Default 0.',
@@ -429,7 +433,8 @@ const GLOBAL_KEY_DOCS = {
 const METHOD_KEY_DOCS = {
   noise: {
     amp: 'How far vertices move along their normals, in world units. Default 0.3.',
-    freq: 'Size of the bumps — how many across the shape. Default 1.5. High freq with low amp is crinkle, the reverse is a slow wobble.',
+    period: 'Size of the bumps, in world units between peaks — so unlike every other period this one is not a fraction of the frame, and it scales with the shape rather than the picture. Default 2/3. A short period with a low amp is crinkle, the reverse is a slow wobble.',
+    freq: 'Bumps per world unit — the reciprocal of period, whichever reads better. Default 1.5.',
     octaves: 'Layers of finer detail stacked on top, 1..8. Default 3.',
     lacunarity: 'How much finer each octave is than the last. Default 2.',
     gain: 'How much smaller each octave is than the last. Default 0.5. Low stays smooth, high goes crinkly.',
@@ -594,9 +599,9 @@ const globalKinds = {
 };
 
 const methodKinds = {
-  geo: 'pos rotate scale align shadow noise instance material color sample normal out',
-  light: 'pos target out',
-  inst: 'pos rotate scale align color material',
+  geo: 'position rotation scale align shadow noise instance material color sample normal out',
+  light: 'position target out',
+  inst: 'position rotation scale align color material',
   texture: `mirror kaleido edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale threshold invert
         remap lookup tint displace comp mask blur bloom when tile out`,
@@ -642,7 +647,7 @@ const el = (tag, cls, text) => {
 };
 
 // A sentence ends in [.!?] + space with two non-abbreviation characters in
-// front of it, so neither "e.g. " nor the ".obj/.fbx " and ".pos/.rotate/"
+// front of it, so neither "e.g. " nor the ".obj/.fbx " and ".position/.rotation/"
 // the prose is full of reads as one. Failing that, the clause before an
 // em-dash — the other way these entries open.
 const SENTENCE = /^([\s\S]{0,150}?[^.\s][a-z0-9)\]][.!?])\s+/;

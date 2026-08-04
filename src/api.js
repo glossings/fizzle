@@ -5,7 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise, applyNoiseDepth } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
-import { TextureOp } from './textures.js';
+import { TextureOp, reciprocal } from './textures.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
@@ -167,11 +167,11 @@ function resolveFont(o) {
 // Chainable operator API:
 //
 //   sphere({ radius: 1 })
-//     .pos(0, t => Math.sin(t), 0)
+//     .position(0, t => Math.sin(t), 0)
 //     .scale(1, 2, 1)
-//     .rotate(0, t => t * 0.3, 0)
+//     .rotation(0, t => t * 0.3, 0)
 //     .noise({ amp: 0.4, freq: 2, octaves: 4, speed: 0.5 })
-//     .instance(50, (x, i, n) => x.pos(i - n / 2, 0, 0))
+//     .instance(50, (x, i, n) => x.position(i - n / 2, 0, 0))
 //     .material({ color: '#4fd1c5', roughness: 0.3 })
 //     .out()
 //
@@ -181,8 +181,8 @@ function resolveFont(o) {
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
 
-// .pos/.rotate/.scale also take a whole vector in the first slot, so a sampled
-// point goes straight in: x.pos(pts.sample(i)). Arrays and anything carrying
+// .position/.rotation/.scale also take a whole vector in the first slot, so a sampled
+// point goes straight in: x.position(pts.sample(i)). Arrays and anything carrying
 // x/y/z (a Vector3, a sample()) both count; null = the caller passed components.
 const asVec = (v) =>
   v === null || typeof v !== 'object' ? null
@@ -212,7 +212,7 @@ function buildGeometry(type, o = {}, extra = {}) {
     case 'cylinder':
       return new THREE.CylinderGeometry(o.radiusTop ?? 0.5, o.radiusBottom ?? 0.5, o.height ?? 1.5, o.res ?? 48, o.res ?? 48);
     case 'icosa':
-      return new THREE.IcosahedronGeometry(o.radius ?? 1, o.detail ?? 8);
+      return new THREE.IcosahedronGeometry(o.radius ?? 1, o.res ?? o.detail ?? 8);
     case 'text3d': {
       const bevel = o.bevel ?? 0.02;
       const g = new TextGeometry(String(resolve(o.text ?? 'text', 0)), {
@@ -233,11 +233,11 @@ function buildGeometry(type, o = {}, extra = {}) {
   }
 }
 
-// .align(v) turns a direction into a rotation, which .rotate()'s Euler angles
+// .align(v) turns a direction into a rotation, which .rotation()'s Euler angles
 // can't do without a page of atan2 — the point of it is .align(pts.normal(i)),
 // standing a copy up off the surface it was sampled from. +Y is the axis that
 // gets aimed, being which way a cylinder/cone already points. Premultiplied, so
-// .rotate() lands first in the shape's own frame: a Y-only rotation rolls the
+// .rotation() lands first in the shape's own frame: a Y-only rotation rolls the
 // copy about the aimed axis and leaves the aim alone, X/Z lean it off by that
 // much. Every frame re-sets .rotation before this runs, so nothing accumulates.
 const UP = new THREE.Vector3(0, 1, 0);
@@ -290,13 +290,13 @@ class InstanceHandle {
     this.dir = null;
   }
 
-  pos(x = 0, y = 0, z = 0) {
+  position(x = 0, y = 0, z = 0) {
     const v = asVec(x);
     if (v) [x, y, z] = [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0];
     this.px = x; this.py = y; this.pz = z;
     return this;
   }
-  rotate(x = 0, y = 0, z = 0) {
+  rotation(x = 0, y = 0, z = 0) {
     const v = asVec(x);
     if (v) [x, y, z] = [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0];
     this.rx = x; this.ry = y; this.rz = z;
@@ -367,12 +367,12 @@ class GeoOp {
     this._sentOut = null;     // transform as of the last .out(), to catch a reused op
   }
 
-  pos(x = 0, y = 0, z = 0) {
+  position(x = 0, y = 0, z = 0) {
     const v = asVec(x);
     this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
     return this;
   }
-  rotate(x = 0, y = 0, z = 0) {
+  rotation(x = 0, y = 0, z = 0) {
     const v = asVec(x);
     this._rot = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
     return this;
@@ -391,12 +391,12 @@ class GeoOp {
   //
   //   const pts = icosa({ radius: 3 });
   //   sphere({ radius: 0.08 })
-  //     .instance(400, (x, i) => x.pos(pts.sample(i)))
+  //     .instance(400, (x, i) => x.position(pts.sample(i)))
   //     .out();
   //
   // The source's whole chain applies: its .noise() moves the points onto the
   // deformed surface (noise-cpu.js re-runs the shader's field on the CPU), then
-  // its .pos/.rotate/.scale/.align place them. The shape is never drawn, so its
+  // its .position/.rotation/.scale/.align place them. The shape is never drawn, so its
   // transform has no other job, and spinning a layout should carry the copies.
   //
   // Both are functions of t once the source has a .noise() or a fn transform,
@@ -466,7 +466,7 @@ class GeoOp {
   }
 
   // Cached on the engine as well as on the op, because a source written inline
-  // inside a layout fn — .instance(400, (x, i) => x.pos(icosa().sample(i))) —
+  // inside a layout fn — .instance(400, (x, i) => x.position(icosa().sample(i))) —
   // is a fresh op per copy per frame. Sharing by shape makes that merely
   // wasteful rather than fatal.
   _points() {
@@ -519,7 +519,8 @@ class GeoOp {
   noise(o = {}) {
     this._noise = {
       amp: o.amp ?? 0.3,
-      freq: o.freq ?? 1.5,
+      // here a period is world units between peaks, not a fraction of the frame
+      freq: o.period !== undefined ? reciprocal(o.period) : o.freq ?? 1.5,
       octaves: o.octaves ?? 3,
       lacunarity: o.lacunarity ?? 2,
       gain: o.gain ?? 0.5,
@@ -530,10 +531,10 @@ class GeoOp {
   }
 
   // instance(count, fn) — fn(x, i, count, t) transforms copy `i` through the
-  // same verbs as the chain (x.pos/.rotate/.scale/.color). It runs every
+  // same verbs as the chain (x.position/.rotation/.scale/.color). It runs every
   // frame, so instances animate.
   instance(count, fn) {
-    this._instance = { count, fn: fn ?? ((x, i) => x.pos(i * 2, 0, 0)) };
+    this._instance = { count, fn: fn ?? ((x, i) => x.position(i * 2, 0, 0)) };
     return this;
   }
 
@@ -558,7 +559,7 @@ class GeoOp {
     // Each mesh re-reads this op every frame, so an op moved between two
     // .out() calls leaves both meshes on the last transform, stacked. Sending
     // one op to two layers is fine, though — only a moved one is a mistake.
-    // pos/rotate/scale always assign a fresh array, so identity is the test.
+    // position/rotation/scale always assign a fresh array, so identity is the test.
     if (this._sentOut && (this._pos !== this._sentOut.pos || this._rot !== this._sentOut.rot || this._scale !== this._sentOut.scale)) {
       warn('this shape is already in the scene — moving it after .out() moves every copy of it. Use .instance(n, fn) for copies, or a function that builds the shape fresh each time.');
     }
@@ -732,9 +733,9 @@ class GeoOp {
           // the pre-handle signature was fn(i, n, t) returning { pos, rot,
           // scale }: under this one its `i` is the handle, so the math quietly
           // goes NaN. Name it instead of rendering nothing. (A concise arrow —
-          // x => x.pos(...) — hands the handle itself back, which is fine.)
+          // x => x.position(...) — hands the handle itself back, which is fine.)
           if (i === 0 && d && d !== handle && (d.pos || d.rot || d.scale)) {
-            warn('instance: the layout fn is now (x, i, n, t) and transforms x directly — x.pos(...).rotate(...).scale(...) instead of returning { pos, rot, scale }');
+            warn('instance: the layout fn is now (x, i, n, t) and transforms x directly — x.position(...).rotation(...).scale(...) instead of returning { pos, rot, scale }');
           }
           dummy.position.set(resolve(handle.px, t), resolve(handle.py, t), resolve(handle.pz, t));
           dummy.rotation.set(resolve(handle.rx, t), resolve(handle.ry, t), resolve(handle.rz, t));
@@ -779,7 +780,7 @@ class GeoOp {
 //   normalBias same, along the normal — the one that helps on flat floors
 //   near/far   the light's own view range; anything outside casts nothing
 //   area       directional only: half-width of the shadowed box around the
-//              .pos() → .target() axis. Too big blurs detail away, too small
+//              .position() → .target() axis. Too big blurs detail away, too small
 //              clips the shadow off mid-floor.
 function applyShadow(light, o) {
   if (!o) return;
@@ -819,7 +820,7 @@ class LightOp {
     this._pos = [3, 4, 2];
     this._target = null;
   }
-  pos(x, y, z) {
+  position(x, y, z) {
     if (this.light.isAmbientLight) {
       warn('ambient: arrives evenly from every direction, so it has nowhere to be — hemi(), directional() or point() light from somewhere');
       return this;
@@ -829,7 +830,7 @@ class LightOp {
     return this;
   }
   // Where a directional or spot light points; both aim at the origin without
-  // it. Components take fns of t like .pos, so the beam can sweep.
+  // it. Components take fns of t like .position, so the beam can sweep.
   target(x = 0, y = 0, z = 0) {
     if (!this.light.target) {
       warn(`${this.light.type}: shines every way at once — .target() is for directional() and spot()`);
@@ -881,6 +882,15 @@ class LightOp {
   }
 }
 
+// position/rotation are the names the docs teach; the short ones are what you
+// actually type mid-set. .rotate stays for the geometry sketches written before
+// the split — on a texture chain it's still the real method, over in textures.js.
+for (const C of [GeoOp, InstanceHandle]) {
+  C.prototype.pos = C.prototype.position;
+  C.prototype.rot = C.prototype.rotate = C.prototype.rotation;
+}
+LightOp.prototype.pos = LightOp.prototype.position;
+
 export function makeApi(engine) {
   setBpmSource(() => engine.bpm);
   const geo = (type) => (opts) => new GeoOp(engine, type, opts);
@@ -895,7 +905,7 @@ export function makeApi(engine) {
     icosa: geo('icosa'),
     text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
 
-    // An imported .obj/.fbx as a geometry op — chain .pos/.rotate/.scale/
+    // An imported .obj/.fbx as a geometry op — chain .position/.rotation/.scale/
     // .noise/.instance/.material/.out() exactly like sphere() or box().
     // Drag a model into the window to import it (the drop types the call),
     // or run an empty model() for a file picker. name = filename, exact or
@@ -934,7 +944,7 @@ export function makeApi(engine) {
         makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 20, 0),
         resolve(o.distance ?? 0, 0), resolve(o.decay ?? 2, 0)), o);
     },
-    // a cone from .pos() toward .target(): angle is its half-width in radians,
+    // a cone from .position() toward .target(): angle is its half-width in radians,
     // penumbra (0..1) how soft the rim is
     spot(o = {}) {
       return new LightOp(engine, new THREE.SpotLight(
@@ -1135,7 +1145,7 @@ export function makeApi(engine) {
       return sig((t) => valueNoise(t * resolve(freq, t) + seed * 137.31));
     },
     // Pointer position as a signal, -1..1 with 0 at the center — the range a
-    // .pos() wants, so mouse() drops straight into one. 'down' is a 1/0 gate
+    // .position() wants, so mouse() drops straight into one. 'down' is a 1/0 gate
     // (feed it .smooth() for a ramp, .counter() to step on clicks). The
     // projector window reports its own pointer, so this follows the visuals.
     mouse(axis = 'x') {

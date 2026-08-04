@@ -5,11 +5,11 @@
 
 bg('#04050a')
 ambient({ intensity: 0.25 })
-point({ color: '#7fd7ff', intensity: 45 }).pos(3, 3, 4).out()
-point({ color: '#ff5f9e', intensity: 30 }).pos(-4, -1, -2).out()
+point({ color: '#7fd7ff', intensity: 45 }).position(3, 3, 4).out()
+point({ color: '#ff5f9e', intensity: 30 }).position(-4, -1, -2).out()
 
 torusKnot({ radius: 1.1, tube: 0.3, res: 128 })
-  .rotate(t => t * 0.3, t => t * 0.2, 0)
+  .rotation(t => t * 0.3, t => t * 0.2, 0)
   .material({ color: '#e8e8f0', roughness: 0.25, metalness: 0.6 })
   .out()
 

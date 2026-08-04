@@ -4,16 +4,16 @@
 
 bg('#000008')
 ambient({ intensity: 0.35 })
-point({ color: '#ffffff', intensity: 70 }).pos(4, 4, 4).out()
-point({ color: '#7788ff', intensity: 40 }).pos(-4, -1, 3).out()
+point({ color: '#ffffff', intensity: 70 }).position(4, 4, 4).out()
+point({ color: '#7788ff', intensity: 40 }).position(-4, -1, 3).out()
 
 torusKnot({ radius: 1, tube: 0.28, res: 96 })
-  .rotate(t => t * 0.4, t => t * 0.3, 0)
+  .rotation(t => t * 0.4, t => t * 0.3, 0)
   .material({ color: '#ff7f50', roughness: 0.35 })
   .out('knot')
 
-icosa({ radius: 1.5, detail: 12 })
-  .noise({ amp: 0.3, freq: 2, octaves: 4, speed: 0.5 })
+icosa({ radius: 1.5, res: 12 })
+  .noise({ amp: 0.3, period: 0.5, octaves: 4, speed: 0.5 })
   .material({ color: '#4fd1c5', roughness: 0.4, metalness: 0.3 })
   .out('blob')
 

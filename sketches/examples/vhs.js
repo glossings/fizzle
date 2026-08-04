@@ -84,7 +84,7 @@ const played = composite
 // --- the television ---
 
 // a triangle wave up the frame = 240 soft stripes
-const scanlines = ramp({ a: '#8a8a8a', b: '#ffffff', angle: Math.PI / 2, period: 1 / 240, shape: 'tri' })
+const scanlines = ramp({ a: '#8a8a8a', b: '#ffffff', angle: Math.PI / 2, freq: 240, shape: 'tri' })
 
 const readout = t => {
   const s = Math.floor(t)

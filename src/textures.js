@@ -25,6 +25,20 @@ const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 // instead of trying to make a number out of the marker.
 const par = (v, d) => (v == null || typeof v.tex === 'number' ? d : v);
 
+// Every periodic generator takes both spellings of the same number: `period` is
+// how much of the frame (or, on geometry, how many world units) one cycle spans,
+// `freq` is how many fit across it. Neither is the loser — a period reads better
+// near 1 and a frequency reads better in the hundreds, and writing `1 / 300` to
+// avoid saying `freq` helps nobody. The shaders want the frequency, and a period
+// of 0 would hand them Infinity, hence the floor. voronoi's `scale` is the old
+// name for its `freq` and still works.
+const recip = (n) => 1 / (Math.abs(n) > 1e-5 ? n : 1e-5);
+export const reciprocal = (v) => (typeof v === 'function' ? (t) => recip(v(t)) : recip(v));
+
+// period wins when both are named; otherwise the old spelling, then the default
+export const periodic = (period, legacy, dflt, t) =>
+  resolve(period !== undefined ? reciprocal(period) : legacy ?? dflt, t);
+
 // A color literal has to reach the shader as the numbers it was written as:
 // textures work in display space from end to end (that's what the scene
 // texture's tonemap pass establishes), and the final pass copies them to the
@@ -147,11 +161,7 @@ const SPECS = {
       setColor(u.uColB.value, p.b ?? '#ffffff', t);
       u.uAngle.value = resolve(p.angle ?? 0, t);
       u.uPhase.value = resolve(p.phase ?? 0, t);
-      // period is what the sketch says (0..1 covers the whole useful range, so
-      // a bare signal drops in); the shader multiplies, so invert it here.
-      // The floor is only there to keep a period of 0 a number.
-      const period = resolve(p.period ?? 1, t);
-      u.uFreq.value = 1 / (Math.abs(period) > 1e-5 ? period : 1e-5);
+      u.uFreq.value = periodic(p.period, p.freq, 1, t);
       const shapes = { saw: 0, tri: 1, sin: 2, sqr: 3 };
       const shape = p.shape ?? 'saw';
       if (shapes[shape] == null) warn(`ramp: no shape '${shape}' — saw, tri, sin or sqr; showing saw`);
@@ -159,7 +169,7 @@ const SPECS = {
       // Naming either key is what asks for a repeating wave, and with it the
       // wrap — so an untouched ramp keeps clamping, which is what the vignettes
       // built on a negative phase rely on.
-      u.uRepeat.value = p.period !== undefined || p.shape !== undefined ? 1 : 0;
+      u.uRepeat.value = p.period !== undefined || p.freq !== undefined || p.shape !== undefined ? 1 : 0;
     },
   },
 
@@ -212,7 +222,7 @@ const SPECS = {
         }
       }`,
     update(u, p, t) {
-      u.uFreq.value = resolve(p.freq ?? 4, t);
+      u.uFreq.value = periodic(p.period, p.freq, 4, t);
       u.uOct.value = Math.min(8, Math.max(1, resolve(p.octaves ?? 3, t)));
       u.uLac.value = resolve(p.lacunarity ?? 2, t);
       u.uGain.value = resolve(p.gain ?? 0.5, t);
@@ -269,7 +279,7 @@ const SPECS = {
         gl_FragColor = vec4(mix(uColA, uColB, clamp(f, 0.0, 1.0)), 1.0);
       }`,
     update(u, p, t) {
-      u.uScale.value = resolve(p.scale ?? 6, t);
+      u.uScale.value = periodic(p.period, p.freq ?? p.scale, 6, t);
       u.uSpeed.value = resolve(p.speed ?? 0.3, t);
       u.uBlend.value = resolve(par(p.blend, 0), t);
       u.uSeed.value = resolve(p.seed ?? 0, t);
@@ -1491,6 +1501,12 @@ export class TextureOp {
     this.mat?.dispose();
   }
 }
+
+// The short forms of the two long transform verbs, so a texture chain types as
+// fast as a geometry one. (.rot is .rotation's short form over there — same
+// three letters mean rotation on either chain.)
+TextureOp.prototype.trans = TextureOp.prototype.translate;
+TextureOp.prototype.rot = TextureOp.prototype.rotate;
 
 // ---------------------------------------------------------------------------
 // textures bound to material map slots — .material({ map: scene().kaleido(6) }).

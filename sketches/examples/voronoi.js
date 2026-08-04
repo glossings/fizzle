@@ -1,9 +1,9 @@
 // voronoi() — points scattered one per cell, drifting, every pixel answering to
-// its nearest. scale/speed/seed decide where the points are, so three calls
+// its nearest. freq/speed/seed decide where the points are, so three calls
 // that agree on those three see the same scatter and line up exactly: the flat
 // cells, the distance field inside each one, and the seams between them.
 
-const field = { scale: 7, speed: 0.2, seed: 3 }
+const field = { freq: 7, speed: 0.2, seed: 3 }
 
 // blend is how far past its own cell a pixel listens. A texture in it means
 // that distance varies across the frame: molten in the middle where the radial

@@ -15,7 +15,7 @@
 bg('#0b0d13')
 
 directional({ color: '#fff6e8', intensity: 1.3 }).out()
-point({ color: '#5160d2', intensity: 25 }).pos(-5, -1, 4).out()
+point({ color: '#5160d2', intensity: 25 }).position(-5, -1, 4).out()
 
 sphere({ radius: 1.6 })
   .noise({ amp: t => 0.4 * Math.sin(t * 0.5) ** 2 })

@@ -42,9 +42,9 @@ camera(
   [t => sway(t, 2) * 0.9, t => sway(t, 3) * 0.4, -14],
 )
 
-point({ color: '#ff4d6d', intensity: 90 }).pos(3, 2.5, 1).out()
-point({ color: '#4dd8ff', intensity: 90 }).pos(-3, -2, -9).out()
-point({ color: '#ffffff', intensity: 40 }).pos(0, 0, -20).out()
+point({ color: '#ff4d6d', intensity: 90 }).position(3, 2.5, 1).out()
+point({ color: '#4dd8ff', intensity: 90 }).position(-3, -2, -9).out()
+point({ color: '#ffffff', intensity: 40 }).position(0, 0, -20).out()
 
 // a spiral of blocks pulled toward the camera. Moving the geometry rather than
 // the camera keeps the tunnel endless, and puts the cut in the same expression
@@ -53,14 +53,14 @@ box({ width: 1.5, height: 1.5, depth: 1.5, res: 1 })
   .instance(220, (x, i, n, t) => {
     const a = i * 0.55
     const z = ((i * 0.62 + flight(t)) % SPAN) - SPAN + 8
-    x.pos(Math.cos(a) * 4.4, Math.sin(a) * 4.4, z)
-      .rotate(a, a * 0.6, t * 0.2)
+    x.position(Math.cos(a) * 4.4, Math.sin(a) * 4.4, z)
+      .rotation(a, a * 0.6, t * 0.2)
       .scale(1 - (i % 5) * 0.09)
   })
   .out()
 
 torusKnot({ radius: 1.5, tube: 0.42, res: 128 })
-  .rotate(t => t * 0.6, t => t * 0.45, 0)
+  .rotation(t => t * 0.6, t => t * 0.45, 0)
   .material({ color: '#ff7a3c', roughness: 0.3, metalness: 0.6 })
   .out()
 

@@ -13,7 +13,7 @@ const EXAMPLES = Object.fromEntries(
 const LS_SKETCHES = 'td-user-sketches';
 const LS_LAST = 'td-last-sketch';
 const LS_SETTINGS = 'td-settings';
-const NEW_TEMPLATE = `bg('#07070c')\nambient({ intensity: 0.2 })\ndirectional({ intensity: 1.4 }).pos(4, 6, 3).out()\n\nsphere({ radius: 1, res: 96 })\n  .noise({ amp: 0.3, freq: 2, octaves: 4, speed: 0.4 })\n  .material({ color: '#8899ff', roughness: 0.35 })\n  .out()\n`;
+const NEW_TEMPLATE = `bg('#07070c')\nambient({ intensity: 0.2 })\ndirectional({ intensity: 1.4 }).position(4, 6, 3).out()\n\nsphere({ radius: 1, res: 96 })\n  .noise({ amp: 0.3, period: 0.5, octaves: 4, speed: 0.4 })\n  .material({ color: '#8899ff', roughness: 0.35 })\n  .out()\n`;
 
 // --- storage (disk API with localStorage fallback) -------------------------
 

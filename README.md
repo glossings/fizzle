@@ -7,9 +7,9 @@ editor.
 
 ```js
 sphere({ radius: 1.2, res: 96 })
-  .pos(0, t => Math.sin(t), 0)          // any number can be a fn of time
-  .noise({ amp: 0.4, freq: 2, octaves: 4, speed: 0.5 })
-  .instance(60, (x, i) => x.pos(Math.cos(i), 0, Math.sin(i)))
+  .position(0, t => Math.sin(t), 0)     // any number can be a fn of time
+  .noise({ amp: 0.4, period: 0.5, octaves: 4, speed: 0.5 })
+  .instance(60, (x, i) => x.position(Math.cos(i), 0, Math.sin(i)))
   .material({ color: '#4fd1c5', roughness: 0.3, metalness: 0.5 })
   .out()
 

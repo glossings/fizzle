@@ -3,12 +3,12 @@
 bg('#8e93af')
 fog({ color: '#686e92', near: 6, far: 45 })
 ambient({ intensity: 0.95 })
-directional({ color: '#ce933b', intensity: 4.6 }).pos(10, 6, -4).out()
+directional({ color: '#ce933b', intensity: 4.6 }).position(10, 6, -4).out()
 
 plane({ width: 90, height: 90, res: 220 })
-  .pos(0, -2, 0)
-  .rotate(-Math.PI / 2, 0, 0)
-  .noise({ amp: 2.2, freq: 0.09, octaves: 5, speed: 0.06 })
+  .position(0, -2, 0)
+  .rotation(-Math.PI / 2, 0, 0)
+  .noise({ amp: 2.2, period: 11, octaves: 5, speed: 0.06 })
   .material({ color: '#364963', roughness: 0.9, flatShading: true })
   .out()
 
