@@ -21,7 +21,13 @@ float snoise(vec3 v) {
   const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
   vec3 i = floor(v + dot(v, C.yyy));
   vec3 x0 = v - i + dot(i, C.xxx);
-  vec3 g = step(x0.yzx, x0.xyz);
+  // rank a nudged copy: step() answers 1 at equality, so on an exact three-way
+  // tie all three comparisons pass, i1 collapses to 0 and i2 to 1, and two
+  // corners get counted twice while two are dropped — one garbage value in an
+  // otherwise smooth field. The nudge makes that tie unreachable. It moves the
+  // sub-simplex boundaries by 1e-5, where the field is continuous anyway.
+  vec3 r = x0 + vec3(0.0, 1e-5, 2e-5);
+  vec3 g = step(r.yzx, r.xyz);
   vec3 l = 1.0 - g;
   vec3 i1 = min(g.xyz, l.zxy);
   vec3 i2 = max(g.xyz, l.zxy);
@@ -85,8 +91,22 @@ float fbm(vec3 p) {
   return norm > 0.0 ? sum / norm : 0.0;
 }
 
+// snoise ranks the three coordinates against each other to pick a sub-simplex,
+// and that ranking is degenerate when all three are exactly equal: i1 collapses
+// to 0 and i2 to 1, so two corners get counted twice and two dropped, and the
+// point evaluates to garbage while everything around it stays smooth. Offsetting
+// by a single scalar cancels out of the ranking's comparisons, which leaves the
+// differences at exactly (p.x - p.y) * uFreq * lacunarity^i — so on a unit
+// sphere, whose poles and axis vertices sit at differences of exactly 0 and 1,
+// any octave landing on an integer scale ties all three and spikes that one
+// vertex. These break that: unequal offsets so the differences are never whole,
+// a time direction off the diagonal so they can't drift back. Mirrored in
+// noise-cpu.js — see dev-notes/NOISE-PARITY.md.
+const vec3 DOMAIN_OFFSET = vec3(0.0, 3.7, 8.3);
+const vec3 TIME_DIR = vec3(1.0, 0.83, 0.61);
+
 vec3 displacePoint(vec3 p, vec3 n, vec3 seed) {
-  float d = fbm((p + seed) * uFreq + uTime * uSpeed + uSeed * 19.19);
+  float d = fbm((p + seed) * uFreq + uTime * uSpeed * TIME_DIR + DOMAIN_OFFSET + uSeed * 19.19);
   return p + n * d * uAmp;
 }
 `;

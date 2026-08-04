@@ -69,10 +69,12 @@ export function snoise(vx, vy, vz) {
   const x0y = vy - iy + t0;
   const x0z = vz - iz + t0;
 
-  // rank the components to pick which of the six simplices we're in
-  const gx = step(x0y, x0x);
-  const gy = step(x0z, x0y);
-  const gz = step(x0x, x0z);
+  // rank the components to pick which of the six simplices we're in, on a
+  // nudged copy — see the same nudge in SNOISE_GLSL for why
+  const r0 = x0x, r1 = x0y + 1e-5, r2 = x0z + 2e-5;
+  const gx = step(r1, r0);
+  const gy = step(r2, r1);
+  const gz = step(r0, r2);
   const lx = 1 - gx;
   const ly = 1 - gy;
   const lz = 1 - gz;
@@ -150,10 +152,19 @@ function fbm(x, y, z, c) {
   return norm > 0 ? sum / norm : 0;
 }
 
+// DOMAIN_OFFSET and TIME_DIR from NOISE_GLSL, which keep an object's own
+// vertices off snoise's degenerate three-way ranking ties (the reasoning is
+// there) — change them here and there together
+const OFF = [0.0, 3.7, 8.3];
+const TDIR = [1.0, 0.83, 0.61];
+
 // how far along the normal the surface moves at p — the scalar the GPU adds
 const offset = (px, py, pz, c) => {
-  const k = c.time * c.speed + c.seed * 19.19;
-  return fbm(px * c.freq + k, py * c.freq + k, pz * c.freq + k, c) * c.amp;
+  const k = c.time * c.speed;
+  const s = c.seed * 19.19;
+  return fbm(px * c.freq + k * TDIR[0] + OFF[0] + s,
+    py * c.freq + k * TDIR[1] + OFF[1] + s,
+    pz * c.freq + k * TDIR[2] + OFF[2] + s, c) * c.amp;
 };
 
 // --- the surface, NORMAL_CHUNK ---------------------------------------------
