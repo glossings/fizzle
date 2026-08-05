@@ -266,6 +266,20 @@ rasterization and interacts with `fog()`/`hdri()`
 ([src/api.js:1013](../src/api.js#L1013)); nothing in texture-land can express
 "behind the geometry."
 
+## Cutout alpha on materials
+
+Unrelated to the pipeline alpha above, and much smaller: `.material()` has no
+`alphaMap`/`alphaTest` at all ([src/materials.js:63](../src/materials.js#L63)).
+Poly Haven's foliage models publish an `Alpha` map and now come down through the
+model browser, so every plant renders as opaque leaf cards — the one class of
+asset there that can't look right.
+
+[ ] `alphaMap` as another map slot plus `alphaTest` (a number, default 0.5 when
+  an alpha map is named), and add `Alpha` to `WANTED`
+  ([src/polyhaven.js:25](../src/polyhaven.js#L25)) so the map downloads with the
+  rest. Cutout only — a discard needs no sorting, so this doesn't wait on
+  anything above.
+
 ## See-through shadows
 
 `out()` ([src/api.js:373](../src/api.js#L373)) decides `castShadow` from

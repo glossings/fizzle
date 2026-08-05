@@ -402,7 +402,7 @@ export class Engine {
           const names = (await mediaList()).filter((n) => /\.(obj|fbx)$/i.test(n));
           const listed = names.map((n) => `"${n}"`).join(', ');
           warn(
-            `model: nothing imported matching "${name}" — drop an .obj/.fbx into the window to import it. Imported models: ${listed || 'none'}`
+            `model: nothing imported matching "${name}" — run an empty model() to browse Poly Haven, or drop an .obj/.fbx in. Imported models: ${listed || 'none'}`
           );
           return null;
         }
@@ -559,9 +559,9 @@ export class Engine {
     this.pendingPick ??= { fn, kind, multiple };
   }
 
-  // Same deal for an empty hdri() / .material(), except what opens is the Poly
-  // Haven browser rather than a file picker — there's no local file to point
-  // at yet, which is the whole reason the call is empty.
+  // Same deal for an empty hdri() / .material() / model(), except what opens is
+  // the Poly Haven browser rather than a file picker — there's no local file to
+  // point at yet, which is the whole reason the call is empty.
   requestBrowse(fn, type) {
     this.pendingPick ??= { fn, browse: type };
   }

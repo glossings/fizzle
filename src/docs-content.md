@@ -193,12 +193,28 @@ Geometry ops start a chain; `.out()` builds the mesh and adds it to the scene.
 `res` matters for `.noise()` — displacement is per-vertex, so more resolution
 means finer detail.
 
-### model — your own .obj / .fbx
+### model — an .obj / .fbx, yours or Poly Haven's
 
 Drag an `.obj` or `.fbx` into the window and it's imported (stored in the
-browser, surviving reloads) with the call typed at your cursor. An empty
-`model()` opens a file picker instead, and `name` also matches on a
-case-insensitive substring, so `model('ship')` finds `ship_final_v2.fbx`.
+browser, surviving reloads) with the call typed at your cursor. `name` also
+matches on a case-insensitive substring, so `model('ship')` finds
+`ship_final_v2.fbx`.
+
+An empty `model()` opens a browser onto [Poly Haven](https://polyhaven.com)'s
+CC0 models — the same browser an empty `.material()` opens, searchable the same
+way, with the polygon count on each card (everything merges into one mesh, so
+a 800k-triangle scan is exactly as heavy as it looks). Your pick downloads as
+an `.fbx` **and**, when the asset publishes one texture set, as its material —
+so the call fills in already shaded:
+
+```js static
+model('BarberShopChair_01.fbx').material({ pbr: 'BarberShopChair_01_2k' }).out()
+```
+
+Assets that texture their parts separately come down as geometry alone, ready
+for a `.material()` of your own; foliage is the one thing there that can't look
+right yet, since materials have no alpha cutout and leaves are modelled as
+cards. **from disk…** in that browser picks a local file instead.
 
 A model is a geometry op like any other — every chain method works on it,
 `.instance()` included. (`ship.obj` below is a starter file that comes with
@@ -1207,10 +1223,10 @@ upload, survives reloads) and a ready-made call lands at your cursor. Files
 are referenced by filename —
 exact, or case-insensitive substring, so `videofile('clip')` finds
 `clip.mp4`. Running an **empty** call (`videofile()`, `imagefile()`,
-`audiofile()`, `imageseq()`, `model()`) opens a file picker and fills the name
-in for you; an empty `hdri()` or `.material()` opens the Poly Haven browser
-the same way. Since the name ends up in the code, deleting it back down to an
-empty call and running again is how you pick something else.
+`audiofile()`, `imageseq()`) opens a file picker and fills the name in for
+you; an empty `hdri()`, `.material()` or `model()` opens the Poly Haven
+browser the same way. Since the name ends up in the code, deleting it back
+down to an empty call and running again is how you pick something else.
 
 The picker rides the ctrl+enter that ran the sketch — browsers only open file
 dialogs off a keypress or click. A sketch that runs on page load (the last one
@@ -1237,7 +1253,8 @@ by name like anything else, and an import of the same name shadows them.
   played out loud and analysed like `audio()`: it returns a level **signal**
   (see below), so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
 - `model(name?, { center, fit })` — an `.obj`/`.fbx` as a geometry op, not a
-  texture: it starts a chain like `sphere()` does (see **geometry**).
+  texture: it starts a chain like `sphere()` does (see **model**). An empty
+  call browses Poly Haven's models, and downloads the material with the mesh.
 - `hdri(name?, { ... })` — an `.hdr`/`.exr` panorama as environment lighting
   (see **hdri**). An empty call browses Poly Haven rather than opening a file
   picker, since there's no local file to point at yet; **from disk…** in that

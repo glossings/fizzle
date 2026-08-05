@@ -1,5 +1,5 @@
-// Poly Haven browser — search CC0 materials and HDRIs from inside the app and
-// download them into the same IndexedDB store as a dropped file.
+// Poly Haven browser — search CC0 materials, HDRIs and models from inside the
+// app and download them into the same IndexedDB store as a dropped file.
 //
 // The files really are downloaded: nothing in a sketch points at the network.
 // A material lands as 'asphalt_02_2k/diff.jpg', 'asphalt_02_2k/nor_gl.jpg', …
@@ -53,6 +53,7 @@ const trim = (assets) =>
         thumb: a.thumbnail_url,
         authors: Object.keys(a.authors ?? {}),
         downloads: a.download_count ?? 0,
+        polys: a.polycount ?? 0, // models only — everything merges into one mesh, so it's worth seeing first
       },
     ])
   );
@@ -129,15 +130,48 @@ async function importHdri(slug, res, onProgress) {
   return name;
 }
 
+// A model is the mesh plus whatever material the same asset publishes: the
+// files endpoint lists both under one slug, and its map keys are the ones a
+// texture uses, so pickMaps() reads them unchanged. The .fbx is one
+// self-contained binary (models.js drops the materials it names anyway), and
+// `res` only sizes the textures — the mesh is the same at every resolution.
+// Assets that texture their parts separately ('hull_diff', 'sails_arm') have
+// no 'Diffuse' key to find, and come down as geometry alone.
+async function importModel(slug, res, onProgress) {
+  const files = await json(`${API}/files/${slug}`);
+  const url = files.fbx?.[bestRes(files, 'fbx', res) ?? res]?.fbx?.url;
+  if (!url) throw new Error(`no .fbx published for "${slug}"`);
+  const texRes = bestRes(files, 'Diffuse', res);
+  const maps = texRes ? pickMaps(files, texRes, false) : [];
+  const name = `${slug}.fbx`;
+  onProgress?.(0, maps.length + 1);
+  await mediaPut(await download(url), name);
+  const prefix = `${slug}_${texRes}`;
+  for (let i = 0; i < maps.length; i++) {
+    onProgress?.(i + 1, maps.length + 1);
+    await mediaPut(await download(maps[i].url), `${prefix}/${maps[i].as}`);
+  }
+  return { handle: name, pbr: maps.length ? prefix : null };
+}
+
 // --- browser ---------------------------------------------------------------
 
-const RESOLUTIONS = { textures: ['1k', '2k', '4k'], hdris: ['1k', '2k', '4k'] };
+const RESOLUTIONS = { textures: ['1k', '2k', '4k'], hdris: ['1k', '2k', '4k'], models: ['1k', '2k', '4k'] };
 
 // Rendering 800 cards at once is fine; rendering 800 <img> requests is not.
 // The images are lazy, and the list is capped until a search narrows it.
 const PAGE = 120;
 
-const TITLES = { textures: 'materials', hdris: 'hdris' };
+const TITLES = { textures: 'materials', hdris: 'hdris', models: 'models' };
+const PLACEHOLDERS = {
+  textures: 'search — wood, rusty metal, concrete…',
+  hdris: 'search — sunset, studio, forest…',
+  models: 'search — chair, rock, plant…',
+};
+
+// A merged mesh is as heavy as its file says, so the count goes on the card
+const polys = (n) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${n}`;
 
 export function initPolyhaven() {
   let el = null;
@@ -153,7 +187,7 @@ export function initPolyhaven() {
       <div id="ph-panel">
         <header>
           <span class="ph-title"></span>
-          <input id="ph-search" type="search" placeholder="search — wood, rusty metal, sunset…" autocomplete="off">
+          <input id="ph-search" type="search" autocomplete="off">
           <label class="ph-opt">res <select id="ph-res"></select></label>
           <label class="ph-opt ph-disp"><input id="ph-disp" type="checkbox"> displacement</label>
           <button id="ph-close" title="cancel (esc)">✕</button>
@@ -186,7 +220,9 @@ export function initPolyhaven() {
     state.category = null;
     state.query = '';
     el.querySelector('.ph-title').textContent = TITLES[type];
-    el.querySelector('#ph-search').value = '';
+    const search = el.querySelector('#ph-search');
+    search.value = '';
+    search.placeholder = PLACEHOLDERS[type];
     el.querySelector('.ph-disp').style.display = type === 'textures' ? '' : 'none';
     fillResolutions();
   }
@@ -279,7 +315,15 @@ export function initPolyhaven() {
       const label = document.createElement('span');
       label.textContent = asset.name;
       card.append(img, label);
-      if ([...imported].some((n) => n.startsWith(`${slug}_`))) {
+      if (state.type === 'models' && asset.polys) {
+        const count = document.createElement('em');
+        count.className = 'ph-polys';
+        count.textContent = `${polys(asset.polys)} polys`;
+        card.appendChild(count);
+      }
+      // a material lands under 'slug_2k/', an HDRI as 'slug_2k.hdr', a mesh as
+      // 'slug.fbx' — any of the three means this asset is already here
+      if (imported.has(`${slug}.fbx`) || [...imported].some((n) => n.startsWith(`${slug}_`))) {
         const dot = document.createElement('i');
         dot.className = 'ph-have';
         dot.title = 'already imported';
@@ -298,15 +342,18 @@ export function initPolyhaven() {
   }
 
   async function take(slug, asset) {
-    const isTex = state.type === 'textures';
     status(`downloading ${asset.name} at ${state.res}…`);
     el.classList.add('busy');
     try {
-      const progress = (i, n) => status(`downloading ${asset.name} — map ${i + 1} of ${n}…`);
-      const handle = isTex
-        ? await importTexture(slug, state.res, state.displacement, progress)
-        : await importHdri(slug, state.res, progress);
-      finish(handle);
+      const progress = (i, n) => status(`downloading ${asset.name} — file ${i + 1} of ${n}…`);
+      if (state.type === 'models') {
+        const got = await importModel(slug, state.res, progress);
+        finish(got.handle, got.pbr);
+      } else if (state.type === 'textures') {
+        finish(await importTexture(slug, state.res, state.displacement, progress));
+      } else {
+        finish(await importHdri(slug, state.res, progress));
+      }
     } catch (e) {
       status(`${asset.name}: ${e.message ?? e}`, 'err');
     } finally {
@@ -314,13 +361,13 @@ export function initPolyhaven() {
     }
   }
 
-  // The local-file escape hatch, so an empty hdri() / .material() is still a
-  // way to reach your own files and not only Poly Haven's. Several images are
-  // read as one material, the same way a dropped folder is.
+  // The local-file escape hatch, so an empty hdri() / .material() / model() is
+  // still a way to reach your own files and not only Poly Haven's. Several
+  // images are read as one material, the same way a dropped folder is.
   async function fromDisk() {
     const isTex = state.type === 'textures';
     // the click on this button is the user activation the picker needs
-    const files = await pickFiles(isTex ? 'image' : 'hdri', isTex);
+    const files = await pickFiles({ textures: 'image', hdris: 'hdri', models: 'model' }[state.type], isTex);
     if (!files.length) return;
     el.classList.add('busy');
     try {
@@ -337,14 +384,15 @@ export function initPolyhaven() {
   }
 
   // Resolve whoever is awaiting open(), once. `handle` is what the sketch
-  // names — a pbr prefix for a material, a filename for an HDRI — or null if
-  // the browser was dismissed without choosing anything.
-  function finish(handle) {
+  // names — a pbr prefix for a material, a filename for an HDRI or a model —
+  // or null if the browser was dismissed without choosing anything. `pbr` is
+  // the material a model brought down with it, when it had one.
+  function finish(handle, pbr = null) {
     const done = settle;
     settle = null;
     el?.classList.remove('show');
     window.removeEventListener('keydown', onKey);
-    done?.(handle == null ? null : { type: state.type, handle });
+    done?.(handle == null ? null : { type: state.type, handle, pbr });
   }
 
   const cancel = () => finish(null);

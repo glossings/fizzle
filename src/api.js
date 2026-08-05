@@ -914,8 +914,8 @@ export function makeApi(engine) {
 
     // An imported .obj/.fbx as a geometry op — chain .position/.rotation/.scale/
     // .noise/.instance/.material/.out() exactly like sphere() or box().
-    // Drag a model into the window to import it (the drop types the call),
-    // or run an empty model() for a file picker. name = filename, exact or
+    // Drag a model into the window to import it (the drop types the call), or
+    // run an empty model() to browse Poly Haven's. name = filename, exact or
     // case-insensitive substring. Every mesh in the file is merged into one
     // geometry; its materials/textures are dropped in favour of .material().
     // Options: center (default true) and fit (default 2 — scale the longest
@@ -924,7 +924,7 @@ export function makeApi(engine) {
     // mesh is empty for the first frames after a fresh import.
     model(name, opts = {}) {
       if (name !== null && typeof name === 'object') { opts = name; name = opts.name; }
-      if (name == null) engine.requestMediaPick('model', 'model');
+      if (name == null) engine.requestBrowse('model', 'models');
       return new GeoOp(engine, 'model', { ...opts, name: name != null ? String(name) : null });
     },
 

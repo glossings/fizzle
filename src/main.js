@@ -64,12 +64,14 @@ function run(code, push = false) {
 // calls are skipped, since a sketch that explains itself ("run videofile() to
 // pick a clip") would otherwise have the prose eat the fill and never fill the
 // real call at all.
-function fillCall(fn, args) {
+// `suffix` is chained onto the filled call — a model that came down with its
+// own maps gets the .material() naming them.
+function fillCall(fn, args, suffix = '') {
   const doc = view.state.doc.toString();
   for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${fn}\\(\\s*\\)`, 'g'))) {
     const lineStart = doc.lastIndexOf('\n', m.index) + 1;
     if (doc.slice(lineStart, m.index).includes('//')) continue;
-    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${fn}(${args})` } });
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${fn}(${args})${suffix}` } });
     run(view.state.doc.toString(), true);
     return;
   }
@@ -90,15 +92,17 @@ async function filePick(req) {
   };
 }
 
-// an empty hdri() / .material() asked for the Poly Haven browser instead —
-// the pick is downloaded, then written into the arguments of that same call
+// an empty hdri() / .material() / model() asked for the Poly Haven browser
+// instead — the pick is downloaded, then written into that same call
 async function browsePick(req) {
   const pick = await polyhaven.open(req.browse);
   if (!pick) return null;
   const q = JSON.stringify(pick.handle);
-  // a material is a set of maps under one name, an HDRI is just the file
+  // a material is a set of maps under one name; an HDRI and a model are files.
+  // A model's maps arrive with it, so the shape is shaded on the way in.
   return {
     args: pick.type === 'textures' ? `{ pbr: ${q}, repeat: 2 }` : q,
+    suffix: pick.pbr ? `.material({ pbr: ${JSON.stringify(pick.pbr)} })` : '',
     label: pick.handle,
   };
 }
@@ -118,7 +122,7 @@ async function handleMediaPick() {
   // whose whole point is an empty call — the vhs example — lands here on every
   // reload, so name the key that turns the next run into a gesture.
   if (navigator.userActivation && !navigator.userActivation.isActive) {
-    const what = req.browse === 'textures' ? 'material' : req.browse ? 'HDRI' : req.kind;
+    const what = { textures: 'material', hdris: 'HDRI', models: 'model' }[req.browse] ?? req.kind;
     status.textContent = `${req.fn}() has nothing to show yet — press ctrl+enter to open the ${what} picker`;
     status.className = 'show';
     return;
@@ -136,7 +140,7 @@ async function handleMediaPick() {
     picking = false;
   }
   if (!pick) return;
-  fillCall(req.fn, pick.args);
+  fillCall(req.fn, pick.args, pick.suffix);
   flash(`imported ${pick.label}`); // after the re-run, so it isn't overwritten
 }
 

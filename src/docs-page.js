@@ -59,8 +59,8 @@ function runExample(code, exEl, ctx) {
   if (!err && engine.pendingPick && ctx) handlePick(ctx);
 }
 
-// An empty videofile()/model()/… asks for a file picker, an empty
-// hdri()/.material() for the Poly Haven browser — same as in the app, and
+// An empty videofile()/imagefile()/… asks for a file picker, an empty
+// hdri()/.material()/model() for the Poly Haven browser — same as in the app, and
 // served the same way here, writing the choice back into the block that asked
 // for it. A run is always a click or a ctrl+enter, so the user activation a
 // file dialog needs is already in hand.
@@ -80,11 +80,13 @@ async function handlePick({ view, rerun }) {
   }
   picking = true;
   let pick = null;
+  let suffix = ''; // the .material() a downloaded model brings with it
   try {
     if (req.browse) {
       const chosen = await polyhaven.open(req.browse);
       const q = chosen && JSON.stringify(chosen.handle);
       if (chosen) pick = chosen.type === 'textures' ? `{ pbr: ${q}, repeat: 2 }` : q;
+      if (chosen?.pbr) suffix = `.material({ pbr: ${JSON.stringify(chosen.pbr)} })`;
     } else {
       const files = await pickFiles(req.kind, req.multiple);
       for (const f of files) await mediaPut(f);
@@ -103,7 +105,7 @@ async function handlePick({ view, rerun }) {
   for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${req.fn}\\(\\s*\\)`, 'g'))) {
     const lineStart = doc.lastIndexOf('\n', m.index) + 1;
     if (doc.slice(lineStart, m.index).includes('//')) continue;
-    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${req.fn}(${pick})` } });
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${req.fn}(${pick})${suffix}` } });
     rerun();
     return;
   }
