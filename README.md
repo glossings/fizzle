@@ -5,6 +5,9 @@ transform → noise displacement → instancing → lit render, plus shader-pass
 texture ops over the result — all on a fullscreen canvas behind a live code
 editor.
 
+It runs in the browser at **[fizzle.glossing.dev](https://fizzle.glossing.dev)**
+— nothing to install to try it.
+
 ```js
 sphere({ radius: 1.2, res: 96 })
   .position(0, t => Math.sin(t), 0)     // any number can be a fn of time
@@ -38,8 +41,8 @@ it, sketches fall back to localStorage and `font:` lookups are limited.
 
 ## Docs
 
-**Interactive docs live at [/docs.html](http://localhost:5173/docs.html)** —
-the "docs & reference ↗" link in the sidebar. Every example there is a live
+**Interactive docs live at [fizzle.glossing.dev/docs](https://fizzle.glossing.dev/docs)**
+— the "docs & reference ↗" link in the sidebar. Every example there is a live
 editor running on a real engine in a preview panel, alongside a searchable
 reference for the whole API. That's the place to learn what the operators do;
 this README stays a starting point.
