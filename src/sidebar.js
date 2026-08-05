@@ -4,6 +4,7 @@
 // they fall back to localStorage. Examples are bundled read-only.
 
 import { syncHash } from './share.js';
+import { nameOk, NAME_RULE } from './sketch-name.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
@@ -243,7 +244,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   async function saveAs(defaultName) {
     const name = prompt('sketch name:', defaultName)?.trim();
     if (!name) return;
-    if (!/^[\w][\w -]{0,60}$/.test(name)) return alert('letters, numbers, spaces, - and _ only');
+    if (!nameOk(name)) return alert(NAME_RULE);
     await saveUser(name, getCode());
     setCurrent('user', name);
     refreshList();

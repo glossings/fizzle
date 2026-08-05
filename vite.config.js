@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { nameOk } from './src/sketch-name.js';
 
 // Dev-server API for sketch files. User sketches live in sketches/user/ as
 // plain .js files so the folder can be version controlled; examples ship in
@@ -13,7 +14,6 @@ import path from 'node:path';
 
 const ROOT = path.resolve('sketches');
 const DIRS = { user: path.join(ROOT, 'user'), examples: path.join(ROOT, 'examples') };
-const nameOk = (s) => /^[\w][\w -]{0,60}$/.test(s);
 
 const listDir = (dir) => {
   try {
