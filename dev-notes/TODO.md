@@ -236,6 +236,36 @@ MIDI and OSC input as signals — a `midi(cc)` / `osc('/path')` alongside
 `audio()` and `beat()`, so hardware can drive parameters directly. Big enough
 to need its own design pass; noting it here so it isn't forgotten.
 
+## Someday: alpha through the texture pipeline
+
+There is no transparency in compositing today. `over` is
+`r = L` ([src/textures.js:720](../src/textures.js#L720)) — replace the base, scaled
+by `opacity` — and every pass writes `vec4(..., 1.0)` (24 sites). Generators
+don't produce alpha either; shapes and text take a `bg` color and mix onto it in
+the shader ([src/textures.js:502](../src/textures.js#L502),
+[src/textures.js:526](../src/textures.js#L526)), so "what's behind this" is a
+parameter of the generator rather than a property of the image.
+
+Real alpha would make `.comp(x, 'over')` mean what it says, let a generator draw
+a shape on nothing, and make multiple unnamed `.out()`s stack in code order —
+that last one keeps coming up as its own feature request, but without alpha it's
+a no-op, since stacking opaque layers just shows the last one.
+
+[ ] Scope, if it's ever worth it: decide the alpha each generator produces and
+  what `bg` becomes (probably `bg: null` = transparent), premultiplication
+  discipline through blur/feedback/tonemap, and what the display pass does with
+  a non-opaque final image. Storage is already there — `makeRT`
+  ([src/textures.js:917](../src/textures.js#L917)) is RGBA half-float.
+[ ] The cheap partial, if the goal is only overlays: `.out({ mode, opacity })`
+  taking a blend mode, so multiple outs stack meaningfully with add/screen/mult
+  on opaque images. Duplicates `.comp()`, and costs `.out()` its idempotence — a
+  stray leftover one composites instead of being harmlessly overridden.
+
+Not a route to replacing `bg()`. That sets the clear color behind
+rasterization and interacts with `fog()`/`hdri()`
+([src/api.js:1013](../src/api.js#L1013)); nothing in texture-land can express
+"behind the geometry."
+
 ## See-through shadows
 
 `out()` ([src/api.js:373](../src/api.js#L373)) decides `castShadow` from
