@@ -139,6 +139,7 @@ export const METHODS = {
   comp: [".comp(layer, { mode, opacity })", 'Texture: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
+  delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. .comp(s => s.delay(1), 'diff') is a motion mask — what changed since last frame — and comping a few at falling opacity is an echo.\nThis is the fixed-length counterpart to a feedback loop: input('name') in a cycle gives you last frame only, and blending it into itself gives a smear with no definite age. frames takes a fn of t, so the lag can move; the buffer grows to the longest delay asked for and keeps that size.\nHistory is frames of video, so it costs memory per frame of delay — a long one is stored at reduced size to fit (and says so), which keeps the count you wrote meaning the same length of time on any display. { scale } sets that size yourself. History survives a re-run — editing the sketch doesn't punch a delay-length hole of black through the show — and holds (rather than skips) on frames where the chain doesn't render, e.g. inside an inactive .when() branch."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, and each distinct one renders its own pass — like comping that many .out()s. x left→right, y bottom→top, i = y*nx + x.'],
 };
 
@@ -555,6 +556,9 @@ const METHOD_KEY_DOCS = {
     strength: 'How much glow is added back on top. Default 1.',
     radius: 'Blur radius of the glow, in texels. Default 1 — the pass runs at half resolution, so it spreads twice as far as the number suggests.',
   },
+  delay: {
+    scale: 'Fraction of the frame size the history is stored at. Default 1, and a ceiling rather than a promise: a delay too long to hold at that size is stored smaller anyway, down to a quarter, rather than being shortened. Halving it quarters the memory per stored frame, so it is worth setting deliberately whenever the delayed copy is diffed, masked or blurred rather than looked at — and worth leaving at 1 for a short delay you want exact. Fixed when the chain is built.',
+  },
   shadow: {
     cast: 'This mesh casts shadows. On by default — { cast: false } for a ceiling that has to let light through, or a lamp that should not block itself.',
     receive: 'This mesh receives shadows. On by default; false keeps it lit no matter what is in front of the light.',
@@ -629,7 +633,7 @@ const methodKinds = {
   inst: 'position rotation scale align color material',
   texture: `mirror kaleido radial polar edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold invert
-        remap lookup tint displace comp mask blur bloom when tile out`,
+        remap lookup tint displace comp mask blur bloom delay when tile out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
 };

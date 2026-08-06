@@ -19,6 +19,19 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 ## General
 
 [ ] Check user-friendliness of the code
+[ ] Investigate issue with certain materials appearing pure white
+[ ] Console warnings
+* docs.js:581 docs: resolution has no config key "width" to document
+* docs.js:581 docs: resolution has no config key "height" to document
+* THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+[ ] Add `mul`, `div` (`pow`?)
+[ ] How hard is it to add userland code like
+
+```js
+Texture.trail = function (amt) {
+  return this.comp(input("__buffer"), "add", amt).out("__buffer");
+}
+```
 
 ## Vertex displacement from a texture
 

@@ -67,13 +67,18 @@ html, body {
   z-index: 20;
   padding: 6px 12px;
   font-size: 13px;
-  color: #ff7b72;
+  /* Amber is the default because most of what lands here isn't a failure —
+     a call that couldn't be honoured, a nudge to press a key — and the show
+     is still running behind it. Red has to be asked for, so nothing arrives
+     alarming by omission. */
+  color: #e3b341;
   background: rgba(0, 0, 0, 0.8);
   white-space: pre-wrap;
   display: none;
 }
 #status.show { display: block; }
 #status.ok { color: #7ee787; }
+#status.err { color: #ff7b72; }
 
 /* drag-drop media import */
 #drop-overlay {

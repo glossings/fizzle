@@ -5,6 +5,7 @@
 // value-or-fn-of-t parameter — with chainable processing methods attached.
 
 import { warn } from './warn.js';
+import { carried } from './carry.js';
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
@@ -192,6 +193,10 @@ export const setBpmSource = (fn) => { bpm = fn; };
 // A signal is a callable fn of t with chainable processing. Stateful ops
 // (smooth/counter/beat) advance on new t values and cache per t, so one node
 // shared by several parameters steps exactly once per frame.
+//
+// That state lives in carry.js rather than in the closure, so it survives the
+// re-run: a counter keeps its place in the palette and a smoothed level keeps
+// its level while you edit the numbers around them.
 export function sig(fn, ae = null) {
   const f = (t) => fn(t);
   const mk = (g) => sig(g, ae);
@@ -236,16 +241,16 @@ export function sig(fn, ae = null) {
   // rising-edge counter: +1 each time the value crosses up through threshold
   // (a kicks() hit, a gate opening); wraps at max
   f.counter = (max = Infinity, threshold = 0.5) => {
-    let n = 0, prev = Infinity, lastT = null;
+    const s = carried('counter', () => ({ n: 0, prev: Infinity, lastT: null }));
     return mk((t) => {
-      if (t === lastT) return n;
-      lastT = t;
+      if (t === s.lastT) return s.n;
+      s.lastT = t;
       const x = f(t);
-      if (x >= threshold && prev < threshold && Number.isFinite(x)) {
-        n = Number.isFinite(max) ? (n + 1) % Math.max(1, Math.round(max)) : n + 1;
+      if (x >= threshold && s.prev < threshold && Number.isFinite(x)) {
+        s.n = Number.isFinite(max) ? (s.n + 1) % Math.max(1, Math.round(max)) : s.n + 1;
       }
-      prev = x;
-      return n;
+      s.prev = x;
+      return s.n;
     });
   };
   // index an array by the value (floored, wrapped) — items may be fns of t,
@@ -263,61 +268,61 @@ export function sig(fn, ae = null) {
   // tempo-synced sample-and-hold: freeze a new value of this signal at the
   // start of every `div` beats — rand().beat(4) resamples once per bar
   f.beat = (div = 1) => {
-    let cycle = null, held = 0, lastT = null;
+    const s = carried('beat', () => ({ cycle: null, held: 0, lastT: null }));
     return mk((t) => {
-      if (t === lastT) return held;
-      lastT = t;
+      if (t === s.lastT) return s.held;
+      s.lastT = t;
       const c = Math.floor((t * bpm()) / 60 / resolve(div, t));
-      if (c !== cycle) { cycle = c; held = f(t); }
-      return held;
+      if (c !== s.cycle) { s.cycle = c; s.held = f(t); }
+      return s.held;
     });
   };
   // sample-and-hold driven by another signal: freeze the current value each
   // time the trigger crosses up through threshold (a kicks() hit, a gate)
   f.hold = (trigger, threshold = 0.5) => {
-    let held = null, prev = Infinity, lastT = null;
+    const s = carried('hold', () => ({ held: null, prev: Infinity, lastT: null }));
     return mk((t) => {
-      if (t === lastT) return held;
-      lastT = t;
+      if (t === s.lastT) return s.held;
+      s.lastT = t;
       const x = resolve(trigger, t);
-      if (held == null || (x >= threshold && prev < threshold)) held = f(t);
-      prev = x;
-      return held;
+      if (s.held == null || (x >= threshold && s.prev < threshold)) s.held = f(t);
+      s.prev = x;
+      return s.held;
     });
   };
   // adaptive onset detector on this signal: fires 1 when the value jumps
   // past threshold × its own moving average (and above floor), then decays
   // exponentially. Feed it a band for percussion: .bandpass(30, 160).kicks()
   f.kicks = ({ threshold = 1.5, decay = 6, floor = 0.05 } = {}) => {
-    let avg = 0, env = 0, lastT = null, cool = 0;
+    const s = carried('kicks', () => ({ avg: 0, env: 0, lastT: null, cool: 0 }));
     return mk((t) => {
-      if (t === lastT) return env;
-      const dt = lastT == null ? 0 : Math.max(t - lastT, 0);
-      lastT = t;
+      if (t === s.lastT) return s.env;
+      const dt = s.lastT == null ? 0 : Math.max(t - s.lastT, 0);
+      s.lastT = t;
       const e = f(t);
-      avg += (e - avg) * Math.min(1, dt * 2); // ~0.5s adaptive baseline
-      cool = Math.max(0, cool - dt);
-      if (cool <= 0 && e > floor && e > avg * resolve(threshold, t)) {
-        env = 1;
-        cool = 0.15; // refractory: one hit can't retrigger itself
+      s.avg += (e - s.avg) * Math.min(1, dt * 2); // ~0.5s adaptive baseline
+      s.cool = Math.max(0, s.cool - dt);
+      if (s.cool <= 0 && e > floor && e > s.avg * resolve(threshold, t)) {
+        s.env = 1;
+        s.cool = 0.15; // refractory: one hit can't retrigger itself
       } else {
-        env *= Math.exp(-resolve(decay, t) * dt);
+        s.env *= Math.exp(-resolve(decay, t) * dt);
       }
-      return env;
+      return s.env;
     });
   };
   // exponential lag (one-pole lowpass on the control value); up/down are
   // attack/release time constants in seconds
   f.smooth = (up = 0.15, down = up) => {
-    let s = 0, lastT = null;
+    const s = carried('smooth', () => ({ v: 0, lastT: null }));
     return mk((t) => {
-      if (t === lastT) return s;
-      const dt = lastT == null ? 0 : Math.max(t - lastT, 0);
-      lastT = t;
+      if (t === s.lastT) return s.v;
+      const dt = s.lastT == null ? 0 : Math.max(t - s.lastT, 0);
+      s.lastT = t;
       const x = f(t);
-      const tau = x > s ? resolve(up, t) : resolve(down, t);
-      s = tau > 0 ? s + (x - s) * (1 - Math.exp(-dt / tau)) : x;
-      return s;
+      const tau = x > s.v ? resolve(up, t) : resolve(down, t);
+      s.v = tau > 0 ? s.v + (x - s.v) * (1 - Math.exp(-dt / tau)) : x;
+      return s.v;
     });
   };
   if (ae) {

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
 import { warn } from './warn.js';
+import { carried } from './carry.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -921,6 +922,47 @@ function makeRT(w, h) {
   });
 }
 
+// .delay() is the one op that allocates *per frame of delay*, and a half-float
+// frame is 8 bytes a pixel — at a retina 1080p drawing buffer that's ~47 MB
+// each, so a second of history at full size would be three gigabytes and take
+// the tab with it. Hence a budget; what's interesting is which way it bends.
+//
+// The frame count is what the sketch says, so it's the resolution that gives:
+// a ring too big for the budget is stored smaller, not shorter. Truncating it
+// instead would make .delay(30) mean thirty frames on one display and four on
+// a retina one — the same sketch, a different length of time. Softer is a look;
+// shorter is a different piece.
+//
+// Raising the budget is a poor lever anyway: the stored frame is two-
+// dimensional, so 4× the memory is only 2× the linear resolution. 256 MB is
+// what a tab can hold without risking the context, and quality()/resolution()
+// are the real answers for a sketch that wants long history *and* detail.
+const DELAY_BUDGET = 256 * 1024 * 1024;
+// past this the picture is mush and the memory is still gone — cap frames instead
+const DELAY_MIN_SCALE = 0.25;
+
+const disposeRing = (hist) => {
+  for (const rt of hist.ring ?? []) rt.dispose();
+  hist.ring = null;
+};
+
+// The size to store `frames + 1` of this buffer at, and the count that fits if
+// even the floor isn't enough. Fitted against the ring's high-water mark, never
+// the current frame count, so an animated delay doesn't rebuild itself hunting
+// for a scale.
+function delayFit(frames, scale, w, h) {
+  const room = DELAY_BUDGET / 8 / (frames + 1);      // pixels a stored frame may have
+  const fit = Math.sqrt(room / (w * h));
+  if (fit >= scale) return { frames, scale };
+  if (fit >= DELAY_MIN_SCALE) {
+    warn(`delay(${frames}): history stored at ${Math.round(fit * 100)}% of frame size to fit in memory — set { scale } to choose for yourself`);
+    return { frames, scale: fit };
+  }
+  const max = Math.max(1, Math.floor(DELAY_BUDGET / 8 / (w * h * DELAY_MIN_SCALE ** 2)) - 1);
+  warn(`delay(${frames}): too much history even at quarter size — holding ${max} frames. resolution() or quality() is what buys more`);
+  return { frames: max, scale: DELAY_MIN_SCALE };
+}
+
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
 let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP;
 function ensurePassMaterials() {
@@ -1267,6 +1309,19 @@ export class TextureOp {
   blur(radius = 1) { return this._n('blur', { radius }); }
   bloom(o = {}) { return this._n('bloom', o); }
 
+  // .delay(n) — the chain as it was n frames ago, held in a ring of buffers.
+  // The frame count takes a fn of t like any other number; `scale` stores the
+  // history smaller, which is how a long delay stays affordable.
+  //
+  // The ring outlives the patch (see carry.js): a re-run rebuilds the node but
+  // adopts the frames the last one had collected, so editing the sketch doesn't
+  // punch a delay-length hole of black through the show.
+  delay(frames = 1, o = {}) {
+    const node = this._n('delay', { ...o, frames, scale: Math.min(1, Math.max(0.05, o.scale ?? 1)) });
+    node.hist = carried('delay', () => ({ ring: null, slot: 0, cap: 0 }), disposeRing);
+    return node;
+  }
+
   // .when(cond, fn) — per-frame switch: while cond(t) >= 0.5 the chain
   // becomes fn(chain), otherwise it passes through untouched. Both branches
   // are built once; only the active one renders each frame.
@@ -1327,22 +1382,26 @@ export class TextureOp {
     return this;
   }
 
+  // three reads a render target's wrap mode once, when it first sets the target
+  // up — so a node feeding a tiled material map has to be marked before that
+  // happens, and re-marked whenever a resize forces a realloc
+  _wrap(rt) {
+    if (this._tiled) rt.texture.wrapS = rt.texture.wrapT = THREE.RepeatWrapping;
+    // inside .radial(): x is an angle, y a radius (see markPolar)
+    else if (this._polar) {
+      rt.texture.wrapS = THREE.RepeatWrapping;
+      rt.texture.wrapT = THREE.ClampToEdgeWrapping;
+    }
+    return rt;
+  }
+
   _rt(ctx, key = 'main', scale = 1) {
     const w = Math.max(1, Math.round(ctx.w * scale));
     const h = Math.max(1, Math.round(ctx.h * scale));
     let rt = this[`_tgt_${key}`];
     if (!rt || rt.width !== w || rt.height !== h) {
       rt?.dispose();
-      rt = this[`_tgt_${key}`] = makeRT(w, h);
-      // three reads a render target's wrap mode once, when it first sets the
-      // target up — so a node feeding a tiled material map has to be marked
-      // before that happens, and re-marked whenever the size forces a realloc
-      if (this._tiled) rt.texture.wrapS = rt.texture.wrapT = THREE.RepeatWrapping;
-      // inside .radial(): x is an angle, y a radius (see markPolar)
-      else if (this._polar) {
-        rt.texture.wrapS = THREE.RepeatWrapping;
-        rt.texture.wrapT = THREE.ClampToEdgeWrapping;
-      }
+      rt = this[`_tgt_${key}`] = this._wrap(makeRT(w, h));
     }
     return rt;
   }
@@ -1496,6 +1555,49 @@ export class TextureOp {
 
     const ins = this.inputs.map((n) => n.renderNode(ctx));
 
+    // A ring of targets written one a frame: the slot n back holds the frame n
+    // back, so a delay of any length costs the same single copy. The ring grows
+    // to the longest delay asked for (frames takes a fn of t like any other
+    // number) and never shrinks, so a moving delay only pays the reallocation
+    // the first time it reaches a new high — and loses its history when it does.
+    // It advances only on the frames this node renders, so a delay behind an
+    // inactive .when() branch holds rather than skips.
+    //
+    // Size comes from delayFit, which may store the history smaller than asked
+    // to keep the count the sketch wrote.
+    if (this.kind === 'delay') {
+      const p = this.params;
+      const hist = this.hist;
+      const want = Math.max(0, Math.round(resolve(p.frames, ctx.t) || 0));
+      // the ring is sized for the longest delay asked for so far, so a moving
+      // frame count settles instead of rebuilding every time it changes
+      hist.cap = Math.max(hist.cap, want);
+      const fit = delayFit(hist.cap, p.scale, ctx.w, ctx.h);
+      const n = Math.min(want, fit.frames);
+      const w = Math.max(1, Math.round(ctx.w * fit.scale));
+      const h = Math.max(1, Math.round(ctx.h * fit.scale));
+      let ring = hist.ring;
+      if (!ring || ring.length !== fit.frames + 1 || ring[0].width !== w || ring[0].height !== h) {
+        disposeRing(hist);
+        ring = hist.ring = Array.from({ length: fit.frames + 1 }, () => this._wrap(makeRT(w, h)));
+        // a target's pixels are undefined until something renders into it, and
+        // the whole ring is readable before it has been written round once
+        for (const rt of ring) runPass(ctx, MAT_COPY, blackTex(), null, rt);
+        hist.slot = 0;
+      }
+      const len = ring.length;
+      // paused holds the ring where it is, like the feedback snapshot: keeping
+      // the pointer moving would march the delay back through its own history
+      // while the picture stands still
+      if (!this.engine.paused) {
+        runPass(ctx, MAT_COPY, ins[0], null, ring[hist.slot]);
+        hist.slot = (hist.slot + 1) % len;
+      }
+      // slot is where the next write goes, so the frame just written is behind
+      // it and each older frame one further back
+      return ring[(hist.slot - 1 - n + len) % len].texture;
+    }
+
     if (this.kind === 'blur') {
       const r = resolve(this.params.radius ?? 1, ctx.t);
       const rx = Array.isArray(r) ? resolve(r[0], ctx.t) : r;
@@ -1620,6 +1722,8 @@ export class TextureOp {
   }
 
   dispose() {
+    // .delay()'s ring is deliberately not here — it outlives the patch, and
+    // carry.js frees it when the call it belongs to is gone from the sketch
     for (const key of ['_tgt_main', '_tgt_auxA', '_tgt_auxB']) this[key]?.dispose();
     this._lut?.dispose();
     this._ctex?.dispose();

@@ -5,7 +5,8 @@ import { AudioEngine } from './audio.js';
 import { mediaGet, mediaList } from './media.js';
 import { loadModelGeometry } from './models.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
-import { warn, resetWarnings } from './warn.js';
+import { warn, resetWarnings, newWarningRun } from './warn.js';
+import { claimDuring, sweepCarried } from './carry.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -662,11 +663,15 @@ export class Engine {
       this.orbitPose.pos.copy(this.camera.position);
       this.orbitPose.target.copy(this.controls.target);
     }
+    // once per run, not per exec: the restore path below runs a second sketch
+    // through and must find the state the first one didn't get to claim
+    sweepCarried();
+    newWarningRun();
     this.clearPatch();
     const names = Object.keys(api);
     const values = names.map((n) => api[n]);
     const exec = (src) => {
-      new Function(...names, `"use strict";\n${src}`)(...values);
+      claimDuring(() => new Function(...names, `"use strict";\n${src}`)(...values));
       if (!this.cameraTouched) {
         this.camera.position.copy(this.orbitPose.pos);
         this.controls.target.copy(this.orbitPose.target);

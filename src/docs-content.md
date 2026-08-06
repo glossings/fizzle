@@ -172,7 +172,36 @@ This is a livecoding environment, so a mistake never blanks the screen:
   (not sixty times a second) and rendering continues; fixing it and re-running
   clears the message.
 
-Warnings also go to the browser console, prefixed `fizzle:`.
+Warnings are amber, errors red, and warnings also go to the browser console
+prefixed `fizzle:`. A warning is only put on screen once: if it's still true
+on the next run you've already read it, and being nagged through a set is
+worse than useless. It speaks up again when it stops and comes back — or when
+the numbers it quotes change, which is what an edit to the call it's about
+does.
+
+## state that survives a re-run
+
+The other half of the same rule: editing the code must not restart the show.
+`ctrl + enter` tears the patch down and builds a new one, but the things that
+took time to accumulate are handed over rather than reset —
+
+- **sketch time.** `t` doesn't go back to 0, so nothing driven by it jumps.
+- **feedback buffers.** `input()` and every `input('name')` bus keep their
+  contents, so trails survive the edit that changed them.
+- **`.delay()` history**, for the same reason: a rebuilt delay adopts the
+  frames the old one had collected.
+- **stateful signals** — `.smooth()`'s level, `.counter()`'s position,
+  `.kicks()`'s adaptive baseline, `.beat()`/`.hold()`'s held value. Tweaking
+  `.smooth(0.2)` to `.smooth(0.3)` moves the time constant without dropping
+  the level back to zero, and a counter walking a palette doesn't jump back to
+  the first color every time you touch the sketch.
+
+What identifies a call across the rebuild is its kind and the order it's built
+in: the third `.smooth()` keeps being the third `.smooth()`. Arguments
+deliberately don't count, because changing them live is the point. Inserting a
+*new* stateful call above others shifts what they inherit — a blip on that one
+run, which is the trade for never resetting on any other. Loading a different
+sketch clears the lot.
 
 ## geometry
 
@@ -1090,6 +1119,43 @@ circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
 The loop closes at `.out('trail')` — pre-bloom, so the glow doesn't compound
 into the trail. Multiple buses coexist, and published chains render even if
 they never reach a naked `.out()` (as long as something does).
+
+### delay — a fixed number of frames back
+
+A feedback loop only ever reaches back one frame; blending it into itself
+gives a smear, not a copy of any particular moment. `.delay(n)` is the other
+half: the chain exactly as it was `n` frames ago, kept in a ring of buffers.
+
+```js
+scene()
+  .comp(s => s.delay(2), 'diff')   // what moved in the last two frames
+  .mul(4)
+  .out()
+```
+
+`diff` against your own past is a motion mask — still parts go black, moving
+edges light up — and it's the input every "react to movement" idea starts
+from: `.mask(motion, s => ...)` treats only what's moving, and comping delays
+at falling opacity is an echo rather than a trail, each ghost a definite age.
+
+The count takes a fn of t like every other number, so the lag can move
+(`.delay(beat(4).select([1, 6, 20]))`), and the ring grows to the longest
+delay asked for.
+
+What it costs is memory: a delay is frames of video, ~47 MB each at a retina
+1080p buffer, so a second of history at full size is not something a browser
+tab can hold. Past a budget the history is stored **smaller** rather than
+shorter, and says so — `.delay(30)` is thirty frames everywhere, sharper on a
+small buffer and softer on a big one. `{ scale }` sets that size yourself:
+0.5 is a quarter of the memory per frame, nearly always the right trade when
+the delayed copy is being diffed, masked or blurred rather than looked at.
+Leave it at 1 for a short delay you want exact — a diff against a downscaled
+past leaves faint residue on fine detail instead of cancelling to black.
+
+The history itself outlives the patch: `ctrl + enter` rebuilds the chain but
+the frames stay, so editing a sketch doesn't punch a delay-length hole of
+black through the show. That goes for the other things that accumulate too —
+see **state that survives a re-run** below.
 
 ### geometry layers
 

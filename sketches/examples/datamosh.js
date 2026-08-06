@@ -74,8 +74,9 @@ scene().out('src')
 const live = input('src')
 
 // An exponential average of the render. It reads its own last frame, so this
-// chain is a loop and 'lag' is genuinely behind — the only way to get a
-// delayed copy of anything (an acyclic bus is a patch cord, same frame).
+// chain is a loop and 'lag' is genuinely behind — an acyclic bus would be a
+// patch cord, same frame. A smear rather than .delay(n)'s one past frame is
+// what's wanted here: motion should register over a window, not a single step.
 live.comp(input('lag'), 'over', 0.5).out('lag')
 
 // Motion, estimated from the render alone: the live frame against its own

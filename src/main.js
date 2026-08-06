@@ -6,6 +6,7 @@ import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
+import { resetCarried } from './carry.js';
 import { initProjector } from './projector.js';
 import DEFAULT_SKETCH from '../sketches/examples/welcome.js?raw';
 
@@ -26,8 +27,9 @@ function flash(msg) {
 }
 
 // Something the sketch asked for that couldn't be honoured — a material
-// property that doesn't exist, a throwing updater, a broken texture graph. Shown
-// like an error but self-clearing, since the show goes on behind it.
+// property that doesn't exist, a throwing updater, a broken texture graph.
+// Amber and self-clearing: the frame still went out, so this is worth reading,
+// not worth the alarm of red.
 let warned = false;
 window.addEventListener('fizzle-warning', (e) => {
   warned = true;
@@ -46,7 +48,7 @@ function run(code, push = false) {
   if (err) {
     const msg = String(err.stack?.split('\n').slice(0, 2).join('\n') ?? err);
     status.textContent = err.restored ? `${msg}\n(previous sketch still playing)` : msg;
-    status.className = 'show';
+    status.className = 'show err';
   } else if (!warned) {
     // a warning raised while the sketch was evaluating stays on screen — a ✓
     // over the top of it would be the one thing the run got wrong, hidden
@@ -133,7 +135,7 @@ async function handleMediaPick() {
     pick = req.browse ? await browsePick(req) : await filePick(req);
   } catch (e) {
     status.textContent = `fizzle: ${e.message ?? e}`;
-    status.className = 'show';
+    status.className = 'show err';
   } finally {
     // released before the re-run below, so a sketch with several empty calls
     // works through them one pick at a time
@@ -189,6 +191,9 @@ let view;
 // `undoable` false keeps the swap out of the editor's own undo stack — after a
 // back/forward, ctrl+z should undo your last edit, not the navigation.
 const setCode = (code, undoable = true) => {
+  // swapping the whole document is a different sketch, not an edit of this one:
+  // its delays and counters have no business inheriting the last one's state
+  resetCarried();
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: code },
     annotations: undoable ? [] : [Transaction.addToHistory.of(false)],
