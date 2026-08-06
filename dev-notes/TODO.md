@@ -20,21 +20,6 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 
 [ ] Check user-friendliness of the code
 
-## Vertex displacement from a texture
-
-[ ] `.displace(texture, { amount, mid })` on a geometry chain — move each vertex
-  along its normal by what the texture says at its UV. Textures already feed
-  materials as maps ([src/materials.js](../src/materials.js)) but can't move
-  vertices. Reuses the `.noise()` vertex machinery — `displacePoint`
-  ([src/noise.js:90](../src/noise.js#L90)) and the `NORMAL_CHUNK`/`DEPTH_CHUNK`
-  hooks ([src/noise.js:116-134](../src/noise.js#L116-L134)) — with a texture fetch
-  replacing the fbm call, and the same finite-difference normal recomputation. Needs the geometry's `res` raised to have vertices to move, same as
-  `.noise()`.
-[ ] `.sample()`/`.normal()` can't follow this one — the CPU has no cheap way to
-  read the texture. Either warn when a displaced chain is used as a layout
-  source, or leave the points on the undisplaced surface and say so in the
-  docs. Decide which.
-
 ## New texture generators
 
 `SPECS` entries take `frag`, plus `extras`/`update()` to declare and resolve

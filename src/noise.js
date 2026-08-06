@@ -1,12 +1,20 @@
-// GLSL simplex-noise displacement injected into MeshStandardMaterial via
-// onBeforeCompile, so displaced geometry stays lit correctly (normals are
-// recomputed by sampling two tangent-offset neighbors on the GPU).
+// Vertex displacement injected into MeshStandardMaterial via onBeforeCompile,
+// so displaced geometry stays lit correctly (normals are recomputed on the
+// GPU). Two sources, and a chain may use both at once — hence one patch built
+// from flags rather than two that would overwrite each other's
+// onBeforeCompile:
+//   .noise()          an fbm field sampled in object space
+//   .displace(map)    a texture read at the vertex's uv
 //
 // noise-cpu.js is a line-by-line JS twin of snoise/fbm/displacePoint and the
 // normal reconstruction below, so geo.sample() can put points on the deformed
 // surface. Edit the two together — a change here that isn't mirrored there
 // doesn't break anything visibly, it just floats sampled points off the shape.
 // dev-notes/NOISE-PARITY.md records the known precision traps and how to re-verify.
+// The texture half has no CPU twin: reading a render target back per point is
+// not something .sample() can afford, so it warns instead (see api.js).
+
+import * as THREE from 'three';
 
 // Ashima / stegu 3D simplex noise — pure functions, shared with the texture
 // noise generator in textures.js
@@ -111,18 +119,43 @@ vec3 displacePoint(vec3 p, vec3 n, vec3 seed) {
 }
 `;
 
-// Replaces <beginnormal_vertex>: displaces the vertex and two tangent
-// neighbors, rebuilds the normal from the cross product, and stashes the
-// displaced position for the <begin_vertex> replacement below. When the mesh
-// is instanced, the noise field is seeded per-instance from the instance
-// matrix translation so copies don't all deform identically.
-export const NORMAL_CHUNK = /* glsl */ `
+// The texture half. dispDu/dispDv are dP/du and dP/dv, written onto the
+// geometry by addUvBasis below — the map is a height field over uv, and turning
+// its gradient there into one in world space is exactly what those two are.
+// A colored map displaces by its brightness, so any texture chain is usable
+// without a grayscale conversion first.
+export const DISPLACE_GLSL = /* glsl */ `
+uniform sampler2D uDispMap;
+uniform float uDispAmount;
+uniform float uDispMid;
+attribute vec3 dispDu;
+attribute vec3 dispDv;
+
+// half a texel of a 1k map: fine enough to read real detail, wide enough that
+// the difference isn't all rounding
+const float DISP_EPS = 0.002;
+
+float dispHeight(vec2 duv) {
+  return dot(texture2D(uDispMap, duv).rgb, vec3(0.2126, 0.7152, 0.0722));
+}
+`;
+
+// Replaces <beginnormal_vertex>: displaces the vertex, rebuilds the normal, and
+// stashes the displaced position for the <begin_vertex> replacement below.
+const NORMAL_HEAD = /* glsl */ `
 vec3 objectNormal = vec3(normal);
 #ifdef USE_TANGENT
   vec3 objectTangent = vec3(tangent.xyz);
 #endif
-
 vec3 nrm = normalize(normal);
+vec3 displaced = position;
+`;
+
+// Finite differences along two tangent neighbors, so the normal follows the
+// field rather than the shape it started as. When the mesh is instanced, the
+// noise field is seeded per-instance from the instance matrix translation so
+// copies don't all deform identically.
+const NOISE_NORMAL = /* glsl */ `
 vec3 tangentA = normalize(abs(nrm.y) < 0.99 ? cross(nrm, vec3(0.0, 1.0, 0.0)) : cross(nrm, vec3(1.0, 0.0, 0.0)));
 vec3 tangentB = normalize(cross(nrm, tangentA));
 
@@ -132,10 +165,29 @@ vec3 noiseSeed = vec3(0.0);
 #endif
 
 float eps = 0.08;
-vec3 displaced = displacePoint(position, nrm, noiseSeed);
+displaced = displacePoint(position, nrm, noiseSeed);
 vec3 displacedA = displacePoint(position + tangentA * eps, nrm, noiseSeed);
 vec3 displacedB = displacePoint(position + tangentB * eps, nrm, noiseSeed);
 objectNormal = normalize(cross(displacedA - displaced, displacedB - displaced));
+`;
+
+// A height field over a parameterized surface tilts the normal by its surface
+// gradient: n' = n - grad(h), with the uv-space gradient carried into world
+// space by the dP/du, dP/dv basis. Applied to whatever objectNormal already is,
+// so .noise().displace(map) tilts the noised normal rather than replacing it.
+// A degenerate uv triangle (a sphere's poles) has no basis to carry anything,
+// and leaves the normal alone rather than dividing by zero.
+const DISPLACE_NORMAL = /* glsl */ `
+float dispH = dispHeight(uv);
+float dispHu = (dispHeight(uv + vec2(DISP_EPS, 0.0)) - dispH) / DISP_EPS;
+float dispHv = (dispHeight(uv + vec2(0.0, DISP_EPS)) - dispH) / DISP_EPS;
+displaced += nrm * ((dispH - uDispMid) * uDispAmount);
+
+float dispDet = dot(cross(dispDu, dispDv), nrm);
+if (abs(dispDet) > 1e-6) {
+  vec3 dispGrad = (dispHu * cross(dispDv, nrm) + dispHv * cross(nrm, dispDu)) / dispDet;
+  objectNormal = normalize(objectNormal - dispGrad * uDispAmount);
+}
 `;
 
 export const POSITION_CHUNK = /* glsl */ `
@@ -146,39 +198,123 @@ vec3 transformed = displaced;
 // nothing, so only the position has to move — and their vertex shaders only
 // reach <beginnormal_vertex> under USE_DISPLACEMENTMAP, so this hangs off
 // <begin_vertex> (which is what it replaces: `vec3 transformed = position`).
-export const DEPTH_CHUNK = /* glsl */ `
+const DEPTH_HEAD = /* glsl */ `
+vec3 depthNrm = normalize(normal);
+vec3 transformed = position;
+`;
+
+const NOISE_DEPTH = /* glsl */ `
 vec3 depthNoiseSeed = vec3(0.0);
 #ifdef USE_INSTANCING
   depthNoiseSeed = instanceMatrix[3].xyz;
 #endif
-vec3 transformed = displacePoint(position, normalize(normal), depthNoiseSeed);
+transformed = displacePoint(position, depthNrm, depthNoiseSeed);
 `;
 
+const DISPLACE_DEPTH = /* glsl */ `
+transformed += depthNrm * ((dispHeight(uv) - uDispMid) * uDispAmount);
+`;
+
+const join = (...parts) => parts.filter(Boolean).join('\n');
+
+// `flags` is { noise, displace } — which sources this material actually uses.
+// Both patch the same two chunks, so they're assembled together or the second
+// one silently wins.
+function chunks(flags) {
+  return {
+    common: join(flags.noise && NOISE_GLSL, flags.displace && DISPLACE_GLSL),
+    normal: join(NORMAL_HEAD, flags.noise && NOISE_NORMAL, flags.displace && DISPLACE_NORMAL),
+    depth: join(DEPTH_HEAD, flags.noise && NOISE_DEPTH, flags.displace && DISPLACE_DEPTH),
+    // one program per combination, or three would share whichever compiled first
+    key: `td-vd-${flags.noise ? 'n' : ''}${flags.displace ? 'd' : ''}`,
+  };
+}
+
 // Patches a MeshStandardMaterial in place; `uniforms` must contain the
-// uTime/uAmp/... uniform objects so the engine can animate them per frame.
-export function applyNoise(material, uniforms) {
+// uTime/uAmp/uDisp... uniform objects so the engine can animate them per frame.
+export function applyDisplacement(material, flags, uniforms) {
+  const c = chunks(flags);
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
-      .replace('#include <beginnormal_vertex>', NORMAL_CHUNK)
+      .replace('#include <common>', '#include <common>\n' + c.common)
+      .replace('#include <beginnormal_vertex>', c.normal)
       .replace('#include <begin_vertex>', POSITION_CHUNK);
   };
-  // make sure three treats each noise config as a distinct shader program
-  material.customProgramCacheKey = () => 'td-noise';
+  material.customProgramCacheKey = () => c.key;
   material.needsUpdate = true;
 }
 
 // Same, for the MeshDepth/MeshDistanceMaterial a shadow pass renders with —
-// share the uniform objects with applyNoise's and the shadow tracks the
+// share the uniform objects with applyDisplacement's and the shadow tracks the
 // displacement instead of being cast by the undeformed shape.
-export function applyNoiseDepth(material, uniforms) {
+export function applyDisplacementDepth(material, flags, uniforms) {
+  const c = chunks(flags);
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
-      .replace('#include <begin_vertex>', DEPTH_CHUNK);
+      .replace('#include <common>', '#include <common>\n' + c.common)
+      .replace('#include <begin_vertex>', c.depth);
   };
-  material.customProgramCacheKey = () => 'td-noise-depth';
+  material.customProgramCacheKey = () => `${c.key}-depth`;
   material.needsUpdate = true;
+}
+
+// dP/du and dP/dv per vertex, averaged over the faces the vertex belongs to.
+// Deliberately not normalized: their magnitudes are the uv-to-world scale, so
+// the shader can read a gradient in uv space and get one in world units —
+// which is what makes .displace() light correctly on a sphere (where u covers
+// 2*pi*r and v only pi*r) and on a plane alike. Written once, at .out().
+//
+// Returns false when there are no uvs to differentiate, which is the honest
+// answer for an imported model that never had any: there is no map lookup to
+// do either, so the caller drops the whole patch.
+export function addUvBasis(geometry) {
+  if (geometry.attributes.dispDu) return true;
+  const pos = geometry.attributes.position;
+  const uv = geometry.attributes.uv;
+  if (!pos || !uv || !pos.count) return false;
+
+  const n = pos.count;
+  const du = new Float32Array(n * 3);
+  const dv = new Float32Array(n * 3);
+  const faces = new Uint32Array(n);
+  const index = geometry.index;
+  const corners = index ? index.count : n;
+  const tri = [0, 0, 0];
+
+  for (let f = 0; f + 2 < corners; f += 3) {
+    const a = tri[0] = index ? index.getX(f) : f;
+    const b = tri[1] = index ? index.getX(f + 1) : f + 1;
+    const c = tri[2] = index ? index.getX(f + 2) : f + 2;
+    const s1 = uv.getX(b) - uv.getX(a), t1 = uv.getY(b) - uv.getY(a);
+    const s2 = uv.getX(c) - uv.getX(a), t2 = uv.getY(c) - uv.getY(a);
+    const det = s1 * t2 - s2 * t1;
+    // a triangle that is a point in uv (a pole, a seam artefact) says nothing
+    // about the mapping; skipping it leaves those vertices at zero, which the
+    // shader reads as "no basis here" and steps over
+    if (Math.abs(det) < 1e-12) continue;
+    const r = 1 / det;
+    const e1x = pos.getX(b) - pos.getX(a), e1y = pos.getY(b) - pos.getY(a), e1z = pos.getZ(b) - pos.getZ(a);
+    const e2x = pos.getX(c) - pos.getX(a), e2y = pos.getY(c) - pos.getY(a), e2z = pos.getZ(c) - pos.getZ(a);
+    const ux = (e1x * t2 - e2x * t1) * r, uy = (e1y * t2 - e2y * t1) * r, uz = (e1z * t2 - e2z * t1) * r;
+    const vx = (e2x * s1 - e1x * s2) * r, vy = (e2y * s1 - e1y * s2) * r, vz = (e2z * s1 - e1z * s2) * r;
+    for (let k = 0; k < 3; k++) {
+      const i = tri[k] * 3;
+      du[i] += ux; du[i + 1] += uy; du[i + 2] += uz;
+      dv[i] += vx; dv[i + 1] += vy; dv[i + 2] += vz;
+      faces[tri[k]]++;
+    }
+  }
+  // the average, not the sum — a sum would scale the basis by how many faces
+  // happen to meet at the vertex, and with it the normal's strength
+  for (let i = 0; i < n; i++) {
+    const k = faces[i];
+    if (k < 2) continue;
+    du[i * 3] /= k; du[i * 3 + 1] /= k; du[i * 3 + 2] /= k;
+    dv[i * 3] /= k; dv[i * 3 + 1] /= k; dv[i * 3 + 2] /= k;
+  }
+  geometry.setAttribute('dispDu', new THREE.BufferAttribute(du, 3));
+  geometry.setAttribute('dispDv', new THREE.BufferAttribute(dv, 3));
+  return true;
 }

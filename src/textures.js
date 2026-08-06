@@ -1638,7 +1638,9 @@ TextureOp.prototype.rot = TextureOp.prototype.rotate;
 // textures bound to material map slots — .material({ map: scene().kaleido(6) }).
 // materials.js registers { node, material, slot } on the engine; these render
 // at the top of the frame, before the 3D pass that samples them, and the
-// current texture is written into the slot.
+// current texture is written into the slot. A geometry .displace() registers
+// { node, uniform } here too: same timing, same liveness, but the texture goes
+// into a uniform the vertex shader reads rather than into a material slot.
 
 function renderMaterialMaps(engine, ctx) {
   const binds = engine.textureMaps;
@@ -1653,6 +1655,10 @@ function renderMaterialMaps(engine, ctx) {
     // (first frame, and on resize) — the pixels change under it every frame
     if (tex === b.tex) continue;
     b.tex = tex;
+    if (b.uniform) {
+      b.uniform.value = tex;
+      continue;
+    }
     b.configure?.(tex);
     const first = b.material[b.slot] == null;
     b.material[b.slot] = tex;

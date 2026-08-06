@@ -285,6 +285,52 @@ icosa({ radius: 1.3, res: 16 })
   high = crinkly detail. It shapes roughness, not overall strength — that's `amp`.
 - `speed` — animates the field · `seed` — same settings, different shape
 
+### .displace — vertex displacement from a texture
+
+`.displace(map, { amount, mid })` is the same machinery aimed at a picture
+instead of a field: each vertex moves along its normal by the map's brightness
+at its own uv, and the normals are rebuilt from the map's gradient so the
+relief takes light as relief rather than reading as a flat shape that happens
+to be dented.
+
+The map is an imported image by name, or a whole live texture chain — which is
+the interesting half, because a texture chain is animated, so the geometry is
+too.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 2 }).position(4, 6, 3).out()
+
+const height = voronoi({ freq: 5, speed: 0.2 }).blur(2)
+
+sphere({ radius: 1.4, res: 200 })
+  .displace(height, { amount: 0.5 })
+  .material({ color: '#8899ff', roughness: 0.4 })
+  .out()
+```
+
+- `amount` — how far a vertex moves, in world units. Negative pulls inward.
+- `mid` — the map value that means no movement. The default 0.5 lets a
+  mid-gray map push both ways; `mid: 0` only ever pushes out.
+- Both take fns of `t`.
+
+Like `.noise()`, it can only move vertices the shape already has — `res` is
+where the detail comes from, not the map's resolution. A `sphere()` at the
+default `res: 64` has nothing like enough vertices to show a photo.
+
+The two stack: `.noise().displace(map)` sums them, the fbm shaping the form and
+the map roughening what it produces.
+
+Two things it can't do. `.sample()`/`.normal()` see the shape *before* the
+displacement — the map is only ever read on the GPU, and reading a render
+target back per point would stall the pipeline — so a layout source wants
+`.noise()`, which has a CPU twin. And the geometry needs uv coordinates to look
+the map up at: every built-in shape has them, an imported `model()` may not,
+and it says so if it doesn't.
+
+This is a different thing from `.material({ displacementMap })`, which is
+three's own and leaves normals alone: same movement, flat lighting.
+
 ### .instance — many copies, one mesh
 
 `.instance(count, fn)` renders the chain as a single `InstancedMesh`.
@@ -631,8 +677,8 @@ torus({ radius: 1.4, tube: 0.4 }).position(0, 2, 0).rotation(t => t * 0.4, 0, 0)
   texels spread thin, too small and the shadow stops mid-floor.
 - A `point` light shadows in every direction at once — a cube map, so six
   renders. It's the expensive one.
-- `.noise()` displacement is shadowed as displaced, not as the shape it started
-  from. Geometry sent to `.out('name')` casts within its own layer.
+- `.noise()` and `.displace()` are shadowed as displaced, not as the shape they
+  started from. Geometry sent to `.out('name')` casts within its own layer.
 
 ## textures: the shader pipeline
 

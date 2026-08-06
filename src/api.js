@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
-import { applyNoise, applyNoiseDepth } from './noise.js';
+import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TextureOp, reciprocal } from './textures.js';
@@ -337,6 +337,10 @@ class InstanceHandle {
     warn('instance: .noise() is one shader for the whole batch — put it on the chain before .instance() (each copy already seeds the field from its own position)');
     return this;
   }
+  displace() {
+    warn('instance: .displace() is one map for the whole batch — put it on the chain before .instance() (every copy reads the map at its own uv, so they deform alike)');
+    return this;
+  }
   shadow() {
     warn('instance: the batch is one mesh, so it casts and receives as one — put .shadow() on the chain');
     return this;
@@ -360,6 +364,7 @@ class GeoOp {
     this._rot = [0, 0, 0];
     this._scale = [1, 1, 1];
     this._noise = null;
+    this._displace = null;
     this._instance = null;
     this._material = {};
     this._shadow = null;      // null = whatever the material implies (see out())
@@ -412,6 +417,7 @@ class GeoOp {
     const p = set ? set.point(i) : new THREE.Vector3();
     const c = set && this._noiseCfg();
     if (c) displacedPoint(p, set.normal(i), c, p);
+    if (this._displace) this._warnDisplacedSource();
     const m = this._xform();
     return m ? p.applyMatrix4(m) : p;
   }
@@ -420,7 +426,18 @@ class GeoOp {
     const n = set ? set.normal(i) : new THREE.Vector3(0, 1, 0);
     const c = set && this._noiseCfg();
     if (c) displacedNormal(set.point(i), n, c, n);
+    if (this._displace) this._warnDisplacedSource();
     return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
+  }
+
+  // .noise() has a CPU twin, so sampled points follow it. .displace() can't:
+  // its map lives in a render target, and reading one back per point would cost
+  // a pipeline stall per copy per frame. The points stay on the undisplaced
+  // surface — usable, but say so, since a layout silently ignoring half the
+  // chain is indistinguishable from the map being wrong. (warn() is once per
+  // patch, so a layout fn calling this 400 times a frame says it once.)
+  _warnDisplacedSource() {
+    warn('.sample()/.normal() see the shape before .displace() — the map is only read on the GPU, so the points sit on the undisplaced surface. .noise() is the deformer a layout can follow.');
   }
 
   // The uniforms the mesh updater would set this frame, as plain numbers. Held
@@ -536,6 +553,28 @@ class GeoOp {
     return this;
   }
 
+  // displace(map, { amount, mid }) — move each vertex along its normal by what
+  // the map says at its uv, with the normals rebuilt from the map's gradient so
+  // the relief takes light as relief. The map is an imported image by name, a
+  // live texture chain, or a THREE.Texture, and displaces by its brightness.
+  //
+  // Like .noise(), it can only move vertices the shape already has: res is
+  // where the detail comes from, not the map's resolution.
+  displace(map, o = {}) {
+    if (map == null) {
+      warn('.displace() needs a map — an imported image by name, or a texture chain: .displace(noise({ period: 0.3 }))');
+      return this;
+    }
+    // a bare amount in the options slot, matching the texture .displace()
+    if (typeof o !== 'object' || o === null) o = o == null ? {} : { amount: o };
+    this._displace = {
+      map,
+      amount: o.amount ?? 0.2,
+      mid: o.mid ?? 0.5,
+    };
+    return this;
+  }
+
   // instance(count, fn) — fn(x, i, count, t) transforms copy `i` through the
   // same verbs as the chain (x.position/.rotation/.scale/.color). It runs every
   // frame, so instances animate.
@@ -585,10 +624,24 @@ class GeoOp {
       this._modelGeo = m.geometry;
       if (!m.geometry) pendingModel = m.pending;
     }
-    const geometry = buildGeometry(this.type, this.opts, {
+    // .displace() reads a height field over uv, so it needs the surface basis
+    // written onto the geometry — and a geometry swapped in later (an async
+    // font or model) needs it too, hence a step rather than a call site. An
+    // empty one is the model that hasn't parsed yet, not a failure; it comes
+    // back through here when the real thing lands.
+    let dispOk = true;
+    const prepare = (g) => {
+      if (!this._displace || !g.attributes.position) return g;
+      dispOk = addUvBasis(g);
+      if (!dispOk) {
+        warn('.displace(): this geometry has no uv coordinates, so there is nowhere on the map to read — displacement skipped (an imported model may have been exported without them)');
+      }
+      return g;
+    };
+    const geometry = prepare(buildGeometry(this.type, this.opts, {
       font: this._font,
       geometry: this._modelGeo,
-    });
+    }));
     const m = this._material;
     const textured = hasMaps(m);
     // Glass, clearcoat, iridescence and friends live on the physical material,
@@ -622,19 +675,35 @@ class GeoOp {
     applyMaterialScalars(material, m);
     const surfaceUpdate = applySurface(material, m);
 
-    let noiseUniforms = null;
-    if (this._noise) {
-      noiseUniforms = {
-        uTime: { value: 0 },
-        uAmp: { value: 0 },
-        uFreq: { value: 0 },
-        uOctaves: { value: 0 },
-        uLacunarity: { value: 0 },
-        uGain: { value: 0 },
-        uSpeed: { value: 0 },
-        uSeed: { value: 0 },
-      };
-      applyNoise(material, noiseUniforms);
+    // One vertex patch carries both deformers, since they replace the same two
+    // shader chunks — a chain with .noise().displace(map) gets the sum.
+    const dispFlags = { noise: !!this._noise, displace: !!this._displace };
+    let dispUniforms = null;
+    if (dispFlags.noise || dispFlags.displace) {
+      dispUniforms = {};
+      if (dispFlags.noise) {
+        Object.assign(dispUniforms, {
+          uTime: { value: 0 },
+          uAmp: { value: 0 },
+          uFreq: { value: 0 },
+          uOctaves: { value: 0 },
+          uLacunarity: { value: 0 },
+          uGain: { value: 0 },
+          uSpeed: { value: 0 },
+          uSeed: { value: 0 },
+        });
+      }
+      if (dispFlags.displace) {
+        // null reads as three's empty texture until the map lands, which
+        // displaces by -mid * amount — hence amount 0 until then, so an async
+        // image doesn't shrink the shape for its first frames
+        Object.assign(dispUniforms, {
+          uDispMap: { value: null },
+          uDispAmount: { value: 0 },
+          uDispMid: { value: resolve(this._displace.mid, 0) },
+        });
+      }
+      applyDisplacement(material, dispFlags, dispUniforms);
     }
 
     let mesh;
@@ -657,11 +726,11 @@ class GeoOp {
     // A shadow pass renders its own depth material, which knows nothing about
     // the displacement patched into the one above — so it gets the same patch,
     // or the shape's shadow is the shadow of the sphere it started as.
-    if (noiseUniforms && mesh.castShadow) {
+    if (dispUniforms && mesh.castShadow) {
       mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
-      applyNoiseDepth(mesh.customDepthMaterial, noiseUniforms);
+      applyDisplacementDepth(mesh.customDepthMaterial, dispFlags, dispUniforms);
       mesh.customDistanceMaterial = new THREE.MeshDistanceMaterial();
-      applyNoiseDepth(mesh.customDistanceMaterial, noiseUniforms);
+      applyDisplacementDepth(mesh.customDistanceMaterial, dispFlags, dispUniforms);
     }
 
     const dummy = new THREE.Object3D();
@@ -676,7 +745,7 @@ class GeoOp {
     // sends it down a branch calling a method it doesn't have.
     const swapGeometry = (g) => {
       mesh.geometry.dispose();
-      mesh.geometry = g;
+      mesh.geometry = prepare(g);
       if (mesh.isInstancedMesh) {
         mesh.boundingSphere = null;
         mesh.boundingBox = null;
@@ -720,16 +789,23 @@ class GeoOp {
       if (this._align) aim(mesh, this._align, t);
       mesh.scale.set(...resolve3(this._scale, t));
 
-      if (noiseUniforms) {
+      if (dispFlags.noise) {
         const n = this._noise;
-        noiseUniforms.uTime.value = t;
-        noiseUniforms.uAmp.value = resolve(n.amp, t);
-        noiseUniforms.uFreq.value = resolve(n.freq, t);
-        noiseUniforms.uOctaves.value = Math.min(8, Math.max(1, resolve(n.octaves, t)));
-        noiseUniforms.uLacunarity.value = resolve(n.lacunarity, t);
-        noiseUniforms.uGain.value = resolve(n.gain, t);
-        noiseUniforms.uSpeed.value = resolve(n.speed, t);
-        noiseUniforms.uSeed.value = resolve(n.seed, t);
+        dispUniforms.uTime.value = t;
+        dispUniforms.uAmp.value = resolve(n.amp, t);
+        dispUniforms.uFreq.value = resolve(n.freq, t);
+        dispUniforms.uOctaves.value = Math.min(8, Math.max(1, resolve(n.octaves, t)));
+        dispUniforms.uLacunarity.value = resolve(n.lacunarity, t);
+        dispUniforms.uGain.value = resolve(n.gain, t);
+        dispUniforms.uSpeed.value = resolve(n.speed, t);
+        dispUniforms.uSeed.value = resolve(n.seed, t);
+      }
+      if (dispFlags.displace) {
+        const d = this._displace;
+        // no map yet, or no uvs to read it at: amount 0 leaves the shape alone
+        const live = dispOk && dispUniforms.uDispMap.value;
+        dispUniforms.uDispAmount.value = live ? resolve(d.amount, t) : 0;
+        dispUniforms.uDispMid.value = resolve(d.mid, t);
       }
 
       if (inst) {
@@ -771,7 +847,31 @@ class GeoOp {
     // spot, and mesh.parent is also the liveness test for one that arrives
     // later — a patch cleared in the meantime has nowhere to put it
     if (textured) applyMaps(this.engine, material, m, () => !!mesh.parent);
+    if (dispFlags.displace) this._bindDisplaceMap(dispUniforms.uDispMap, () => !!mesh.parent);
     return this;
+  }
+
+  // The height map into its uniform. Unlike a material map slot the chain isn't
+  // wrapped in a pass of its own — nothing here writes to the texture, it's only
+  // read in the vertex shader, so forwarding another node's target is harmless.
+  _bindDisplaceMap(uniform, isAlive) {
+    const spec = this._displace.map;
+    if (spec instanceof TextureOp) {
+      this.engine.textureMaps.push({ node: spec, uniform, isAlive, tex: null });
+      return;
+    }
+    if (spec?.isTexture) {
+      uniform.value = spec;
+      return;
+    }
+    if (typeof spec !== 'string') {
+      warn('.displace(): the map is an imported image by name, a texture chain, or a THREE.Texture');
+      return;
+    }
+    // height is data, not color — decoded raw, the way a displacementMap is
+    const t = this.engine.ensureTexture(spec, false);
+    if (t.texture) uniform.value = t.texture;
+    else t.pending.then((tex) => { if (tex && isAlive()) uniform.value = tex; });
   }
 }
 

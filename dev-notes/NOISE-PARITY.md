@@ -20,7 +20,7 @@ falloff) is safe in doubles: those paths are continuous, so a knife-edge
 rounding difference costs ~1e-7, not a wrong branch.
 
 **Everything else transliterated cleanly**, including the parts easy to get
-subtly wrong: `NORMAL_CHUNK` displaces the two tangent neighbours along the
+subtly wrong: `NOISE_NORMAL` displaces the two tangent neighbours along the
 *centre's* normal (not their own), tangent choice is `cross(n, +Y)` with a +X
 fallback at `|n.y| ≥ 0.99`, eps is 0.08, and the fbm octave loop breaks on
 `float(i) >= uOctaves` (fractional octaves round up, not down).
@@ -124,7 +124,7 @@ the field does, which is how the tie first got mistaken for a crease. If you
 use it anyway, sweep the resolution: smooth content halves as the mesh
 doubles, a defect doesn't.
 
-For the displacement layer, emulate `NOISE_GLSL`/`NORMAL_CHUNK` from the
+For the displacement layer, emulate `NOISE_GLSL`/`NOISE_NORMAL` from the
 shader text in the test itself and require < 1e-9 agreement, plus properties:
 displacement exactly along the smooth normal with |d| ≤ amp, amp→0 convergence
 of points and normals, pole tangent fallback, fractional octaves, and through

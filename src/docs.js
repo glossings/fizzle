@@ -135,7 +135,7 @@ export const METHODS = {
   invert: ['.invert()', 'Texture: invert colors.'],
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. .lookup(ramp({ a: 'black', b: 'red' })). Ramp can be a fn of the chain so far."],
-  displace: ['.displace(map, { amount: 0.1, mid: 0.5 })', "Texture: push each pixel sideways by what the map says there, reading the offset from its red and green. Positional .displace(map, amount) also works, and the map can be a fn of the chain so far.\nA grayscale map moves everything along the diagonal — noise({ channels: 2 }) for a wobble that goes both ways. It is .transform({ translate: map }) with the mid bias, so the two share a pass."],
+  displace: ['.displace(map, { amount, mid })', "Geometry: move each vertex along its normal by the map's brightness at its uv, with the normals rebuilt from the map's gradient so the relief takes light as relief. Like .noise() it can only move vertices the shape already has, so raise its res if nothing happens — the detail comes from there, not from the map. The map is an imported image by name or a live texture chain, and .noise().displace(map) sums the two.\nTexture: push each pixel sideways by what the map says there, reading the offset from its red and green — a grayscale map moves everything along the diagonal, so noise({ channels: 2 }) for a wobble that goes both ways. It is .transform({ translate: map }) with the mid bias, so the two share a pass. Here the map can also be a fn of the chain so far.\nPositional .displace(map, amount) works on either. On geometry, .sample()/.normal() see the shape before the displacement — the map is only read on the GPU — so use .noise() for a deformed layout source."],
   comp: [".comp(layer, { mode, opacity })", 'Texture: composite layer over this chain. layer may be a fn of the chain so far — .comp(s => s.edge(), \'add\') overlays your own edges. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color. luminosity takes the layer\'s brightness and keeps the base\'s colour (color is the reverse) — how you put a sharp luma back on a blurred chroma.'],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
@@ -543,7 +543,7 @@ const METHOD_KEY_DOCS = {
     weight: 'CSS weight, 100..900. Default 400. Heavier ink brightens the whole image, since every glyph carries more of it.',
   },
   displace: {
-    amount: 'How far pixels move, in UV. Default 0.1. Negative pulls the other way.',
+    amount: 'How far it moves: on geometry, world units along the normal (default 0.2); on a texture, UV (default 0.1). Negative pulls the other way, and it takes a fn of t.',
     mid: 'The map value that means no movement. Default 0.5 for mid-gray maps; use 0 for a dark map you only want to push one way.',
   },
   comp: {
@@ -624,9 +624,11 @@ const globalKinds = {
 };
 
 const methodKinds = {
-  geo: 'position rotation scale align shadow noise instance material color sample normal out',
+  geo: 'position rotation scale align shadow noise displace instance material color sample normal out',
   light: 'position target out',
   inst: 'position rotation scale align color material',
+  // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
+  // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add mul contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold invert
         remap lookup tint displace comp mask blur bloom when tile out`,
