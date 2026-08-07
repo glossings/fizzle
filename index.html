@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- viewport-fit: the canvas runs under the notch and the home indicator; the
+       controls over it hold themselves off with env(safe-area-inset-*).
+       interactive-widget: the on-screen keyboard must not resize the layout —
+       it would re-shape the render and jump the picture every time you type. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual" />
   <title>fizzle</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="alternate icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />

@@ -1,5 +1,5 @@
 import { EditorView, basicSetup } from 'codemirror';
-import { keymap } from '@codemirror/view';
+import { keymap, tooltips } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { acceptCompletion, completionStatus, closeCompletion } from '@codemirror/autocomplete';
 import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/commands';
@@ -7,18 +7,20 @@ import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
 import { apiCompletions, apiHover } from './complete.js';
+import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+p sidebar
 //   ctrl+r restart media files · F1 projector window
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange }) {
+// Returns the view plus toggleCode, which the touch controls press too.
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange, onFontSize, fontSize }) {
   // With the projector up, ctrl+h is about what the *audience* sees: you're
   // typing on the laptop, so the projector is the one window whose code you
   // can't reach any other way. Without one it hides your own editor, as ever.
   const toggleCode = () => {
     if (onToggleProjectorCode?.()) return;
     parent.classList.toggle('hidden');
-    if (!parent.classList.contains('hidden')) view.focus();
+    if (!parent.classList.contains('hidden') && !isTouch) view.focus();
   };
 
   const keys = Prec.highest(
@@ -56,6 +58,14 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       apiHover,
       oneDark,
       EditorView.lineWrapping,
+      // Completion popups and doc tooltips fit themselves into the space the
+      // window has, and the on-screen keyboard isn't part of the window — so
+      // without this the list of completions opens underneath it.
+      tooltips({
+        tooltipSpace: () => ({
+          left: 0, top: 0, right: innerWidth, bottom: innerHeight - keyboardInset(),
+        }),
+      }),
       colorPicker(onLiveChange),
       // the projector window replays these to stay in step with what's typed
       EditorView.updateListener.of((u) => {
@@ -80,6 +90,13 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
   });
 
-  view.focus();
-  return view;
+  // two fingers on the code sizes it — the sidebar's font-size box is a long
+  // way to reach on a phone, and it's the first thing you want to change there
+  if (onFontSize) pinchZoom(parent, { get: fontSize, set: onFontSize });
+
+  // Focusing on a phone throws the on-screen keyboard up over the sketch that
+  // just loaded, before anyone has asked to type — there, the first tap on the
+  // code is the ask.
+  if (!isTouch) view.focus();
+  return { view, toggleCode };
 }

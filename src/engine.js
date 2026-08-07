@@ -12,6 +12,35 @@ import { claimDuring, sweepCarried } from './carry.js';
 // current sketch created. Re-running a sketch disposes the old patch and
 // builds a new one.
 
+// video('front' | 'back') as camera names. A phone's two cameras have labels
+// like every other camera does, but they're blank until permission has been
+// granted — and asking for permission is the thing you're trying to do. The
+// facing constraint is the one way to name a camera before that, so on the one
+// device where it matters, these are the names that work.
+const FACING = {
+  front: 'user', user: 'user', selfie: 'user', face: 'user',
+  back: 'environment', rear: 'environment', environment: 'environment', world: 'environment',
+};
+
+// Make a <video> one a texture can actually read on a phone. iOS is the whole
+// reason this isn't two properties: it honours the playsinline and muted
+// *attributes* rather than the properties, both have to be set before there's
+// anything to play (or it takes the video fullscreen over the sketch), and it
+// won't decode one that isn't part of the layout at all — so the element sits
+// in the page as a single transparent pixel rather than detached.
+function stageVideo(el) {
+  el.muted = true;
+  el.playsInline = true;
+  el.setAttribute('muted', '');
+  el.setAttribute('playsinline', '');
+  Object.assign(el.style, {
+    position: 'fixed', top: '0', left: '0', width: '1px', height: '1px',
+    opacity: '0', pointerEvents: 'none',
+  });
+  document.body.appendChild(el);
+  return el;
+}
+
 export class Engine {
   constructor(canvas) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -140,7 +169,11 @@ export class Engine {
     window.dispatchEvent(new CustomEvent('fizzle-resolution', { detail: this.resolution }));
   }
 
+  // Guarded because the sidebar re-applies every setting whenever any one of
+  // them changes, and a pinch changes the font size sixty times a second —
+  // each unguarded call would reallocate the drawing buffer for nothing.
   setQuality(scale) {
+    if (scale === this.quality) return;
     this.quality = scale;
     this.resize();
   }
@@ -270,23 +303,36 @@ export class Engine {
     else this.ensureAudio().setOutput(deviceId);
   }
 
-  // Camera capture for the video() texture. name matches a camera label
-  // (case-insensitive substring); no name = default camera. Streams are
-  // created once and survive re-runs, so livecoding doesn't re-prompt.
+  // Camera capture for the video() texture. `name` is 'front'/'back' for a
+  // facing (see FACING), otherwise a camera label matched case-insensitively
+  // by substring; no name = default camera. Streams are created once and
+  // survive re-runs, so livecoding doesn't re-prompt.
   ensureVideo(name) {
     const key = name ?? '';
     let v = this.videos.get(key);
     if (v) return v;
     v = { texture: null };
     this.videos.set(key, v);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      // the usual way to land here is a phone opening the dev server over the
+      // LAN: cameras need a secure context, and a bare IP isn't one
+      warn('video: no camera access on this page — cameras need https (or localhost)');
+      return v;
+    }
     const cams = async () =>
       (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
     const labels = (devs) => devs.map((d) => `"${d.label}"`).join(', ') || 'none found';
     (async () => {
       try {
-        let deviceId;
-        let devs = await cams();
-        if (name) {
+        const facing = name && FACING[String(name).toLowerCase()];
+        let constraint = true; // no name: whatever the system calls the default
+        let devs = [];
+        if (facing) {
+          // `ideal`, not `exact`: a laptop has one camera and no notion of
+          // which way it faces, and video('front') there should still be video
+          constraint = { facingMode: { ideal: facing } };
+        } else if (name) {
+          devs = await cams();
           const find = () => devs.find((d) => d.label.toLowerCase().includes(name.toLowerCase()));
           let dev = find();
           if (!dev) {
@@ -297,26 +343,34 @@ export class Engine {
             devs = await cams();
             dev = find();
           }
-          if (dev) deviceId = dev.deviceId;
+          if (dev) constraint = { deviceId: { exact: dev.deviceId } };
           else warn(`video: no camera matching "${name}" — using default. Sources: ${labels(devs)}`);
         }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId: { exact: deviceId } } : true,
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: constraint });
         // labels unlock once a stream is live; refresh so the listing is useful
         if (!devs.some((d) => d.label)) devs = await cams();
         console.info(`fizzle: video: using "${stream.getVideoTracks()[0]?.label}". Sources: ${labels(devs)}`);
-        const el = document.createElement('video');
-        el.srcObject = stream;
-        el.muted = true;
-        el.playsInline = true;
-        await el.play();
-        v.texture = new THREE.VideoTexture(el);
+        v.texture = new THREE.VideoTexture(this.videoElement(stream, `video(${name ?? ''})`));
       } catch (e) {
         warn(`video: ${e.message ?? e}`);
       }
     })();
     return v;
+  }
+
+  // A camera <video> a WebGL texture can read from. The texture is built from
+  // it before play() settles, so a stream held up by autoplay policy renders
+  // black rather than never arriving; the next tap or keypress is the gesture
+  // that lets it start.
+  videoElement(stream, what) {
+    const el = stageVideo(document.createElement('video'));
+    el.srcObject = stream;
+    el.play().catch(() => {
+      const retry = () => el.play().catch((e) => warn(`${what}: ${e.message ?? e}`));
+      window.addEventListener('pointerdown', retry, { once: true });
+      window.addEventListener('keydown', retry, { once: true });
+    });
+    return el;
   }
 
   // Imported media file (dropped into the window or picked via an empty
@@ -353,13 +407,13 @@ export class Engine {
           m.texture.needsUpdate = true;
         } else {
           const el = document.createElement(kind === 'video' ? 'video' : 'audio');
-          el.src = url;
           el.loop = true;
           if (kind === 'video') {
-            el.muted = true;
-            el.playsInline = true;
+            stageVideo(el); // muted/playsinline before the src, for iOS
+            el.src = url;
             m.texture = new THREE.VideoTexture(el);
           } else {
+            el.src = url;
             m.ae.startMedia(el);
           }
           m.el = el;

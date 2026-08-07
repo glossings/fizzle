@@ -5,6 +5,7 @@
 
 import { syncHash } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
+import { isTouch } from './touch.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
@@ -63,7 +64,12 @@ async function deleteUser(name) {
 
 export async function initSidebar({ engine, getCode, setCode, run }) {
   const settings = Object.assign(
-    { quality: 1, fontSize: 15, liveColor: true, open: true, bpm: 120 },
+    // A phone opens with the sidebar shut: 264px of it is a third of the
+    // screen, and none of what's in there is the reason you opened fizzle.
+    // It also opens at 0.75×, which on a 3× display is still more pixels than
+    // a laptop renders and is the difference between the heavier examples
+    // playing and stuttering. Both are only defaults; the sidebar owns them.
+    { quality: isTouch ? 0.75 : 1, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120 },
     JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
   );
   const persist = () => localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
@@ -81,7 +87,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
           <option value="1">high (1×)</option>
         </select>
       </label>
-      <label>font size <input id="sb-font" type="number" min="10" max="24" step="1"></label>
+      <label>font size <input id="sb-font" type="number" min="9" max="40" step="1"></label>
       <label>audio in <select id="sb-audio"></select></label>
       <label>audio out <select id="sb-audio-out"></select></label>
       <label>tempo <input id="sb-tempo" type="number" min="20" max="300" step="1"> bpm</label>
@@ -139,8 +145,15 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     $('#sb-live').checked = settings.liveColor;
     $('#sb-tempo').value = settings.bpm;
   };
+  // `commit` false is the middle of a pinch: size the code every frame, but
+  // don't write localStorage sixty times on the way there
+  const setFontSize = (px, commit = true) => {
+    settings.fontSize = Math.min(40, Math.max(9, Math.round(px)));
+    applySettings();
+    if (commit) persist();
+  };
   $('#sb-quality').addEventListener('change', (e) => { settings.quality = Number(e.target.value); applySettings(); persist(); });
-  $('#sb-font').addEventListener('change', (e) => { settings.fontSize = Number(e.target.value); applySettings(); persist(); });
+  $('#sb-font').addEventListener('change', (e) => setFontSize(Number(e.target.value) || 15));
   $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
   $('#sb-tempo').addEventListener('change', (e) => { settings.bpm = Math.max(1, Number(e.target.value) || 120); applySettings(); persist(); });
   applySettings();
@@ -264,10 +277,19 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     await syncHash(getCode());
     const btn = $('#sb-share');
     try {
-      await navigator.clipboard.writeText(location.href);
-      btn.textContent = 'copied!';
-    } catch {
-      btn.textContent = 'link in URL bar';
+      // On a phone the share sheet is the thing you actually want, and it's
+      // also the reliable one: Safari wants the clipboard written inside the
+      // gesture, and encoding the link above has already left it.
+      if (isTouch && navigator.share) {
+        await navigator.share({ url: location.href });
+        btn.textContent = 'shared';
+      } else {
+        await navigator.clipboard.writeText(location.href);
+        btn.textContent = 'copied!';
+      }
+    } catch (e) {
+      // dismissing the share sheet isn't a failure worth reporting
+      if (e?.name !== 'AbortError') btn.textContent = 'link in URL bar';
     }
     setTimeout(() => { btn.textContent = 'copy link'; }, 1200);
   });
@@ -293,5 +315,5 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   } catch { /* fall through to default sketch */ }
   if (initialCode == null) setCurrent('examples', 'welcome');
 
-  return { initialCode, toggle, settings };
+  return { initialCode, toggle, settings, setFontSize };
 }

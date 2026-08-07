@@ -1,9 +1,18 @@
+:root {
+  /* how much of the bottom of the window the on-screen keyboard is sitting on
+     — measured in touch.js, 0 everywhere else */
+  --kb: 0px;
+}
+
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  /* a swipe down over the canvas is a camera move, not a page reload */
+  overscroll-behavior: none;
   background: #000;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  -webkit-text-size-adjust: 100%; /* rotating a phone must not resize the code */
 }
 
 #gl {
@@ -63,7 +72,7 @@ html, body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(var(--kb) + env(safe-area-inset-bottom, 0px));
   z-index: 20;
   padding: 6px 12px;
   font-size: 13px;
@@ -99,7 +108,7 @@ html, body {
 
 /* ctrl+hover doc tooltips + autocomplete info */
 .td-doc {
-  max-width: 380px;
+  max-width: min(380px, 88vw);
   padding: 7px 10px;
   font-size: 12px;
   line-height: 1.5;
@@ -156,11 +165,87 @@ html, body {
   margin-left: 8px;
 }
 
+/* touch controls: run / pause / hide-code, built only on a touch screen
+   (touch.js). Glass rather than a solid chip because they sit permanently over
+   the picture — enough of the frame comes through to keep them from reading as
+   a bar bolted across the corner. */
+#touchbar {
+  position: fixed;
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + var(--kb) + env(safe-area-inset-bottom, 0px));
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  transition: opacity 0.45s ease;
+}
+#touchbar.dim { opacity: 0.3; }
+
+.tb-btn {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.93);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  /* the inset highlight is the top edge catching the light — without it the
+     circle reads as a flat hole rather than a piece of glass over the frame */
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  touch-action: manipulation; /* no double-tap-to-zoom delay on the press */
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, transform 0.12s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.tb-btn svg { display: block; width: 22px; height: 22px; }
+.tb-btn:active { background: rgba(255, 255, 255, 0.24); transform: scale(0.93); }
+.tb-btn.flash { color: #7ee787; border-color: rgba(126, 231, 135, 0.6); }
+
+@media (pointer: coarse) {
+  /* One surface at a time. With the code up the whole screen is the editor —
+     drag scrolls it, pinch sizes it, a tap anywhere puts the cursor on the
+     nearest character — and the canvas beneath gets nothing, so there's no
+     guessing which of the two a gesture meant. ⟨/⟩ takes the code away, and
+     then the whole screen is the camera instead. On a mouse both are live at
+     once, which is what the pointer-events: none above is for. */
+  #editor {
+    pointer-events: auto;
+    /* one finger scrolls; two are ours, and without this the browser would
+       pinch-zoom a fixed, fullscreen canvas into one magnified corner */
+    touch-action: pan-y;
+  }
+  /* CodeMirror only scrolls a scroller you've given an overflow to — on a
+     mouse that's #editor's, but a touch drag needs the scroll container to be
+     the thing under the finger */
+  .cm-editor .cm-scroller { overflow-y: auto; }
+  /* full width so a tap lands on a line rather than between them; the lines'
+     own backgrounds stay as narrow as their text, so the picture shows through */
+  .cm-editor .cm-content { min-width: 100%; }
+  /* An 11px square is not a thing a finger can hit. A pseudo-element spreads
+     the target to roughly a line-height without moving the swatch or growing
+     the line — events on it report the swatch as their target, so nothing
+     downstream has to know. (The hex text beside it opens the same picker, and
+     that's where most taps land anyway.) */
+  .cm-color-swatch { position: relative; }
+  .cm-color-swatch::after { content: ''; position: absolute; inset: -6px -5px; }
+  #status { padding-right: 78px; } /* clear of the buttons */
+  /* rows a finger can hit — CodeMirror's own are a couple of pixels tall */
+  .cm-tooltip.cm-tooltip-autocomplete ul li { padding: 7px 8px; }
+  /* Safari zooms the page in on focusing any control set below 16px, and never
+     zooms back out — so on a touch screen every field fizzle has is 16px */
+  #sidebar select,
+  #sidebar input[type='number'] { font-size: 16px; }
+}
+
 /* sidebar */
 #sb-toggle {
   position: fixed;
-  top: 10px;
-  right: 12px;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
   z-index: 41;
   background: rgba(0, 0, 0, 0.6);
   color: rgba(255, 255, 255, 0.7);
@@ -178,14 +263,16 @@ html, body {
   right: 0;
   bottom: 0;
   width: 264px;
+  max-width: 100vw;
   z-index: 40;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgba(10, 12, 18, 0.92);
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(6px);
   color: #cfd4e0;
   font-size: 13px;
-  padding: 12px 14px 24px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 14px calc(24px + var(--kb) + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
 }
 #sidebar.hidden { display: none; }
@@ -275,3 +362,13 @@ html, body {
 #sidebar ul li button:hover { color: #ff7b72; }
 #sidebar .sb-empty { color: rgba(255, 255, 255, 0.3); cursor: default; }
 #sidebar .sb-empty:hover { background: none; }
+
+@media (pointer: coarse) {
+  /* the touch buttons float over the open sidebar — its footer has to be able
+     to scroll out from under them (after the shorthand above, or it's reset) */
+  #sidebar { padding-bottom: calc(96px + var(--kb) + env(safe-area-inset-bottom, 0px)); }
+  /* rows a finger can hit: the sketch list is the one thing here you tap
+     repeatedly, and 4px of padding is a 21px target */
+  #sidebar ul li { padding: 9px 6px; }
+  #sidebar ul li button { padding: 4px 10px; font-size: 13px; }
+}

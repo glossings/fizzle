@@ -8,6 +8,7 @@ import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { resetCarried } from './carry.js';
 import { initProjector } from './projector.js';
+import { isTouch, initTouchBar, trackKeyboard, RUN_HINT, PLAY_HINT } from './touch.js';
 import DEFAULT_SKETCH from '../sketches/examples/welcome.js?raw';
 
 const engine = new Engine(document.getElementById('gl'));
@@ -19,6 +20,7 @@ const api = makeApi(engine);
 const status = document.getElementById('status');
 // the asset browser an empty hdri() / .material() opens; builds its DOM lazily
 const polyhaven = initPolyhaven();
+let touchbar = null; // the play/run/hide buttons; only built on a touch screen
 
 function flash(msg) {
   status.textContent = msg;
@@ -56,6 +58,9 @@ function run(code, push = false) {
     status.className = 'show ok';
     setTimeout(() => { if (status.classList.contains('ok')) status.className = ''; }, 800);
   }
+  // a run resumes playback, and loading a sketch is a run — so the play button
+  // has to be told about the ones nobody pressed it for
+  touchbar?.refresh();
   handleMediaPick();
 }
 
@@ -125,7 +130,7 @@ async function handleMediaPick() {
   // reload, so name the key that turns the next run into a gesture.
   if (navigator.userActivation && !navigator.userActivation.isActive) {
     const what = { textures: 'material', hdris: 'HDRI', models: 'model' }[req.browse] ?? req.kind;
-    status.textContent = `${req.fn}() has nothing to show yet — press ctrl+enter to open the ${what} picker`;
+    status.textContent = `${req.fn}() has nothing to show yet — ${RUN_HINT} to open the ${what} picker`;
     status.className = 'show';
     return;
   }
@@ -166,7 +171,7 @@ function toggleProjectorCode() {
 
 function togglePause() {
   if (engine.togglePause()) {
-    status.textContent = '⏸ paused — ctrl+. to resume';
+    status.textContent = `⏸ paused — ${PLAY_HINT} to resume`;
     status.className = 'show ok';
   } else {
     status.className = '';
@@ -321,7 +326,8 @@ initDrop();
   // a shared link's hash beats everything; docs handoff beats the last sketch
   const fromUrl = await codeFromHash();
   const initial = fromUrl ?? handoff ?? sidebar.initialCode ?? DEFAULT_SKETCH;
-  view = makeEditor(document.getElementById('editor'), initial, {
+  const editorEl = document.getElementById('editor');
+  const editor = makeEditor(editorEl, initial, {
     onRun: runResume,
     onTogglePause: togglePause,
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
@@ -330,6 +336,22 @@ initDrop();
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
     onChange: (u) => projector.sync(u),
+    fontSize: () => sidebar.settings.fontSize,
+    onFontSize: sidebar.setFontSize,
   });
+  view = editor.view;
+
+  // ctrl+enter / ctrl+. / ctrl+h, for a screen with no ctrl
+  if (isTouch) {
+    trackKeyboard();
+    touchbar = initTouchBar({
+      playing: () => !engine.paused,
+      codeHidden: () => editorEl.classList.contains('hidden'),
+      onPlay: togglePause,
+      onRun: () => runResume(view.state.doc.toString()),
+      onToggleCode: editor.toggleCode,
+    });
+  }
+
   run(initial);
 })();

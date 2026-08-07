@@ -31,6 +31,7 @@
   gap: 10px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap; /* title, search and the filters won't fit one phone row */
 }
 .ph-title {
   color: #7ee787;
@@ -51,6 +52,8 @@
   font-size: 13px;
 }
 #ph-search:focus { outline: none; border-color: rgba(126, 231, 135, 0.5); }
+/* Safari zooms the page in on focusing anything under 16px and never back out */
+@media (pointer: coarse) { #ph-search { font-size: 16px; } }
 .ph-opt {
   display: flex;
   align-items: center;

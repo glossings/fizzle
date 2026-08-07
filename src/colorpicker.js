@@ -44,7 +44,10 @@ export function colorPicker(onChange) {
     if (input) return input;
     input = document.createElement('input');
     input.type = 'color';
-    input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;border:0;padding:0;';
+    // Not pointer-events: none, and not zero-sized: Safari won't open a picker
+    // for a control it considers unreachable. It's parked under the swatch and
+    // transparent, so it's never something you can hit by accident either.
+    input.style.cssText = 'position:fixed;opacity:0;width:1px;height:1px;border:0;padding:0;';
     document.body.appendChild(input);
     input.addEventListener('input', () => {
       if (!active) return;
@@ -81,8 +84,12 @@ export function colorPicker(onChange) {
       el.className = 'cm-color-swatch';
       el.style.backgroundColor = this.color;
       el.title = 'pick color';
-      el.addEventListener('mousedown', (e) => {
-        e.preventDefault();
+      // mousedown only keeps the caret from jumping into the swatch; the open
+      // is on click, which is the one both a mouse and a finger produce. A tap
+      // never reaches a mousedown handler until the browser has ruled out a
+      // pan, and on some it never does.
+      el.addEventListener('mousedown', (e) => e.preventDefault());
+      el.addEventListener('click', () => {
         const m = matchAt(view.state, view.posAtDOM(el), true);
         if (m) openPicker(view, m.from, m.to);
       });
@@ -106,13 +113,15 @@ export function colorPicker(onChange) {
     {
       decorations: (v) => v.decorations,
       eventHandlers: {
-        mousedown(e, view) {
+        // click, not mousedown: it fires for a tap as well as a press, and it
+        // already comes after the cursor has landed — which is what the old
+        // mousedown had to defer through a timeout to get.
+        click(e, view) {
           if (e.target.classList?.contains('cm-color-swatch')) return;
           const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
           if (pos == null) return;
           const m = matchAt(view.state, pos);
-          // after the click settles so the cursor still lands normally
-          if (m) setTimeout(() => openPicker(view, m.from, m.to), 0);
+          if (m) openPicker(view, m.from, m.to);
         },
       },
     }

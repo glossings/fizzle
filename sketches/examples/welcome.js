@@ -8,6 +8,10 @@
   F1 opens the visuals in a second window on their own — that's the one to
   drag to a projector, leaving the code on your laptop.
 
+  on a phone: the three buttons bottom right are play, run and hide-code.
+  with the code up the screen is the editor — drag to scroll, pinch to size.
+  hide the code and the screen is the camera instead.
+
   every numeric param also takes a function of time:  t => ...
   click any color swatch (or type #) for a color picker
 */

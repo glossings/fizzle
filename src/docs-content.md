@@ -59,6 +59,32 @@ and a doc line. Every `#rgb`/`#rrggbb` in the code gets a clickable swatch
 that opens the native color picker; picks write back into the code and
 re-render live while you drag.
 
+**On a phone or a tablet,** where none of those keys exist, three glass
+buttons sit in the bottom-right corner over the picture:
+
+| button | action |
+|---|---|
+| ▶ / ⏸ | play / pause |
+| ↻ | run the sketch |
+| ⟨/⟩ | hide / show the code |
+
+They're the only chrome that's touch-only; everything else is the app you
+already know.
+
+**One surface at a time.** A mouse can point at the code and the picture at
+once; a finger can't, so with the code up the whole screen is the editor —
+drag to scroll it, pinch to size it (that's the sidebar's font-size box, where
+your thumbs are), tap anywhere on a line to put the cursor there, including
+the empty space past the end of it. Press **⟨/⟩** and the code goes away, and
+now the whole screen is the camera: drag to orbit, pinch to zoom. Nothing is
+ambiguous, because only one of the two is ever listening.
+
+The buttons fade back a few seconds after the code goes, and come back the
+moment you touch them. The sidebar (**☰**, top right) opens closed rather than
+open, and the on-screen keyboard is measured so it never covers the buttons,
+the status line, or the autocomplete list. For the camera, see `video('front')`
+/ `video('back')` under **video input**.
+
 **Projector (`F1`):** a second window with nothing in it but the visuals and
 the code — no sidebar, no status line, no scrollbars — meant to be dragged onto
 a projector or second display while you keep working in the main window. It
@@ -1366,6 +1392,13 @@ the stream starts — and when a name doesn't match anything. First use asks
 for camera permission; the stream survives re-runs (livecoding doesn't
 re-prompt) and renders black until it's live. It's a texture like any other —
 displace it, mask it, feed it back.
+
+**`video('front')` and `video('back')`** ask for a facing rather than a name.
+That's the pair to use on a phone, where the two cameras have labels like
+everything else but they're blank until camera permission has been granted —
+which is the thing you were trying to do. On a laptop with one camera both
+still give you that camera. Cameras need a secure page: over `https` or on
+`localhost`, not a bare LAN address.
 
 ```js
 video()
