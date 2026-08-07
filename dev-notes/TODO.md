@@ -24,14 +24,6 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 * docs.js:581 docs: resolution has no config key "width" to document
 * docs.js:581 docs: resolution has no config key "height" to document
 * THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
-[ ] Add `mul`, `div` (`pow`?)
-[ ] How hard is it to add userland code like
-
-```js
-Texture.trail = function (amt) {
-  return this.comp(input("__buffer"), "add", amt).out("__buffer");
-}
-```
 
 ## Vertex displacement from a texture
 
@@ -98,9 +90,10 @@ uniforms (numbers or fns of `t`).
   3×3/5×5 kernel, normalized unless it sums to 0.
 [ ] `.pixelSort({ threshold, dir })` — cheap per frame (one neighbor fetch, same
   as sharpen), but it's an odd–even transposition sort: it converges over many
-  frames and must read its own previous output. Needs a per-node ping-pong
-  buffer + frame parity; [src/textures.js](../src/textures.js) only has last-frame via
-  named `.out()` cycles today.
+  frames and must read its own previous output. `.feedback()` now supplies the
+  self-reference (one call site, one auto-named buffer), so what's left is the
+  sort pass itself plus frame parity — which `.feedback()` doesn't carry, since
+  its buffer holds pixels rather than a counter.
 
 ## Coordinates
 
@@ -240,6 +233,12 @@ Chain methods go next to `.smooth()` at
   already in scope, and allow a uniforms object whose values take fns of `t`.
   A compile error must `warn()` and pass the input through untouched, never
   throw — see the errors-never-block-playback rule.
+
+  This is where a JS-flavoured `expr((r, g, b) => [...])` went: a closure can't
+  run per pixel, so the only honest versions are a CPU-built LUT (1-D per
+  channel, or a static 3-D one) or a string of GLSL. The LUT is a smaller
+  feature that this one mostly swallows, so it's not worth having both —
+  reconsider only if `.glsl()` proves too sharp an edge for sketches.
 
 ---
 

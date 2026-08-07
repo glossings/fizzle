@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
 import { warn } from './warn.js';
-import { carried } from './carry.js';
+import { carried, isClaiming } from './carry.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -429,20 +429,41 @@ const SPECS = {
     },
   },
 
-  // .mul() then .add(): c * mul + add, per channel. The honest primitives
+  // pow, then × mul ÷ div, then + add − sub, per channel. The honest primitives
   // behind "brightness"; scalar or [r,g,b] values, fns of t as usual.
+  //
+  // The inverses are uniforms of their own rather than JS negating the value,
+  // because the thing being negated may be a fn of t, an [r, g, b] or a whole
+  // texture — .sub(map) has no spelling as .add(-map).
   math: {
-    extras: { uMul: [1, 1, 1], uAdd: [0, 0, 0] },
+    extras: { uPow: [1, 1, 1], uMul: [1, 1, 1], uDiv: [1, 1, 1], uAdd: [0, 0, 0], uSub: [0, 0, 0] },
     // the only vec3 slots in the toolkit: a texture here is read as RGB, so a
     // colored map tints per channel rather than scaling all three alike
-    texParams: { mul: 'uMul', add: 'uAdd' },
+    texParams: { pow: 'uPow', mul: 'uMul', div: 'uDiv', add: 'uAdd', sub: 'uSub' },
     frag: `
       void main() {
-        gl_FragColor = vec4(texture2D(tex0, vUv).rgb * uMul + uAdd, 1.0);
+        vec3 raw = texture2D(tex0, vUv).rgb;
+        // pow is undefined for a negative base and for 0 raised to <= 0, and
+        // both reach here — the targets are half-float and nothing clamps a
+        // chain that has been through .sub(). Only the exponent's own branch
+        // takes the floor, though: every other op on this pass has to pass
+        // negatives through untouched, since .add(-0.5).mul(2) is how a sketch
+        // builds a signed map.
+        vec3 c = mix(raw, pow(max(raw, 1e-6), uPow), step(1e-4, abs(uPow - 1.0)));
+        // held in a local because a texture-driven slot expands its name into a
+        // whole fetch. Floored away from zero on the side it came from, so
+        // .div(0) blows out instead of returning Infinity and a negative
+        // divisor still flips the image.
+        vec3 dv = uDiv;
+        vec3 d = mix(max(dv, 1e-3), min(dv, -1e-3), 1.0 - step(vec3(0.0), dv));
+        gl_FragColor = vec4(c * uMul / d + uAdd - uSub, 1.0);
       }`,
     update(u, p, t) {
+      setVec3(u.uPow.value, par(p.pow, 1), t);
       setVec3(u.uMul.value, par(p.mul, 1), t);
+      setVec3(u.uDiv.value, par(p.div, 1), t);
       setVec3(u.uAdd.value, par(p.add, 0), t);
+      setVec3(u.uSub.value, par(p.sub, 0), t);
     },
   },
 
@@ -1177,10 +1198,62 @@ function markPolar(node, src, seen = new Set()) {
 }
 
 // ---------------------------------------------------------------------------
+// auto-named buffers
+//
+// A helper that closes a feedback loop needs a bus name of its own, and a
+// literal one would collide the moment the helper is called twice. What it
+// can't be is a fresh id per run: the buffer's whole value is that it persists,
+// so a new name on every ctrl+enter would blank the loop on every edit (see
+// carry.js) and strand a render target each time.
+//
+// So the name is the carried key itself — call-order identity, stable across
+// re-runs, swept when the call it belongs to is edited away. The `#` is what
+// keeps it out of the namespace a sketch types by hand.
+
+function releaseBuffer(engine, name) {
+  const rt = engine._textureState.fbRTs?.get(name);
+  if (rt) {
+    rt.dispose();
+    engine._textureState.fbRTs.delete(name);
+  }
+}
+
+// A buffer is a full frame of video held all the time, so a helper called once
+// per cell of a .tile() is how a sketch quietly asks for gigabytes. Said on the
+// crossing only: a run with sixty of them wants one warning, not forty-five,
+// and warn() identifies a message by its text.
+const BUFFER_WARN_AT = 16;
+
+export function autoBuffer(engine) {
+  if (!isClaiming()) {
+    warn('bufferId(): only meaningful while the sketch is running — a call from onFrame() would mint a new name every frame, so they all share one');
+    return '__buffer';
+  }
+  return carried(
+    'buffer',
+    (key) => {
+      const n = Number(key.slice(key.indexOf('#') + 1));
+      if (n === BUFFER_WARN_AT) {
+        warn(`bufferId(): more than ${BUFFER_WARN_AT} feedback buffers in this sketch, each holding a full frame of video. A .feedback() per .tile() cell is the usual way to get here.`);
+      }
+      return `__${key}`;
+    },
+    (name) => releaseBuffer(engine, name),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // the chainable node
 
 export class TextureOp {
   constructor(engine, kind, params = {}, inputs = []) {
+    // sketches have this class in scope as `Texture`, so `new Texture()` is
+    // reachable — and would otherwise fail several lines deep in something that
+    // reads like an internal bug. A chain starts at a generator; that's what
+    // holds the engine.
+    if (engine == null) {
+      throw new Error('new Texture() is not how a chain starts — begin from a generator like scene(), noise() or circle()');
+    }
     const bound = bindTexParams(kind, params, inputs);
     this.engine = engine;
     this.kind = kind;
@@ -1232,7 +1305,10 @@ export class TextureOp {
   normalMap(o = {}) { return this._n('neighbor', { mode: 'normal', ...o }); }
   levels(o = {}) { return this._n('adjust', o); }
   add(v = 0) { return this._n('math', { add: v }); }
+  sub(v = 0) { return this._n('math', { sub: v }); }
   mul(v = 1) { return this._n('math', { mul: v }); }
+  div(v = 1) { return this._n('math', { div: v }); }
+  pow(v = 1) { return this._n('math', { pow: v }); }
   contrast(v = 1) { return this._n('adjust', { contrast: v }); }
   saturation(v = 1) { return this._n('adjust', { saturation: v }); }
   gamma(v = 1) { return this._n('adjust', { gamma: v }); }
@@ -1320,6 +1396,23 @@ export class TextureOp {
     const node = this._n('delay', { ...o, frames, scale: Math.min(1, Math.max(0.05, o.scale ?? 1)) });
     node.hist = carried('delay', () => ({ ring: null, slot: 0, cap: 0 }), disposeRing);
     return node;
+  }
+
+  // .feedback((prev, src) => chain) — a loop with the bus name managed for it.
+  // `prev` is this point's own output last frame, `src` the chain so far, and
+  // whatever the fn returns is both what renders and what `prev` will be next
+  // frame. Exactly the .out('name')/input('name') cycle written by hand, minus
+  // the name: each call site claims its own (see autoBuffer), so a helper built
+  // on this can be used twice in a sketch without the two loops colliding.
+  feedback(fn) {
+    const name = autoBuffer(this.engine);
+    const prev = new TextureOp(this.engine, 'in', { name });
+    const body = typeof fn === 'function' ? fn(prev, this) : fn;
+    if (!(body instanceof TextureOp)) {
+      warn('feedback: expected a fn returning a texture chain — the loop is skipped');
+      return this;
+    }
+    return body.out(name);
   }
 
   // .when(cond, fn) — per-frame switch: while cond(t) >= 0.5 the chain

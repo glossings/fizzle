@@ -5,7 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyNoise, applyNoiseDepth } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
-import { TextureOp, reciprocal } from './textures.js';
+import { TextureOp, reciprocal, autoBuffer } from './textures.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
@@ -353,6 +353,10 @@ class InstanceHandle {
 
 class GeoOp {
   constructor(engine, type, opts) {
+    // in scope for sketches as `Geometry` — see the same guard on TextureOp
+    if (engine == null) {
+      throw new Error('new Geometry() is not how a chain starts — begin from a shape like sphere(), box() or model()');
+    }
     this.engine = engine;
     this.type = type;
     this.opts = opts ?? {};
@@ -1192,6 +1196,23 @@ export function makeApi(engine) {
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },
+
+    // The chain types themselves, so a sketch can extend them:
+    // `Texture.prototype.trail = function (amt) { ... }` and every texture
+    // chain has .trail(). The class rather than its prototype, so that
+    // `x instanceof Texture` works — the check a helper taking either a texture
+    // or a number needs, and the reason the longer spelling is worth its
+    // characters. Methods live until the tab is closed rather than until the
+    // next run: a helper you defined and then deleted from the sketch is still
+    // there, which is the point when the helper is the part you aren't editing.
+    Texture: TextureOp,
+    Geometry: GeoOp,
+
+    // A bus name nothing else will take, one per call site — what a helper
+    // closing a feedback loop by hand needs, since a literal name would collide
+    // with the second call. It hands back the id, not the buffer: the buffer is
+    // whatever .out(id) publishes to it. .feedback() is this plus the wiring.
+    bufferId: () => autoBuffer(engine),
   };
 
   function audioIn(name) {

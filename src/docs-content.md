@@ -186,8 +186,9 @@ The other half of the same rule: editing the code must not restart the show.
 took time to accumulate are handed over rather than reset —
 
 - **sketch time.** `t` doesn't go back to 0, so nothing driven by it jumps.
-- **feedback buffers.** `input()` and every `input('name')` bus keep their
-  contents, so trails survive the edit that changed them.
+- **feedback buffers.** `input()`, every `input('name')` bus and every
+  `.feedback()` loop keep their contents, so trails survive the edit that
+  changed them.
 - **`.delay()` history**, for the same reason: a rebuilt delay adopts the
   frames the old one had collected.
 - **stateful signals** — `.smooth()`'s level, `.counter()`'s position,
@@ -787,8 +788,17 @@ geometry.
 
 ## color & filters
 
-- `.add(v)` / `.mul(v)` — per-pixel math; scalar or `[r, g, b]`, negative `add`
-  darkens. A color works in either (`.mul('#ff00ff')` is a multiply tint).
+- `.add(v)` / `.sub(v)` / `.mul(v)` / `.div(v)` / `.pow(v)` — per-pixel math;
+  scalar or `[r, g, b]`, and a color works in any of them (`.mul('#ff00ff')` is
+  a multiply tint). The inverses are ops of their own rather than sugar for a
+  negated argument, because the argument is allowed to be a fn of `t` or a
+  whole texture, neither of which can be negated on the way in. `.div(0)` is
+  floored rather than infinite, so it blows out to white.
+
+  `.pow(v)` is the curve for shaping a mask — `.pow(3)` pushes a soft falloff
+  toward the dark end without moving black or white. `.gamma()` is the same
+  curve with the exponent inverted (`.pow(v)` is `.gamma(1 / v)`), which is the
+  convention a levels control uses; it lives with the tonal group below.
 - `.tint(color, { bg })` — recolor by brightness: black becomes `bg`, white
   becomes `color`. This is the one to reach for when a pass has handed you a
   white-on-black image — `edge()`, `text()`, `.threshold()`, a mask — and you
@@ -1047,14 +1057,15 @@ The slots that take one:
 | `.posterize()` | `steps` |
 | `.chroma()` | `amount`, `angle`, `center` |
 | `.mirror()` | `flip` |
-| `.mul()` / `.add()` | the value itself |
+| `.add()` / `.sub()` / `.mul()` / `.div()` / `.pow()` | the value itself |
 | `circle()` | `radius`, `thickness`, `soft`, `center` |
 | `voronoi()` | `blend` |
 
 Two rules cover the whole set:
 
 - **Which channels.** A two-component slot (`translate`, `scale`, `center`)
-  reads **R and G**, a three-component one (`.mul()`, `.add()`) reads **RGB**,
+  reads **R and G**, a three-component one (`.mul()`, `.add()`, the rest of the
+  arithmetic) reads **RGB**,
   and a scalar slot (`rotate`, `sides`, `hue`, `barrel`, `level`, …) reads
   **luma**. So a grayscale map drives a two-component slot along the
   diagonal — `noise({ channels: 2 })` when you want the axes independent.
@@ -1119,6 +1130,89 @@ circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
 The loop closes at `.out('trail')` — pre-bloom, so the glow doesn't compound
 into the trail. Multiple buses coexist, and published chains render even if
 they never reach a naked `.out()` (as long as something does).
+
+### .feedback — the same loop without naming it
+
+Naming the bus is the part that doesn't generalize. The moment a loop lives
+inside a helper you wrote, a literal `'trail'` means the second call to that
+helper writes over the first one's buffer. `.feedback()` is the same cycle with
+the name handled for you:
+
+```js
+circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
+  .translate(t => Math.sin(t * 1.3) * 0.3, t => Math.sin(t * 0.9) * 0.3)
+  .feedback((prev, src) => src.comp(prev.transform({ scale: 0.985, rotate: 0.01 }), 'add', 0.75))
+  .bloom({ threshold: 0.4 })
+  .out()
+```
+
+`prev` is what this point of the chain rendered last frame, `src` is the chain
+so far, and whatever the callback returns is both what renders now and what
+`prev` will be next time round. Each call site gets a buffer of its own, so two
+`.feedback()`s — or two calls of the same helper — can't tread on each other.
+
+### custom methods
+
+`Texture` and `Geometry` are the types the two kinds of chain are built from,
+and they're in scope. Adding to a prototype adds an op to every chain of that
+kind:
+
+```js
+Texture.prototype.trail = function (amt = 0.9) {
+  return this.feedback((prev, src) =>
+    src.comp(prev.mul(amt).transform({ scale: 1.01 }), 'add'))
+}
+
+scene().trail(0.92).bloom().out()
+```
+
+`this` is the chain, so a helper is written the way the built-in ops are: take
+arguments, return `this.something(...)`. It has to be a `function` rather than
+an arrow, which would take `this` from the sketch instead. `Geometry` works the
+same way:
+
+```js
+Geometry.prototype.spin = function (rate = 0.3) {
+  return this.rotation(0, t => t * rate, 0)
+}
+
+torus({ radius: 1.2, tube: 0.4 }).spin(0.5).color('#4fd1c5').out()
+```
+
+The types are in scope rather than just their method tables, so a helper that
+takes either a chain or a plain number can ask:
+
+```js
+Texture.prototype.over = function (x) {
+  return this.comp(x instanceof Texture ? x : constant(x), 'over')
+}
+```
+
+Chains themselves always start at a generator — `new Texture()` isn't a thing,
+and says so if you try.
+
+Methods added this way live until the tab is reloaded, not until the next run —
+which is what you want when the helper is the stable part and the sketch below
+it is what you're editing. The flip side: renaming one leaves the old name
+behind, and a helper you deleted still answers.
+
+If you'd rather wire the loop by hand than use `.feedback()`, `bufferId()` is
+the name allocator underneath it — it hands back a bus name nobody else will
+take, and the buffer is whatever you publish to it:
+
+```js
+Texture.trail = function (amt = 0.9) {
+  const b = bufferId()
+  return this.comp(input(b), 'add', amt).out(b)
+}
+```
+
+Call it once and keep it in a variable — both ends of the loop need the same
+name, and calling it twice gives you two buffers. What it deliberately isn't is
+a fresh id per run: buffers persist across `ctrl + enter` (that's the whole
+point of them), so a new name on every evaluation would blank the trail every
+time you touched the sketch. The same call site gets the same name back on
+every run instead, and the buffer is freed when you delete the call.
 
 ### delay — a fixed number of frames back
 
@@ -1512,6 +1606,8 @@ costs nothing and takes the stutter out of a hand-held move.
 - `THREE` — the full three.js namespace is in scope for anything the API
   doesn't cover.
 - `onFrame((t, dt) => ...)` — register a raw per-frame callback.
+- `Texture` / `Geometry` — the types the chains are built from. Adding to a
+  prototype adds an op of your own to every chain; see [custom methods](#custom-methods).
 
 ```js
 ambient({ intensity: 0.3 })

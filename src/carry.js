@@ -23,16 +23,23 @@ const ordinals = new Map();
 let claiming = false;
 let gen = 0;
 
+// make() is handed the key so a claim can *be* its identity rather than merely
+// have one — that's what bufferId() names itself after.
 export function carried(kind, make, free) {
   if (!claiming) return make();
   const n = ordinals.get(kind) ?? 0;
   ordinals.set(kind, n + 1);
   const key = `${kind}#${n}`;
   let e = store.get(key);
-  if (!e) store.set(key, (e = { value: make(), free }));
+  if (!e) store.set(key, (e = { value: make(key), free }));
   e.gen = gen;
   return e.value;
 }
+
+// Whether a sketch is evaluating — i.e. whether a claim made now will be the
+// same claim next run. Anything minting a resource per call has to ask, or a
+// call from inside onFrame() mints a new one every frame forever.
+export const isClaiming = () => claiming;
 
 // Run the sketch, with the claims it makes counted from zero. A run that
 // throws is followed by a second one restoring the last good code — both

@@ -64,6 +64,9 @@ export const GLOBALS = {
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
+  Texture: ['Texture', "The type every texture chain is one of. Adding to its prototype adds an op to every chain: Texture.prototype.punch = function (n) { return this.pow(n).contrast(2) } and then scene().punch(3) works.\n`this` is the chain, so a helper returns this.something(...) like any other op — which means a function rather than an arrow, since an arrow would take `this` from the sketch. It's also what x instanceof Texture asks, for a helper that takes either a texture or a number. Geometry is the same for geometry chains; chains themselves start at a generator, never at new Texture().\nMethods stay defined until the tab is reloaded rather than until the next run, so a helper you have stopped editing keeps working while you edit around it — and a renamed one leaves the old name behind."],
+  Geometry: ['Geometry', 'The type every geometry chain is one of — the sphere()/box() counterpart of Texture. See Texture.'],
+  bufferId: ['bufferId()', "A bus name nothing else will take, one per call site: with b = bufferId(), input(b) / .out(b) is a feedback loop that can't collide with anyone else's. It hands back the id, not a buffer — the buffer is whatever .out(b) publishes to it.\nWhat it isn't is a fresh id each run: the same call gets the same one back every re-run, which is what lets the loop keep its contents while you edit the sketch. Call it once and hold it in a variable, since both ends of the loop need the same id and calling it twice is two buffers. Mostly you want .feedback(), which is this plus the wiring."],
 };
 
 export const METHODS = {
@@ -94,9 +97,9 @@ export const METHODS = {
   hue: ['.hue(v)', 'Texture: hue rotation in turns — 0.5 is opposite colors, 1 a full lap. Animate with a fn of t or a signal, or hand it a texture to rotate each pixel by what the map says there.'],
   add: ['.add(v)', 'Texture: add v to every pixel (scalar or [r, g, b]; negative darkens) · audio signal: plain addition/offset.\nA texture in place of v is read as RGB, so the offset is per pixel and per channel — .add(map) is an additive comp with the range under your control.'],
   mul: ['.mul(v)', "Texture: multiply every pixel by v (scalar or [r, g, b]) · audio signal: plain gain.\nA texture in place of v is read as RGB, so the gain is per pixel and per channel — .mul(circle({ soft: 0.3 })) is a vignette, .mul(map) a colored mask."],
-  pow: ['.pow(v)', 'Audio signal: raise to a power — <1 expands quiet detail, >1 emphasizes peaks.'],
-  sub: ['.sub(v)', 'Signal: subtraction/offset. v may be a number, a fn of t or another signal.'],
-  div: ['.div(v)', 'Signal: division. Worth having over .mul(1 / v) because v can move — .div(audio().add(1)) ducks with the level. A divisor at 0 is floored rather than returning Infinity.'],
+  pow: ['.pow(v)', 'Texture: raise every pixel to the power v (scalar or [r, g, b]) · audio signal: <1 expands quiet detail, >1 emphasizes peaks.\nOn a texture this is the curve for shaping a mask: .pow(3) pushes a soft falloff toward the dark end without moving black or white, below 1 lifts it. .gamma() is the same curve inverted — .pow(v) is .gamma(1 / v) — and lives with the other tonal controls in .levels(); pow is the one to reach for when the frame is arithmetic rather than a picture.'],
+  sub: ['.sub(v)', 'Texture: subtract v from every pixel (scalar or [r, g, b]) · signal: subtraction/offset, where v may be a number, a fn of t or another signal.\nA texture in place of v is read as RGB, so the amount is per pixel and per channel — .sub(map) is a difference comp with the range under your control. Worth having over .add(-v), which has no spelling once v is a fn of t, an [r, g, b] or a map.'],
+  div: ['.div(v)', 'Texture: divide every pixel by v (scalar or [r, g, b]) · signal: division, worth having over .mul(1 / v) because v can move — .div(audio().add(1)) ducks with the level.\nA texture in place of v divides per pixel and per channel, which is how a map becomes an exposure rather than a mask. A divisor at 0 is floored rather than returning Infinity, so .div(0) blows out to white instead of going black; a negative one still flips the sign.'],
   range: ['.range(min, max, { from, to })', "Signal: rescale to min..max. The input is taken as 0..1 — what the shapers, rand() and audio() all produce — so audio().range(1, 4) is the usual .mul(3).add(1) said once.\nGive from for the signals that aren't 0..1: mouse().range(0, 10, { from: [-1, 1] }), sig(t => Math.sin(t)).range(0, 10, { from: [-1, 1] }). .range({ from, to }) names both spans instead of the positional pair. Every bound takes a fn of t.\nIt doesn't clamp — an input past its from span lands past min..max. Follow with .clamp() to fence it."],
   clamp: ['.clamp(lo = 0, hi = 1)', 'Signal: limit to lo..hi without rescaling — the fence .range() deliberately leaves off. Both bounds take fns of t.'],
   smooth: ['.smooth(up, down?)', 'Audio signal: exponential lag (one-pole lowpass on the value), time constants in seconds. Two args = separate attack/release — fast up + slow down makes a nice envelope.'],
@@ -122,7 +125,7 @@ export const METHODS = {
   when: ['.when(cond, s => ...)', 'Texture: per-frame switch — while cond >= 0.5 the chain becomes fn(chain), otherwise it passes through. E.g. .when(audio().gte(0.3), s => s.kaleido(6)). Only the active branch renders.'],
   contrast: ['.contrast(v)', 'Texture: contrast around mid-gray (1 = unchanged). A texture in place of v sets it per pixel.'],
   saturation: ['.saturation(v)', 'Texture: 0 = grayscale, 1 = unchanged, >1 boosts. A texture in place of v sets it per pixel.'],
-  gamma: ['.gamma(v)', 'Texture: gamma curve (1 = unchanged). A texture in place of v sets it per pixel.'],
+  gamma: ['.gamma(v)', 'Texture: gamma curve (1 = unchanged, above 1 lifts the shadows). A texture in place of v sets it per pixel.\nThe color-correction spelling of .pow(), inverted the way a levels control is: .gamma(v) is .pow(1 / v).'],
   posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel. A texture in place of steps sets the count per pixel — scale it first (.mul(8)), since a raw map only ever says 0..1.'],
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. Cells keep the color of the image under them until you name one.\nchars is a set name — 'ascii', 'dense', 'blocks', 'numbers', 'letters', 'binary', 'dots' — or any string of your own, ordered dark→bright. Contrast decides how much of the set gets used, so .levels() ahead of it is the real dial."],
@@ -140,6 +143,8 @@ export const METHODS = {
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. .comp(s => s.delay(1), 'diff') is a motion mask — what changed since last frame — and comping a few at falling opacity is an echo.\nThis is the fixed-length counterpart to a feedback loop: input('name') in a cycle gives you last frame only, and blending it into itself gives a smear with no definite age. frames takes a fn of t, so the lag can move; the buffer grows to the longest delay asked for and keeps that size.\nHistory is frames of video, so it costs memory per frame of delay — a long one is stored at reduced size to fit (and says so), which keeps the count you wrote meaning the same length of time on any display. { scale } sets that size yourself. History survives a re-run — editing the sketch doesn't punch a delay-length hole of black through the show — and holds (rather than skips) on frames where the chain doesn't render, e.g. inside an inactive .when() branch."],
+  feedback: ['.feedback((prev, src) => chain)', "Texture: a feedback loop with the bus name managed for you. prev is this point's own output last frame, src the chain so far, and what the fn returns is both what renders now and what prev will be next frame.\n.feedback(prev => prev.transform({ scale: 1.02 }).comp(src, 'add')) is a trail; .feedback((prev, src) => src.comp(prev.blur(2), 'lighten')) a bloom that accumulates. Same thing as closing an input('name')/.out('name') cycle by hand, minus the name — which matters when the loop lives inside a helper of your own, since each call site claims a buffer of its own and two calls can't collide. Contents survive a re-run like any other feedback buffer, and hold while paused.",
+  ],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, and each distinct one renders its own pass — like comping that many .out()s. x left→right, y bottom→top, i = y*nx + x.'],
 };
 
@@ -495,7 +500,7 @@ const METHOD_KEY_DOCS = {
   levels: {
     contrast: 'Pushes values away from mid-gray. Default 1 unchanged, 0 flattens to gray, 2 is hard.',
     saturation: '0 grayscale, 1 unchanged, above 1 boosts. Default 1.',
-    gamma: 'Default 1. Below 1 lifts the shadows, above 1 crushes them.',
+    gamma: 'Default 1. Above 1 lifts the shadows, below 1 crushes them — the exponent is 1/gamma, which is the levels-control convention rather than the arithmetic one. .pow() is the same curve said the other way round.',
     hue: 'Rotation in turns: 0.5 is the opposite color, 1 a full lap. Default 0.',
   },
   range: {
@@ -631,9 +636,9 @@ const methodKinds = {
   geo: 'position rotation scale align shadow noise instance material color sample normal out',
   light: 'position target out',
   inst: 'position rotation scale align color material',
-  texture: `mirror kaleido radial polar edge slope normalMap levels add mul contrast saturation gamma hue
+  texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold invert
-        remap lookup tint displace comp mask blur bloom delay when tile out`,
+        remap lookup tint displace comp mask blur bloom delay feedback when tile out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
 };
@@ -653,7 +658,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 export const CALLBACK_KIND = {
   instance: 'inst',
   tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture',
-  displace: 'texture', remap: 'texture', lookup: 'texture',
+  displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',
 };
 
 // --- rendering -------------------------------------------------------------
