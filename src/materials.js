@@ -314,6 +314,14 @@ export function applyMaps(engine, material, m, isAlive) {
     // so before it's allocated — hence a flag on the node rather than on the
     // texture the way an imported image does it
     if (repeat) node._tiled = true;
+    // A surface samples the map at whatever density perspective gives it, not
+    // the map's own — so the owned target carries a mip pyramid, or the map
+    // shimmers in the distance the way any unmipped texture does. Imported
+    // images get theirs from three's defaults; a chain's target has to ask
+    // (same before-allocation rule as _tiled above). For a color slot the
+    // pyramid is built after the toLinear pass, so filtering happens in
+    // linear light, which is where averaging colors is correct.
+    node._needsMips = true;
     engine.textureMaps.push({ node, material, slot, isAlive, configure: tiled ? configure : null, tex: null });
   };
 

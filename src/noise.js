@@ -122,22 +122,63 @@ vec3 displacePoint(vec3 p, vec3 n, vec3 seed) {
 // The texture half. dispDu/dispDv are dP/du and dP/dv, written onto the
 // geometry by addUvBasis below — the map is a height field over uv, and turning
 // its gradient there into one in world space is exactly what those two are.
+// dispPitch is the uv distance to the next vertex, which sets the width the
+// map is read at; dispUv is the vertex's uv with seam twins welded to one
+// lookup, so a shape whose uv layout splits where its surface doesn't can't
+// be torn open by the map (see addUvBasis).
+//
+// A pin in the toy has a diameter: it reports the average height over its own
+// little circle, which is why an impression comes out smooth however fine the
+// thing pressed into it was. A vertex is the pin. Point-sampling a
+// window-sized map at a few hundred vertices is what makes displacement look
+// like grit rather than relief — every vertex lands on its own unrelated
+// texel and nothing between them is ever seen.
+//
 // A colored map displaces by its brightness, so any texture chain is usable
 // without a grayscale conversion first.
-export const DISPLACE_GLSL = /* glsl */ `
-uniform sampler2D uDispMap;
-uniform float uDispAmount;
-uniform float uDispMid;
+const DISPLACE_GLSL = /* glsl */ `
 attribute vec3 dispDu;
 attribute vec3 dispDv;
+attribute vec2 dispPitch;
+attribute vec2 dispUv;
 
-// half a texel of a 1k map: fine enough to read real detail, wide enough that
-// the difference isn't all rounding
-const float DISP_EPS = 0.002;
+// floor for the gradient's divisor at smooth: 0 — far below a texel, where
+// the map is bilinear and so has an honest slope anyway
+const float DISP_MIN_STEP = 1e-5;
 
-float dispHeight(vec2 duv) {
-  return dot(texture2D(uDispMap, duv).rgb, vec3(0.2126, 0.7152, 0.0722));
+float dispLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+vec2 dispStep(float width) { return max(dispPitch * width, vec2(DISP_MIN_STEP)); }
+
+// The pin's diameter, using the machinery the GPU already has for exactly
+// this: the map carries a mip pyramid (arranged when it's bound — api.js,
+// textures.js), and the level whose texels match the footprint *is* the
+// average over it. One trilinear tap instead of a stencil of point samples,
+// and it stays a real average however wide the footprint gets. Central
+// differences one footprint step apart on that same level are the slope at
+// the same scale, so shape and shading can't disagree. lod comes from the
+// wider uv axis — on a sphere that over-smooths the other axis by at most
+// its anisotropy, and softer beats aliased. A map with no pyramid (a
+// snapshot buffer, a caller's own THREE.Texture) reads its base level:
+// unfiltered, never wrong.
+void dispRead(sampler2D map, vec2 duv, vec2 s, out float h, out float hu, out float hv) {
+  vec2 texels = s * vec2(textureSize(map, 0));
+  float lod = max(0.0, log2(max(texels.x, texels.y)));
+  h = dispLuma(textureLod(map, duv, lod).rgb);
+  hu = (dispLuma(textureLod(map, duv + vec2(s.x, 0.0), lod).rgb)
+      - dispLuma(textureLod(map, duv - vec2(s.x, 0.0), lod).rgb)) / (2.0 * s.x);
+  hv = (dispLuma(textureLod(map, duv + vec2(0.0, s.y), lod).rgb)
+      - dispLuma(textureLod(map, duv - vec2(0.0, s.y), lod).rgb)) / (2.0 * s.y);
 }
+`;
+
+// One set of these per .displace() in the chain — samplers can't be indexed by
+// a loop counter here, so the layers are unrolled at build time instead.
+const dispLayerGlsl = (i) => /* glsl */ `
+uniform sampler2D uDispMap${i};
+uniform float uDispAmount${i};
+uniform float uDispMid${i};
+uniform float uDispWidth${i};
 `;
 
 // Replaces <beginnormal_vertex>: displaces the vertex, rebuilds the normal, and
@@ -177,17 +218,29 @@ objectNormal = normalize(cross(displacedA - displaced, displacedB - displaced));
 // so .noise().displace(map) tilts the noised normal rather than replacing it.
 // A degenerate uv triangle (a sphere's poles) has no basis to carry anything,
 // and leaves the normal alone rather than dividing by zero.
-const DISPLACE_NORMAL = /* glsl */ `
-float dispH = dispHeight(uv);
-float dispHu = (dispHeight(uv + vec2(DISP_EPS, 0.0)) - dispH) / DISP_EPS;
-float dispHv = (dispHeight(uv + vec2(0.0, DISP_EPS)) - dispH) / DISP_EPS;
-displaced += nrm * ((dispH - uDispMid) * uDispAmount);
-
+//
+// Layers add: the heights sum because they're distances along the same normal,
+// and the gradients sum before a single normalize because that's the gradient
+// of the sum. Normalizing per layer instead would make the last one win.
+const DISPLACE_HEAD = /* glsl */ `
+float dispH, dispHu, dispHv;
+float dispSum = 0.0;
+vec3 dispGrad = vec3(0.0);
 float dispDet = dot(cross(dispDu, dispDv), nrm);
-if (abs(dispDet) > 1e-6) {
-  vec3 dispGrad = (dispHu * cross(dispDv, nrm) + dispHv * cross(nrm, dispDu)) / dispDet;
-  objectNormal = normalize(objectNormal - dispGrad * uDispAmount);
+bool dispBasis = abs(dispDet) > 1e-6;
+`;
+
+const dispLayerNormal = (i) => /* glsl */ `
+dispRead(uDispMap${i}, dispUv, dispStep(uDispWidth${i}), dispH, dispHu, dispHv);
+dispSum += (dispH - uDispMid${i}) * uDispAmount${i};
+if (dispBasis) {
+  dispGrad += ((dispHu * cross(dispDv, nrm) + dispHv * cross(nrm, dispDu)) / dispDet) * uDispAmount${i};
 }
+`;
+
+const DISPLACE_TAIL = /* glsl */ `
+displaced += nrm * dispSum;
+if (dispBasis) objectNormal = normalize(objectNormal - dispGrad);
 `;
 
 export const POSITION_CHUNK = /* glsl */ `
@@ -211,22 +264,45 @@ vec3 depthNoiseSeed = vec3(0.0);
 transformed = displacePoint(position, depthNrm, depthNoiseSeed);
 `;
 
-const DISPLACE_DEPTH = /* glsl */ `
-transformed += depthNrm * ((dispHeight(uv) - uDispMid) * uDispAmount);
+// Shading is nobody's business here, so the depth pass reads the same heights
+// and skips the gradient the normal needs.
+const DISPLACE_DEPTH_HEAD = /* glsl */ `
+float dispH, dispHu, dispHv;
+float dispSum = 0.0;
+`;
+
+const dispLayerDepth = (i) => /* glsl */ `
+dispRead(uDispMap${i}, dispUv, dispStep(uDispWidth${i}), dispH, dispHu, dispHv);
+dispSum += (dispH - uDispMid${i}) * uDispAmount${i};
+`;
+
+const DISPLACE_DEPTH_TAIL = /* glsl */ `
+transformed += depthNrm * dispSum;
 `;
 
 const join = (...parts) => parts.filter(Boolean).join('\n');
+const layers = (n, fn) => join(...Array.from({ length: n }, (_, i) => fn(i)));
 
-// `flags` is { noise, displace } — which sources this material actually uses.
-// Both patch the same two chunks, so they're assembled together or the second
-// one silently wins.
+// `flags` is { noise, displace } — the noise field on or off, and how many
+// .displace() maps the chain asked for. All of them patch the same two chunks,
+// so they're assembled together or the last one silently wins.
 function chunks(flags) {
+  const n = flags.displace;
   return {
-    common: join(flags.noise && NOISE_GLSL, flags.displace && DISPLACE_GLSL),
-    normal: join(NORMAL_HEAD, flags.noise && NOISE_NORMAL, flags.displace && DISPLACE_NORMAL),
-    depth: join(DEPTH_HEAD, flags.noise && NOISE_DEPTH, flags.displace && DISPLACE_DEPTH),
-    // one program per combination, or three would share whichever compiled first
-    key: `td-vd-${flags.noise ? 'n' : ''}${flags.displace ? 'd' : ''}`,
+    common: join(flags.noise && NOISE_GLSL, n && join(layers(n, dispLayerGlsl), DISPLACE_GLSL)),
+    normal: join(
+      NORMAL_HEAD,
+      flags.noise && NOISE_NORMAL,
+      n && join(DISPLACE_HEAD, layers(n, dispLayerNormal), DISPLACE_TAIL),
+    ),
+    depth: join(
+      DEPTH_HEAD,
+      flags.noise && NOISE_DEPTH,
+      n && join(DISPLACE_DEPTH_HEAD, layers(n, dispLayerDepth), DISPLACE_DEPTH_TAIL),
+    ),
+    // one program per combination — the layer count is part of the source, so
+    // it's part of the key, or four maps would share the program one compiled
+    key: `td-vd-${flags.noise ? 'n' : ''}${n ? `d${n}` : ''}`,
   };
 }
 
@@ -260,15 +336,25 @@ export function applyDisplacementDepth(material, flags, uniforms) {
   material.needsUpdate = true;
 }
 
-// dP/du and dP/dv per vertex, averaged over the faces the vertex belongs to.
-// Deliberately not normalized: their magnitudes are the uv-to-world scale, so
-// the shader can read a gradient in uv space and get one in world units —
-// which is what makes .displace() light correctly on a sphere (where u covers
-// 2*pi*r and v only pi*r) and on a plane alike. Written once, at .out().
+// Per vertex: dP/du and dP/dv, how far away in uv the next vertex is, and the
+// welded uv the map is actually read at.
 //
-// Returns false when there are no uvs to differentiate, which is the honest
-// answer for an imported model that never had any: there is no map lookup to
-// do either, so the caller drops the whole patch.
+// The two derivatives are averaged over the faces the vertex belongs to and
+// deliberately not normalized — their magnitudes are the uv-to-world scale, so
+// the shader can read a gradient in uv space and get one in world units, which
+// is what makes .displace() light correctly on a sphere (where u covers 2*pi*r
+// and v only pi*r) and on a plane alike.
+//
+// The pitch is the *widest* uv edge at the vertex rather than the mean: on any
+// regular grid that's exactly the spacing (the diagonal of a quad spans one
+// step in each axis, the axis-aligned edges span one and zero), and taking the
+// mean would be dragged down by the zeroes into a footprint too narrow to
+// filter anything. It's what a vertex reads the map over, so it's in uv units,
+// per axis — a sphere's v steps twice as far as its u.
+//
+// All written once, at .out(). Returns false when there are no uvs to
+// differentiate, which is the honest answer for an imported model that never
+// had any: there is no map lookup to do either, so the caller drops the patch.
 export function addUvBasis(geometry) {
   if (geometry.attributes.dispDu) return true;
   const pos = geometry.attributes.position;
@@ -278,10 +364,21 @@ export function addUvBasis(geometry) {
   const n = pos.count;
   const du = new Float32Array(n * 3);
   const dv = new Float32Array(n * 3);
+  const pitch = new Float32Array(n * 2);
   const faces = new Uint32Array(n);
   const index = geometry.index;
   const corners = index ? index.count : n;
   const tri = [0, 0, 0];
+
+  // A triangle straddling a uv seam has an edge most of the map wide, which
+  // read as a footprint would blur the whole thing to a flat grey. No sane
+  // mesh has a vertex spacing anywhere near this, so cap it and move on.
+  const MAX_PITCH = 0.25;
+  const widest = (i, wu, wv) => {
+    const k = i * 2;
+    if (wu > pitch[k]) pitch[k] = Math.min(wu, MAX_PITCH);
+    if (wv > pitch[k + 1]) pitch[k + 1] = Math.min(wv, MAX_PITCH);
+  };
 
   for (let f = 0; f + 2 < corners; f += 3) {
     const a = tri[0] = index ? index.getX(f) : f;
@@ -289,6 +386,16 @@ export function addUvBasis(geometry) {
     const c = tri[2] = index ? index.getX(f + 2) : f + 2;
     const s1 = uv.getX(b) - uv.getX(a), t1 = uv.getY(b) - uv.getY(a);
     const s2 = uv.getX(c) - uv.getX(a), t2 = uv.getY(c) - uv.getY(a);
+
+    // before the degenerate check below: a triangle can be useless for the
+    // basis and still be the thing that says how far apart these vertices are
+    const ab = Math.abs(s1), av = Math.abs(t1);
+    const ac = Math.abs(s2), cv = Math.abs(t2);
+    const bc = Math.abs(s2 - s1), bv = Math.abs(t2 - t1);
+    widest(a, Math.max(ab, ac), Math.max(av, cv));
+    widest(b, Math.max(ab, bc), Math.max(av, bv));
+    widest(c, Math.max(ac, bc), Math.max(cv, bv));
+
     const det = s1 * t2 - s2 * t1;
     // a triangle that is a point in uv (a pole, a seam artefact) says nothing
     // about the mapping; skipping it leaves those vertices at zero, which the
@@ -308,13 +415,55 @@ export function addUvBasis(geometry) {
   }
   // the average, not the sum — a sum would scale the basis by how many faces
   // happen to meet at the vertex, and with it the normal's strength
+  let su = 0, sv = 0, k2 = 0;
   for (let i = 0; i < n; i++) {
     const k = faces[i];
-    if (k < 2) continue;
-    du[i * 3] /= k; du[i * 3 + 1] /= k; du[i * 3 + 2] /= k;
-    dv[i * 3] /= k; dv[i * 3 + 1] /= k; dv[i * 3 + 2] /= k;
+    if (k >= 2) {
+      du[i * 3] /= k; du[i * 3 + 1] /= k; du[i * 3 + 2] /= k;
+      dv[i * 3] /= k; dv[i * 3 + 1] /= k; dv[i * 3 + 2] /= k;
+    }
+    if (pitch[i * 2] > 0 && pitch[i * 2 + 1] > 0) { su += pitch[i * 2]; sv += pitch[i * 2 + 1]; k2++; }
   }
+  // A vertex no triangle names has no spacing of its own, and a footprint of
+  // zero is the one value that reads the map as a point — the artefact this
+  // whole attribute exists to avoid. Three's own spheres leave two of these at
+  // the poles and never draw them; an imported mesh might draw its. The mesh's
+  // own average is a better guess than nothing, and there is nothing else.
+  if (k2 && k2 < n) {
+    for (let i = 0; i < n; i++) {
+      if (pitch[i * 2] <= 0) pitch[i * 2] = su / k2;
+      if (pitch[i * 2 + 1] <= 0) pitch[i * 2 + 1] = sv / k2;
+    }
+  }
+  // Welded lookups. A uv layout usually splits somewhere the surface doesn't —
+  // a sphere's seam meridian and pole rings, every edge of a box, mirrored
+  // islands on a model. Those are two or more vertices at one position with
+  // different uvs, each reading its own side of the map, displacing apart, and
+  // tearing the shape open along a line the geometry doesn't have. So every
+  // such group reads the map at one member's uv: their heights agree exactly
+  // and the surface stays closed. A map that doesn't tile still *jumps* there
+  // — the mismatch lands as a steep quad beside the seam instead of a crack.
+  // The weld grid is a hair of the shape's own scale, because generators land
+  // seam twins a few ulps apart (sin(2π) isn't 0) rather than exactly together.
+  const canon = new Float32Array(n * 2);
+  {
+    let scale = 0;
+    for (let i = 0; i < n; i++) {
+      scale = Math.max(scale, Math.abs(pos.getX(i)), Math.abs(pos.getY(i)), Math.abs(pos.getZ(i)));
+    }
+    const q = Math.max(scale, 1e-6) * 1e-5;
+    const seen = new Map();
+    for (let i = 0; i < n; i++) {
+      const key = `${Math.round(pos.getX(i) / q)},${Math.round(pos.getY(i) / q)},${Math.round(pos.getZ(i) / q)}`;
+      const j = seen.get(key) ?? (seen.set(key, i), i);
+      canon[i * 2] = uv.getX(j);
+      canon[i * 2 + 1] = uv.getY(j);
+    }
+  }
+
   geometry.setAttribute('dispDu', new THREE.BufferAttribute(du, 3));
   geometry.setAttribute('dispDv', new THREE.BufferAttribute(dv, 3));
+  geometry.setAttribute('dispPitch', new THREE.BufferAttribute(pitch, 2));
+  geometry.setAttribute('dispUv', new THREE.BufferAttribute(canon, 2));
   return true;
 }

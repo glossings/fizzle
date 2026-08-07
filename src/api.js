@@ -364,7 +364,7 @@ class GeoOp {
     this._rot = [0, 0, 0];
     this._scale = [1, 1, 1];
     this._noise = null;
-    this._displace = null;
+    this._displaces = [];   // every .displace() in the chain, summed in one patch
     this._instance = null;
     this._material = {};
     this._shadow = null;      // null = whatever the material implies (see out())
@@ -417,7 +417,7 @@ class GeoOp {
     const p = set ? set.point(i) : new THREE.Vector3();
     const c = set && this._noiseCfg();
     if (c) displacedPoint(p, set.normal(i), c, p);
-    if (this._displace) this._warnDisplacedSource();
+    if (this._displaces.length) this._warnDisplacedSource();
     const m = this._xform();
     return m ? p.applyMatrix4(m) : p;
   }
@@ -426,7 +426,7 @@ class GeoOp {
     const n = set ? set.normal(i) : new THREE.Vector3(0, 1, 0);
     const c = set && this._noiseCfg();
     if (c) displacedNormal(set.point(i), n, c, n);
-    if (this._displace) this._warnDisplacedSource();
+    if (this._displaces.length) this._warnDisplacedSource();
     return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
   }
 
@@ -553,13 +553,18 @@ class GeoOp {
     return this;
   }
 
-  // displace(map, { amount, mid }) — move each vertex along its normal by what
-  // the map says at its uv, with the normals rebuilt from the map's gradient so
-  // the relief takes light as relief. The map is an imported image by name, a
-  // live texture chain, or a THREE.Texture, and displaces by its brightness.
+  // displace(map, { amount, mid, smooth }) — move each vertex along its normal
+  // by what the map says at its uv, with the normals rebuilt from the map's
+  // gradient so the relief takes light as relief. The map is an imported image
+  // by name, a live texture chain, or a THREE.Texture, and displaces by its
+  // brightness.
   //
   // Like .noise(), it can only move vertices the shape already has: res is
   // where the detail comes from, not the map's resolution.
+  //
+  // Chainable — several calls stack, so a wide map can carry the form and a
+  // fine one roughen it. They're summed in one shader (see noise.js), and
+  // .noise() joins the same sum.
   displace(map, o = {}) {
     if (map == null) {
       warn('.displace() needs a map — an imported image by name, or a texture chain: .displace(noise({ period: 0.3 }))');
@@ -567,11 +572,18 @@ class GeoOp {
     }
     // a bare amount in the options slot, matching the texture .displace()
     if (typeof o !== 'object' || o === null) o = o == null ? {} : { amount: o };
-    this._displace = {
+    this._displaces.push({
       map,
       amount: o.amount ?? 0.2,
       mid: o.mid ?? 0.5,
-    };
+      // how wide each vertex reads the map, in vertex spacings. 1 is the pin:
+      // it averages exactly its own share of the picture and nothing finer,
+      // which is what makes an impression rather than grit. 0 reads a single
+      // point and the detail the mesh can't hold comes back as noise — a look,
+      // so it's a number and not a flag. Wider keeps softening: the map is
+      // read through its mip pyramid, so the average is real at any width.
+      smooth: o.smooth ?? 1,
+    });
     return this;
   }
 
@@ -631,7 +643,7 @@ class GeoOp {
     // back through here when the real thing lands.
     let dispOk = true;
     const prepare = (g) => {
-      if (!this._displace || !g.attributes.position) return g;
+      if (!this._displaces.length || !g.attributes.position) return g;
       dispOk = addUvBasis(g);
       if (!dispOk) {
         warn('.displace(): this geometry has no uv coordinates, so there is nowhere on the map to read — displacement skipped (an imported model may have been exported without them)');
@@ -675,9 +687,9 @@ class GeoOp {
     applyMaterialScalars(material, m);
     const surfaceUpdate = applySurface(material, m);
 
-    // One vertex patch carries both deformers, since they replace the same two
-    // shader chunks — a chain with .noise().displace(map) gets the sum.
-    const dispFlags = { noise: !!this._noise, displace: !!this._displace };
+    // One vertex patch carries every deformer, since they replace the same two
+    // shader chunks — a chain with .noise().displace(a).displace(b) gets the sum.
+    const dispFlags = { noise: !!this._noise, displace: this._displaces.length };
     let dispUniforms = null;
     if (dispFlags.noise || dispFlags.displace) {
       dispUniforms = {};
@@ -693,16 +705,17 @@ class GeoOp {
           uSeed: { value: 0 },
         });
       }
-      if (dispFlags.displace) {
+      this._displaces.forEach((d, i) => {
         // null reads as three's empty texture until the map lands, which
         // displaces by -mid * amount — hence amount 0 until then, so an async
         // image doesn't shrink the shape for its first frames
         Object.assign(dispUniforms, {
-          uDispMap: { value: null },
-          uDispAmount: { value: 0 },
-          uDispMid: { value: resolve(this._displace.mid, 0) },
+          [`uDispMap${i}`]: { value: null },
+          [`uDispAmount${i}`]: { value: 0 },
+          [`uDispMid${i}`]: { value: resolve(d.mid, 0) },
+          [`uDispWidth${i}`]: { value: resolve(d.smooth, 0) },
         });
-      }
+      });
       applyDisplacement(material, dispFlags, dispUniforms);
     }
 
@@ -800,12 +813,14 @@ class GeoOp {
         dispUniforms.uSpeed.value = resolve(n.speed, t);
         dispUniforms.uSeed.value = resolve(n.seed, t);
       }
-      if (dispFlags.displace) {
-        const d = this._displace;
+      for (let i = 0; i < dispFlags.displace; i++) {
+        const d = this._displaces[i];
         // no map yet, or no uvs to read it at: amount 0 leaves the shape alone
-        const live = dispOk && dispUniforms.uDispMap.value;
-        dispUniforms.uDispAmount.value = live ? resolve(d.amount, t) : 0;
-        dispUniforms.uDispMid.value = resolve(d.mid, t);
+        const live = dispOk && dispUniforms[`uDispMap${i}`].value;
+        dispUniforms[`uDispAmount${i}`].value = live ? resolve(d.amount, t) : 0;
+        dispUniforms[`uDispMid${i}`].value = resolve(d.mid, t);
+        // negatives would flip the gradient and light the relief inside out
+        dispUniforms[`uDispWidth${i}`].value = Math.max(0, resolve(d.smooth, t));
       }
 
       if (inst) {
@@ -847,20 +862,29 @@ class GeoOp {
     // spot, and mesh.parent is also the liveness test for one that arrives
     // later — a patch cleared in the meantime has nowhere to put it
     if (textured) applyMaps(this.engine, material, m, () => !!mesh.parent);
-    if (dispFlags.displace) this._bindDisplaceMap(dispUniforms.uDispMap, () => !!mesh.parent);
+    this._displaces.forEach((d, i) => this._bindDisplaceMap(d.map, dispUniforms[`uDispMap${i}`], () => !!mesh.parent));
     return this;
   }
 
-  // The height map into its uniform. Unlike a material map slot the chain isn't
+  // A height map into its uniform. Unlike a material map slot the chain isn't
   // wrapped in a pass of its own — nothing here writes to the texture, it's only
   // read in the vertex shader, so forwarding another node's target is harmless.
-  _bindDisplaceMap(uniform, isAlive) {
-    const spec = this._displace.map;
+  _bindDisplaceMap(spec, uniform, isAlive) {
     if (spec instanceof TextureOp) {
-      this.engine.textureMaps.push({ node: spec, uniform, isAlive, tex: null });
+      // read through textureLod at a footprint-matched level, so the node's
+      // targets need a mip pyramid — marked before it allocates them (see _rt)
+      spec._needsMips = true;
+      this.engine.textureMaps.push({ node: spec, uniform, isAlive, tex: null, needsMips: true });
       return;
     }
     if (spec?.isTexture) {
+      // same pyramid for a caller's own texture — unless it's a render target,
+      // whose sampler state was fixed at setup and can't be flipped from here
+      if (!spec.isRenderTargetTexture && !spec.generateMipmaps) {
+        spec.generateMipmaps = true;
+        spec.minFilter = THREE.LinearMipmapLinearFilter;
+        spec.needsUpdate = true;
+      }
       uniform.value = spec;
       return;
     }
