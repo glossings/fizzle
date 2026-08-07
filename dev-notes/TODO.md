@@ -19,11 +19,11 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 ## General
 
 [ ] Check user-friendliness of the code
-[ ] Investigate issue with certain materials appearing pure white
 [ ] Console warnings
 * docs.js:581 docs: resolution has no config key "width" to document
 * docs.js:581 docs: resolution has no config key "height" to document
 * THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+[] Add T as an alias for `sig()`
 
 ## Vertex displacement from a texture
 

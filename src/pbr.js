@@ -26,7 +26,7 @@ const ALIASES = {
   roughnessMap: ['rough', 'roughness', 'rgh'],
   metalnessMap: ['metal', 'metallic', 'metalness', 'met'],
   displacementMap: ['disp', 'displacement', 'height'],
-  map: ['diff', 'diffuse', 'color', 'col', 'albedo', 'basecolor', 'base'],
+  map: ['diff', 'diffuse', 'color', 'colour', 'col', 'coll', 'albedo', 'basecolor', 'base'],
 };
 
 // Single-letter suffixes (wood_D / wood_N / wood_R) are common but far too
@@ -63,11 +63,15 @@ function tokenize(name) {
 export function classifyMap(name) {
   const tokens = tokenize(name);
   if (!tokens.length) return null;
+  // A trailing number is a variant, not a different map: an asset published in
+  // several colorways names them coll1 / coll2 / col_03, and they all fill the
+  // same slot.
+  const has = (aliases) => tokens.some((t) => aliases.includes(t) || aliases.includes(t.replace(/\d+$/, '')));
   // a normal map names its convention in a separate token: nor_gl / NormalDX
-  const isNormal = tokens.some((t) => ALIASES.normalMap.includes(t) || ALIASES.normalDX.includes(t));
+  const isNormal = has(ALIASES.normalMap) || has(ALIASES.normalDX);
   if (isNormal && tokens.includes('dx')) return 'normalDX';
   for (const [slot, aliases] of Object.entries(ALIASES)) {
-    if (tokens.some((t) => aliases.includes(t))) return slot;
+    if (has(aliases)) return slot;
   }
   const last = tokens[tokens.length - 1];
   if (last.length === 1 && LETTERS[last] && tokens.length > 1) return LETTERS[last];

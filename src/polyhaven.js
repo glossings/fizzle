@@ -21,9 +21,10 @@ const LS_INDEX = 'td-polyhaven-index'; // asset lists, refetched daily
 const TTL = 24 * 60 * 60 * 1000;
 
 // Poly Haven's map keys -> the filename we store them under. pbr.js reads
-// these names back, so they double as the slot each map fills.
+// these names back, so they double as the slot each map fills. The color map
+// isn't in the table because it isn't always called the same thing — see
+// colorKey.
 const WANTED = [
-  ['Diffuse', 'diff'],
   ['nor_gl', 'nor_gl'],
   ['arm', 'arm'], // AO + roughness + metalness packed into RGB — one file, three slots
   ['Rough', 'rough'], // only if arm is missing (see pickFiles)
@@ -31,6 +32,16 @@ const WANTED = [
   ['Metal', 'metal'],
 ];
 const DISPLACEMENT = ['Displacement', 'disp'];
+
+// 'Diffuse' for all but a handful of assets, which publish colorways instead
+// ('coll1'/'coll2' on leather_red_02, 'col_01'..'col_03' on fabric_pattern_05)
+// or name the format ('diff_png' on church_bricks_02). Missing the key meant
+// downloading every map but the color one, and the material came out white
+// with all its relief intact. Sorted, so a set of colorways always resolves to
+// the same one — there's nowhere in a `pbr:` name to say which you wanted.
+const COLOR_KEY = /^(diff|col)/i;
+const colorKey = (files) =>
+  'Diffuse' in files ? 'Diffuse' : (Object.keys(files).filter((k) => COLOR_KEY.test(k)).sort()[0] ?? null);
 
 // --- api -------------------------------------------------------------------
 
@@ -77,8 +88,13 @@ async function loadIndex(type) {
 // resolution to displace).
 function pickMaps(files, res, displacement) {
   const at = (key) => files[key]?.[res]?.jpg ?? files[key]?.[res]?.png;
+  const color = colorKey(files);
   const wanted = files.arm ? WANTED.filter(([k]) => !['Rough', 'AO', 'Metal'].includes(k)) : WANTED;
-  const list = displacement ? [...wanted, DISPLACEMENT] : wanted;
+  const list = [
+    ...(color ? [[color, 'diff']] : []),
+    ...wanted,
+    ...(displacement ? [DISPLACEMENT] : []),
+  ];
   const out = [];
   for (const [key, as] of list) {
     const file = at(key);
@@ -106,7 +122,7 @@ async function download(url) {
 // Returns the prefix a sketch names in .material({ pbr }).
 async function importTexture(slug, res, displacement, onProgress) {
   const files = await json(`${API}/files/${slug}`);
-  const actual = bestRes(files, 'Diffuse', res) ?? res;
+  const actual = bestRes(files, colorKey(files), res) ?? res;
   const picks = pickMaps(files, actual, displacement);
   if (!picks.length) throw new Error(`no downloadable maps for "${slug}"`);
   const prefix = `${slug}_${actual}`;
@@ -136,12 +152,12 @@ async function importHdri(slug, res, onProgress) {
 // self-contained binary (models.js drops the materials it names anyway), and
 // `res` only sizes the textures — the mesh is the same at every resolution.
 // Assets that texture their parts separately ('hull_diff', 'sails_arm') have
-// no 'Diffuse' key to find, and come down as geometry alone.
+// no color map colorKey() will match, and come down as geometry alone.
 async function importModel(slug, res, onProgress) {
   const files = await json(`${API}/files/${slug}`);
   const url = files.fbx?.[bestRes(files, 'fbx', res) ?? res]?.fbx?.url;
   if (!url) throw new Error(`no .fbx published for "${slug}"`);
-  const texRes = bestRes(files, 'Diffuse', res);
+  const texRes = bestRes(files, colorKey(files), res);
   const maps = texRes ? pickMaps(files, texRes, false) : [];
   const name = `${slug}.fbx`;
   onProgress?.(0, maps.length + 1);
