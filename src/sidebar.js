@@ -5,11 +5,13 @@
 
 import { syncHash } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
-import { isTouch, forPlatform } from './touch.js';
+import { isTouch, forPlatform, exampleApplies } from './touch.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
-  Object.entries(exampleFiles).map(([p, code]) => [p.split('/').pop().replace(/\.js$/, ''), forPlatform(code)])
+  Object.entries(exampleFiles)
+    .map(([p, code]) => [p.split('/').pop().replace(/\.js$/, ''), forPlatform(code)])
+    .filter(([name]) => exampleApplies(name))
 );
 
 const LS_SKETCHES = 'td-user-sketches';

@@ -29,6 +29,13 @@ export const forPlatform = (code) =>
   code.replace(VARIANT, (_, kind, body) =>
     kind === (isTouch ? 'touch' : 'desktop') ? `/*\n${body}\n` : '');
 
+// A header can't rescue an example whose whole subject is a hovering pointer:
+// there's no hover to move and no cursor for the light to chase, and the one
+// touch that would drive mouse() is the same one orbiting the camera. Off the
+// list on a phone rather than shipped inert.
+const DESKTOP_ONLY = new Set(['mouse-control']);
+export const exampleApplies = (name) => !(isTouch && DESKTOP_ONLY.has(name));
+
 // The browser's own pinch has to go, and touch-action isn't enough to send it:
 // iOS drives page zoom from its gesture events, which touch-action doesn't
 // govern, and it has ignored user-scalable=no since iOS 10. Left alone it
