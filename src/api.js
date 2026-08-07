@@ -1193,6 +1193,10 @@ export function makeApi(engine) {
     // Bare sig() is t itself — the seconds-based phase source, so
     // sig().sin().range(0, 10) is a 1 Hz oscillation over 0..10.
     sig: (fn = (t) => t) => sig((t) => resolve(fn, t)),
+    // sig() already spelled out — T.mul(0.3).sin() rather than sig().mul(0.3).sin().
+    // Stateless (it only reads t), so one shared instance is safe: everything
+    // chained off it is built fresh by the sketch that chains it.
+    T: sig((t) => t),
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },

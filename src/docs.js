@@ -35,7 +35,7 @@ export const GLOBALS = {
 
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
   bg: ['bg(color)', 'Scene background color. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame.'],
-  resolution: ['resolution(width, height)', "Pin the render to an exact pixel size and shape instead of the browser window. The main window letterboxes it — scaled to fit, centered, black around it — while the projector window (F1) takes that same aspect ratio, so full-screening the projector on a display of the same shape fills it edge to edge.\nresolution({ width, height }) and a single number for a square also work; drop the call to go back to filling the window. Sidebar quality scales the pixels underneath without changing the shape, so resolution(1920, 1080) at med renders 1440×810 and still presents 16:9."],
+  resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size and shape instead of the browser window. The main window letterboxes it — scaled to fit, centered, black around it — while the projector window (F1) takes that same aspect ratio, so full-screening the projector on a display of the same shape fills it edge to edge.\nA single number is a square; drop the call to go back to filling the window. Sidebar quality scales the pixels underneath without changing the shape, so resolution(1920, 1080) at med renders 1440×810 and still presents 16:9."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. depth() picks the same range up by default. Positional fog(color, near, far) also works.'],
 
   scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
@@ -60,6 +60,7 @@ export const GLOBALS = {
   restartMedia: ['restartMedia(name?)', 'Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute; ctrl+r does the same from the keyboard.'],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1 — the signal cousin of the noise() texture. Positional rand(freq, seed) also works.\nrand().beat(4).mul(4).round() = random 0..4 per bar; rand().hold(audio().kicks()) = a new value per kick.'],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth(0.2). Free-running LFOs stay plain fns; this just adds the processing methods.\nBare sig() is t itself — the seconds-based phase source beat() is the tempo-synced version of. sig().sin() is a 1 Hz LFO over 0..1, sig().mul(0.5).sin().range(0, 10) a slower one over 0..10."],
+  T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. T.mul(0.3).sin() is an LFO every 3.3 seconds, T.sin().range(0, 10) a 1 Hz one over 0..10.\nA value, not a call — no parentheses, and none of the sources take it as an argument. sig(fn) is still how a fn of your own gets lifted."],
   mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up — the range .position() wants, so .position(mouse('x'), mouse('y'), 0) tracks the cursor directly. Default axis is x.\nmouse('down') is a 1/0 gate: .smooth(0.2) ramps it, .counter() steps on clicks, and it drives .when() like any other gate. Reads the picture rather than the page, so the letterbox bars and the projector window both land where you'd expect.\nIt's the one signal that isn't 0..1 — .range(0, 10, { from: [-1, 1] }) rescales it."],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
@@ -629,7 +630,7 @@ const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   light: 'ambient directional point spot hemi',
   texture: 'scene depth input constant ramp circle ring video videofile imagefile imageseq noise voronoi text',
-  signal: 'beat audio audiofile rand sig mouse',
+  signal: 'beat audio audiofile rand sig T mouse',
 };
 
 const methodKinds = {

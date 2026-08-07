@@ -1566,7 +1566,12 @@ sig().mul(0.25).sin().range(0, 10)    // the same, every four seconds
 sig(t => Math.sin(t)).range(0, 10, { from: [-1, 1] })  // raw Math.sin, said the long way
 ```
 
-The last line is why `.sin()` on a signal is a *waveshaper* (0..1 out) rather
+`T` is that bare `sig()` already spelled out — a value, not a call, so
+`T.mul(0.25).sin().range(0, 10)` is the second line above without the empty
+parentheses. Same object, same methods; `sig(fn)` is still what lifts a fn of
+your own.
+
+The `Math.sin` line is why `.sin()` on a signal is a *waveshaper* (0..1 out) rather
 than `Math.sin`: the house convention keeps every source in the same span, so
 `.range()` never has to be told what it's being handed.
 

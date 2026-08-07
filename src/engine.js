@@ -32,7 +32,6 @@ export class Engine {
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
 
-    this.clock = new THREE.Clock();
     this.time = 0;        // sketch time; frozen while paused so resume doesn't jump
     this.paused = false;
     this.frames = 0;      // total frames rendered, for the fps readout
@@ -148,7 +147,9 @@ export class Engine {
 
   tick() {
     this.frames++;
-    const now = this.clock.getElapsedTime();
+    // wall clock in seconds; only ever read as a difference, so the epoch
+    // doesn't matter (THREE.Clock was this plus a deprecation warning)
+    const now = performance.now() / 1000;
     const dt = now - (this._lastT ?? now);
     this._lastT = now;
     if (!this.paused) {
