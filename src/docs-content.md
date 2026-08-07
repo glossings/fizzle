@@ -83,10 +83,10 @@ listening.
 point between your fingers, up to 4×. Only the editor is transformed, so the
 picture behind it and the buttons over it keep their size and their sharpness.
 Once you're zoomed in, **one finger sideways pans the code** and one finger up
-and down scrolls it as always. Pinch back in to return to 1×, and once you're
-near it a release drops the rest of the way — so the code always ends up square
-to the window rather than a sliver off the edge, and there's no reset gesture
-to remember.
+and down scrolls it as always. Pinch back in to return to 1×, where the code
+sits square to the window again — it can never be panned off the edge, so 1×
+always pins it back to the corner. Hiding the code with **⟨/⟩** resets the zoom
+too, which makes pressing it twice a way out of any zoom at all.
 
 **Two fingers do one thing at a time.** Change the distance between them and
 it's a zoom; carry them along together and it's a pan. Whichever you did first
