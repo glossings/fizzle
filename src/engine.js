@@ -93,6 +93,12 @@ export class Engine {
     this.pendingPick = null;        // an empty videofile()/... asked for a file picker
 
     this.cameraProgrammed = false;     // a camera(fn...) call disables orbit controls
+    // Whether the camera is anyone's to move at all. False while a touch
+    // screen is showing the code, where the screen belongs to the editor and a
+    // pinch means the code. Held separately from controls.enabled because
+    // clearPatch resets that on every run, and the surface hasn't changed just
+    // because you pressed run.
+    this.orbitAllowed = true;
     this.cameraTouched = false;        // this run called camera() at all
     // where orbiting last left the camera. A sketch that drives the camera
     // moves it out of here; the next sketch that doesn't gets it back rather
@@ -167,6 +173,13 @@ export class Engine {
     this._resKey = key;
     this.resize();
     window.dispatchEvent(new CustomEvent('fizzle-resolution', { detail: this.resolution }));
+  }
+
+  // The camera is only reachable when nothing is laid over it — see
+  // orbitAllowed. A sketch driving the camera itself still wins over both.
+  setOrbitAllowed(allowed) {
+    this.orbitAllowed = allowed;
+    if (!this.cameraProgrammed) this.controls.enabled = allowed;
   }
 
   // Guarded because the sidebar re-applies every setting whenever any one of
@@ -679,7 +692,7 @@ export class Engine {
 
     this.cameraProgrammed = false;
     this.cameraTouched = false;
-    this.controls.enabled = true;
+    this.controls.enabled = this.orbitAllowed;
     // dropping the resolution() call goes back to filling the window
     this.resolution = null;
     // a picker request belongs to the run that made it: the code has moved on,

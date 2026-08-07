@@ -13,7 +13,7 @@ import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+p sidebar
 //   ctrl+r restart media files · F1 projector window
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange, onFontSize, fontSize }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange }) {
   // With the projector up, ctrl+h is about what the *audience* sees: you're
   // typing on the laptop, so the projector is the one window whose code you
   // can't reach any other way. Without one it hides your own editor, as ever.
@@ -65,6 +65,12 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
         tooltipSpace: () => ({
           left: 0, top: 0, right: innerWidth, bottom: innerHeight - keyboardInset(),
         }),
+        // A pinch transforms #editor, and a position: fixed tooltip inside a
+        // transformed ancestor is positioned against that ancestor rather than
+        // the window — so it lands somewhere else entirely once you've zoomed.
+        // (CodeMirror already forces this on iOS; touch is where the transform
+        // is, so this is the same rule applied to the rest of it.)
+        ...(isTouch ? { position: 'absolute' } : {}),
       }),
       colorPicker(onLiveChange),
       // the projector window replays these to stay in step with what's typed
@@ -90,13 +96,12 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
   });
 
-  // two fingers on the code sizes it — the sidebar's font-size box is a long
-  // way to reach on a phone, and it's the first thing you want to change there
-  if (onFontSize) pinchZoom(parent, { get: fontSize, set: onFontSize });
+  // two fingers zoom the code; no-op unless the screen is one
+  const zoom = pinchZoom(parent);
 
   // Focusing on a phone throws the on-screen keyboard up over the sketch that
   // just loaded, before anyone has asked to type — there, the first tap on the
   // code is the ask.
   if (!isTouch) view.focus();
-  return { view, toggleCode };
+  return { view, toggleCode, resetZoom: () => zoom?.reset() };
 }

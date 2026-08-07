@@ -8,8 +8,11 @@ import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { resetCarried } from './carry.js';
 import { initProjector } from './projector.js';
-import { isTouch, initTouchBar, trackKeyboard, RUN_HINT, PLAY_HINT } from './touch.js';
-import DEFAULT_SKETCH from '../sketches/examples/welcome.js?raw';
+import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
+import WELCOME from '../sketches/examples/welcome.js?raw';
+
+// the welcome sketch's header comes in a desktop and a touch version
+const DEFAULT_SKETCH = forPlatform(WELCOME);
 
 const engine = new Engine(document.getElementById('gl'));
 const projector = initProjector(document.getElementById('gl'), () => engine.resolution, {
@@ -336,20 +339,29 @@ initDrop();
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
     onChange: (u) => projector.sync(u),
-    fontSize: () => sidebar.settings.fontSize,
-    onFontSize: sidebar.setFontSize,
   });
   view = editor.view;
 
   // ctrl+enter / ctrl+. / ctrl+h, for a screen with no ctrl
   if (isTouch) {
+    blockPageZoom();
     trackKeyboard();
+    lockCameraGesture(engine.controls, document.getElementById('gl'));
+    // One surface at a time: with the code up the screen is the editor, and
+    // the camera is nobody's to move — a pinch there means the code. Belt and
+    // braces with #editor covering the canvas, because a gesture that slipped
+    // past it would otherwise dolly the scene while you were reading.
+    const codeHidden = () => editorEl.classList.contains('hidden');
+    const syncSurface = () => engine.setOrbitAllowed(codeHidden());
+    syncSurface();
     touchbar = initTouchBar({
       playing: () => !engine.paused,
-      codeHidden: () => editorEl.classList.contains('hidden'),
+      codeHidden,
       onPlay: togglePause,
       onRun: () => runResume(view.state.doc.toString()),
-      onToggleCode: editor.toggleCode,
+      // hiding the code puts the zoom back to 1× — the code you bring back is
+      // the code you left, and it makes ⟨/⟩ twice the way out of any zoom
+      onToggleCode: () => { editor.resetZoom(); editor.toggleCode(); syncSurface(); },
     });
   }
 

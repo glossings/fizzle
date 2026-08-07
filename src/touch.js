@@ -18,6 +18,33 @@ export const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches
 export const RUN_HINT = isTouch ? 'tap ↻' : 'press ctrl+enter';
 export const PLAY_HINT = isTouch ? 'tap ▶' : 'ctrl+.';
 
+// A sketch may carry a header per kind of screen, each its own comment block
+// opening with `--- desktop ---` or `--- touch ---`. Only the one that applies
+// reaches the editor, and it arrives as an ordinary comment with the marker
+// line gone — so the welcome sketch explains the controls you actually have
+// instead of both sets. Sketches without them pass through untouched.
+const VARIANT = /\/\*[ \t]*-{2,}[ \t]*(desktop|touch)[ \t]*-{2,}[ \t]*\r?\n([\s\S]*?\*\/)\r?\n?/g;
+
+export const forPlatform = (code) =>
+  code.replace(VARIANT, (_, kind, body) =>
+    kind === (isTouch ? 'touch' : 'desktop') ? `/*\n${body}\n` : '');
+
+// The browser's own pinch has to go, and touch-action isn't enough to send it:
+// iOS drives page zoom from its gesture events, which touch-action doesn't
+// govern, and it has ignored user-scalable=no since iOS 10. Left alone it
+// magnifies a fixed, fullscreen canvas — which reads as the geometry zooming —
+// carries the buttons off the edge, and strands you at a scale no amount of
+// pinching in the app will undo, because the app was never the thing that
+// zoomed. Nothing on this page wants page zoom: the code brings its own.
+export function blockPageZoom() {
+  if (!isTouch) return;
+  for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+  }
+  // double-tap-to-zoom is the same gesture with fewer fingers
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+}
+
 const svg = (inner, stroke = true) =>
   `<svg viewBox="0 0 24 24" fill="${stroke ? 'none' : 'currentColor'}" ${
     stroke ? 'stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"' : ''
@@ -32,8 +59,10 @@ const ICON = {
 };
 
 // The three controls, bottom right, over whichever corner of the picture is
-// there. `playing`/`codeHidden` are read back after every press rather than
-// tracked here — pausing and hiding both have other ways in (a run resumes
+// there — always, since they're the only way to run, pause or get the code
+// back, and hunting for a control that faded out is worse than the pixels it
+// was covering. `playing`/`codeHidden` are read back after every press rather
+// than tracked here: pausing and hiding both have other ways in (a run resumes
 // playback), and a button showing the wrong glyph is worse than no button.
 export function initTouchBar({ playing, codeHidden, onPlay, onRun, onToggleCode }) {
   const bar = document.createElement('div');
@@ -59,16 +88,6 @@ export function initTouchBar({ playing, codeHidden, onPlay, onRun, onToggleCode 
   });
   const codeBtn = make('hide / show the code', ICON.code, () => { onToggleCode(); refresh(); });
 
-  // With the code gone you're watching, not typing, so the buttons get out of
-  // the way rather than sitting bright over the picture — but not while
-  // they're being used, or hiding the code would fade the hand that did it.
-  let sleep;
-  const wake = () => {
-    bar.classList.remove('dim');
-    clearTimeout(sleep);
-    sleep = setTimeout(() => bar.classList.toggle('dim', codeHidden()), 2600);
-  };
-
   // Only on a change: replacing the <svg> under a finger that's still on the
   // button is how a press goes missing.
   let wasPlaying = false;
@@ -80,47 +99,184 @@ export function initTouchBar({ playing, codeHidden, onPlay, onRun, onToggleCode 
     if (nowHidden !== wasHidden) codeBtn.innerHTML = nowHidden ? ICON.codeOff : ICON.code;
     wasPlaying = nowPlaying;
     wasHidden = nowHidden;
-    wake();
   }
-  bar.addEventListener('touchstart', wake, { passive: true });
 
   document.body.appendChild(bar);
   refresh();
   return { refresh };
 }
 
-// Pinch the code to size it, the way you'd size anything else on a phone.
+// Pinch to zoom the code, the way a page zooms: the layer magnifies about the
+// point between your fingers, and the same two fingers drag it around. Only
+// the editor is transformed — the picture behind it and the buttons over it
+// keep their size and their sharpness, which is the whole reason this isn't
+// the browser's own pinch. CodeMirror measures through a scaled editor
+// (getScale in @codemirror/view), so the caret still lands where you tap.
+//
+// One finger stays a scroll (touch-action: pan-y), so reading the code and
+// framing it are different gestures and never have to be told apart.
+//
 // `el` is #editor, which on a touch screen covers the window and takes every
 // pointer event while the code is up — so a two-finger gesture arriving here
-// at all is one that means the code. Hidden, it's display: none and nothing
+// at all is one that meant the code. Hidden, it's display: none and nothing
 // reaches it, which is what leaves the pinch to the camera.
-export function pinchZoom(el, { get, set }) {
+const MAX_ZOOM = 4;
+const SLOP = 10;      // px before a one-finger drag has to say which way it's going
+const LOCK_SLOP = 12; // and before a two-finger one has to say what it is
+
+// Two fingers can mean two things: change the distance between them and you
+// meant zoom, carry them along together and you meant pan. A hand does some of
+// both whichever it intended, so the gesture commits to whichever it did first
+// and stays committed until the fingers come up — no drifting sideways while
+// you zoom, no creeping scale while you pan. '' until there's enough movement
+// to tell.
+// Whichever of the two changed more is what the gesture was.
+const decideGesture = (dGap, dMove) =>
+  (Math.abs(dGap) < LOCK_SLOP && dMove < LOCK_SLOP ? '' : Math.abs(dGap) > dMove ? 'zoom' : 'pan');
+
+
+export function pinchZoom(el) {
   if (!isTouch) return;
-  const gap = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-  let from = 0; // finger gap when the pinch started; 0 = not pinching
-  let base = 0;
-  let size = 0;
+  const gapOf = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const midXOf = (t) => (t[0].clientX + t[1].clientX) / 2;
+  const midYOf = (t) => (t[0].clientY + t[1].clientY) / 2;
 
-  const end = () => { if (from) { from = 0; set(size); } };
+  let k = 1, tx = 0, ty = 0;              // what the layer is showing now
+  let fingers = 0;                        // how many the baseline below assumes
+  let gap0 = 1, k0 = 1, cx = 0, cy = 0;   // two-finger baseline
+  let mx0 = 0, my0 = 0, ptx = 0, pty = 0, mode = '';
+  let x0 = 0, y0 = 0, tx0 = 0, axis = ''; // one-finger baseline
 
-  el.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 2) return;
-    from = gap(e.touches);
-    base = size = get();
-  }, { passive: true });
+  const apply = () => {
+    // Clamped so the layer can never be dragged off the window it covers —
+    // at 1× that pins it back to the corner, so pinching in is the way home
+    // and there's no separate gesture to remember for it.
+    const w = el.clientWidth, h = el.clientHeight;
+    tx = Math.min(0, Math.max((1 - k) * w, tx));
+    ty = Math.min(0, Math.max((1 - k) * h, ty));
+    el.style.transform = k === 1 ? '' : `translate(${tx}px, ${ty}px) scale(${k})`;
+  };
+
+  // Square to the window at 1×, from wherever it was. Hiding the code calls
+  // this, which makes ⟨/⟩ twice a way out of any zoom at all — worth having
+  // when the gesture itself is at the mercy of four different browsers.
+  const reset = () => { k = 1; tx = 0; ty = 0; mode = ''; axis = ''; apply(); };
+
+  // Every change in the number of fingers restarts the gesture from where it
+  // is now, rather than only a clean two-finger press doing so. A third finger,
+  // one lifted early, one that began on a button — none of them can leave a
+  // stale baseline behind, and a stale baseline is how a pinch ends up at a
+  // scale it won't come back from.
+  const rebase = (e) => {
+    const t = [...e.touches];
+    fingers = t.length;
+    axis = '';
+    mode = '';
+    if (fingers >= 2) {
+      gap0 = gapOf(t) || 1;
+      k0 = k;
+      mx0 = midXOf(t);
+      my0 = midYOf(t);
+      ptx = tx;
+      pty = ty;
+      // where the midpoint sits in the layer's own coordinates; holding that
+      // still under the fingers is what makes the zoom land where you aimed it
+      cx = (mx0 - tx) / k;
+      cy = (my0 - ty) / k;
+    } else if (fingers === 1) {
+      x0 = t[0].clientX;
+      y0 = t[0].clientY;
+      tx0 = tx;
+    }
+  };
+  for (const ev of ['touchstart', 'touchend', 'touchcancel']) {
+    el.addEventListener(ev, rebase, { passive: true });
+  }
 
   el.addEventListener('touchmove', (e) => {
-    if (!from) return;
-    if (e.touches.length !== 2) return end();
-    // the browser's own pinch would zoom a fixed, full-screen canvas into one
-    // magnified corner and carry the buttons off the edge with it
+    const t = [...e.touches];
+    if (t.length !== fingers) return; // a rebase is on its way; sit this one out
+
+    if (t.length >= 2) {
+      e.preventDefault();
+      const gap = gapOf(t);
+      const mx = midXOf(t), my = midYOf(t);
+      if (!mode) {
+        mode = decideGesture(gap - gap0, Math.hypot(mx - mx0, my - my0));
+        if (!mode) return; // still too small to call
+      }
+      if (mode === 'zoom') {
+        k = Math.min(MAX_ZOOM, Math.max(1, k0 * (gap / gap0)));
+        // about where the pinch began, not where the fingers have wandered to
+        // since — that wandering is the pan this gesture isn't
+        tx = mx0 - cx * k;
+        ty = my0 - cy * k;
+      } else {
+        tx = ptx + (mx - mx0);
+        ty = pty + (my - my0);
+      }
+      apply();
+      return;
+    }
+
+    // One finger sideways pans the code; one finger up and down is left to the
+    // document's own scrolling (touch-action: pan-y), so a long sketch still
+    // flicks and coasts the way a page does. Which of the two it is gets
+    // decided once, on the first bit of movement, and then held — otherwise a
+    // scroll with a wobble in it keeps stealing itself back.
+    if (t.length !== 1 || k === 1) return;
+    const dx = t[0].clientX - x0;
+    if (!axis) {
+      const dy = t[0].clientY - y0;
+      if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
+      axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (axis !== 'x') return;
     e.preventDefault();
-    size = base * (gap(e.touches) / from);
-    set(size, false);
+    tx = tx0 + dx;
+    apply();
   }, { passive: false });
 
-  el.addEventListener('touchend', end);
-  el.addEventListener('touchcancel', end);
+  return { reset };
+}
+
+// The same rule for the camera. OrbitControls maps two fingers to DOLLY_PAN,
+// which is both at once by design — so a pinch to come closer slides the scene
+// sideways as your hand rolls, and a two-finger drag scales it. It re-reads
+// enableZoom and enablePan on every move, so committing the gesture is a
+// matter of turning off the half you didn't mean until the fingers come up.
+export function lockCameraGesture(controls, canvas) {
+  if (!isTouch) return;
+  let gap0 = 1, mx0 = 0, my0 = 0, mode = '';
+
+  const free = () => { controls.enableZoom = true; controls.enablePan = true; };
+
+  const rebase = (e) => {
+    mode = '';
+    free();
+    const t = [...e.touches];
+    if (t.length < 2) return;
+    gap0 = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) || 1;
+    mx0 = (t[0].clientX + t[1].clientX) / 2;
+    my0 = (t[0].clientY + t[1].clientY) / 2;
+  };
+
+  // capture, so the decision is in before OrbitControls acts on the same event
+  const opts = { capture: true, passive: true };
+  for (const ev of ['touchstart', 'touchend', 'touchcancel']) {
+    canvas.addEventListener(ev, rebase, opts);
+  }
+  canvas.addEventListener('touchmove', (e) => {
+    const t = [...e.touches];
+    if (t.length < 2 || mode) return;
+    const gap = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mx = (t[0].clientX + t[1].clientX) / 2;
+    const my = (t[0].clientY + t[1].clientY) / 2;
+    mode = decideGesture(gap - gap0, Math.hypot(mx - mx0, my - my0));
+    if (!mode) return;
+    controls.enableZoom = mode === 'zoom';
+    controls.enablePan = mode === 'pan';
+  }, opts);
 }
 
 // The on-screen keyboard doesn't move a position: fixed element — it just

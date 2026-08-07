@@ -177,9 +177,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 11px;
-  transition: opacity 0.45s ease;
 }
-#touchbar.dim { opacity: 0.3; }
 
 .tb-btn {
   width: 50px;
@@ -217,6 +215,10 @@ html, body {
     /* one finger scrolls; two are ours, and without this the browser would
        pinch-zoom a fixed, fullscreen canvas into one magnified corner */
     touch-action: pan-y;
+    /* the pinch writes a transform here (touch.js). From the top-left corner,
+       so layer coordinates and window coordinates agree at 1× and the maths
+       that keeps the pinch midpoint still is a scale and a translate. */
+    transform-origin: 0 0;
   }
   /* CodeMirror only scrolls a scroller you've given an overflow to — on a
      mouse that's #editor's, but a touch drag needs the scroll container to be
@@ -225,18 +227,31 @@ html, body {
   /* full width so a tap lands on a line rather than between them; the lines'
      own backgrounds stay as narrow as their text, so the picture shows through */
   .cm-editor .cm-content { min-width: 100%; }
-  /* An 11px square is not a thing a finger can hit. A pseudo-element spreads
-     the target to roughly a line-height without moving the swatch or growing
-     the line — events on it report the swatch as their target, so nothing
-     downstream has to know. (The hex text beside it opens the same picker, and
-     that's where most taps land anyway.) */
-  .cm-color-swatch { position: relative; }
-  .cm-color-swatch::after { content: ''; position: absolute; inset: -6px -5px; }
+  /* Here the swatch is a real <input type="color"> (colorpicker.js), so it
+     needs to be a size a finger can hit — and stripped of the chrome a colour
+     well comes with, so it still reads as the same small square of colour. */
+  input.cm-color-swatch {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    margin: 0 6px 0 1px;
+    background: none;
+    cursor: pointer;
+  }
+  input.cm-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+  input.cm-color-swatch::-webkit-color-swatch { border: none; border-radius: 3px; }
+  input.cm-color-swatch::-moz-color-swatch { border: none; border-radius: 3px; }
   #status { padding-right: 78px; } /* clear of the buttons */
   /* rows a finger can hit — CodeMirror's own are a couple of pixels tall */
   .cm-tooltip.cm-tooltip-autocomplete ul li { padding: 7px 8px; }
-  /* Safari zooms the page in on focusing any control set below 16px, and never
-     zooms back out — so on a touch screen every field fizzle has is 16px */
+  /* Safari zooms the page in on focusing any control set below 16px, and does
+     not reliably zoom back out — you're left at some fraction of a scale with
+     the layout shifted, and no gesture in the app can undo it, because the app
+     was never what zoomed. The editor is a contenteditable, so it counts:
+     16px is the floor here as much as on the form controls. Nothing is lost by
+     it, since pinching is now how you get a closer look. */
+  .cm-editor { font-size: max(16px, var(--editor-font, 16px)); }
   #sidebar select,
   #sidebar input[type='number'] { font-size: 16px; }
 }

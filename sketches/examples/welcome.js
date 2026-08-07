@@ -1,4 +1,4 @@
-/*
+/* --- desktop ---
   fizzle
 
     ctrl+enter  run                ctrl+h   hide code
@@ -8,12 +8,20 @@
   F1 opens the visuals in a second window on their own — that's the one to
   drag to a projector, leaving the code on your laptop.
 
-  on a phone: the three buttons bottom right are play, run and hide-code.
-  with the code up the screen is the editor — drag to scroll, pinch to size.
-  hide the code and the screen is the camera instead.
-
   every numeric param also takes a function of time:  t => ...
   click any color swatch (or type #) for a color picker
+*/
+/* --- touch ---
+  fizzle
+
+    ▶  play / pause        ↻  run        ⟨/⟩  hide the code
+
+  with the code up the screen is the editor: one finger scrolls it, two
+  fingers zoom in on it. hide the code and the screen is the camera
+  instead — drag to orbit, pinch to zoom.
+
+  every numeric param also takes a function of time:  t => ...
+  tap any color swatch (or type #) for a color picker
 */
 
 bg('#0b0d13')

@@ -5,11 +5,11 @@
 
 import { syncHash } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
-import { isTouch } from './touch.js';
+import { isTouch, forPlatform } from './touch.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
-  Object.entries(exampleFiles).map(([p, code]) => [p.split('/').pop().replace(/\.js$/, ''), code])
+  Object.entries(exampleFiles).map(([p, code]) => [p.split('/').pop().replace(/\.js$/, ''), forPlatform(code)])
 );
 
 const LS_SKETCHES = 'td-user-sketches';
@@ -136,7 +136,13 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   };
 
   // --- settings wiring ---
+  // 16 rather than 9 on a touch screen: below that Safari zooms the whole page
+  // in when the editor takes focus and won't reliably put it back. Clamped
+  // here rather than at the setter so a size saved before this rule, or one
+  // typed into the box, is brought up to it too.
+  const MIN_FONT = isTouch ? 16 : 9;
   const applySettings = () => {
+    settings.fontSize = Math.min(40, Math.max(MIN_FONT, settings.fontSize || 15));
     engine.setQuality(settings.quality);
     engine.bpm = settings.bpm;
     document.documentElement.style.setProperty('--editor-font', `${settings.fontSize}px`);
@@ -145,12 +151,10 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     $('#sb-live').checked = settings.liveColor;
     $('#sb-tempo').value = settings.bpm;
   };
-  // `commit` false is the middle of a pinch: size the code every frame, but
-  // don't write localStorage sixty times on the way there
-  const setFontSize = (px, commit = true) => {
-    settings.fontSize = Math.min(40, Math.max(9, Math.round(px)));
-    applySettings();
-    if (commit) persist();
+  const setFontSize = (px) => {
+    settings.fontSize = Math.round(px);
+    applySettings(); // clamps
+    persist();
   };
   $('#sb-quality').addEventListener('change', (e) => { settings.quality = Number(e.target.value); applySettings(); persist(); });
   $('#sb-font').addEventListener('change', (e) => setFontSize(Number(e.target.value) || 15));
@@ -315,5 +319,5 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   } catch { /* fall through to default sketch */ }
   if (initialCode == null) setCurrent('examples', 'welcome');
 
-  return { initialCode, toggle, settings, setFontSize };
+  return { initialCode, toggle, settings };
 }

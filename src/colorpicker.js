@@ -1,5 +1,6 @@
 import { EditorView, ViewPlugin, Decoration, MatchDecorator, WidgetType } from '@codemirror/view';
 import { Annotation } from '@codemirror/state';
+import { isTouch } from './touch.js';
 
 // Inline color picking for hex codes:
 //  - every #rgb / #rrggbb in the doc gets a clickable swatch
@@ -79,15 +80,21 @@ export function colorPicker(onChange) {
   class SwatchWidget extends WidgetType {
     constructor(color) { super(); this.color = color; }
     eq(other) { return other.color === this.color; }
+
     toDOM(view) {
+      // On a touch screen the swatch *is* the colour input rather than a span
+      // that asks one to open. Everything about the indirect route is fragile
+      // there: showPicker() needs an activation a tap doesn't always carry
+      // past the browser's pan/tap decision, and Safari won't open a picker
+      // for a control that isn't really on screen. A native input has none of
+      // those problems — the tap is on the control, so it just opens.
+      if (isTouch) return this.inputDOM(view);
       const el = document.createElement('span');
       el.className = 'cm-color-swatch';
       el.style.backgroundColor = this.color;
       el.title = 'pick color';
       // mousedown only keeps the caret from jumping into the swatch; the open
-      // is on click, which is the one both a mouse and a finger produce. A tap
-      // never reaches a mousedown handler until the browser has ruled out a
-      // pan, and on some it never does.
+      // is on click, which is the one both a mouse and a finger produce
       el.addEventListener('mousedown', (e) => e.preventDefault());
       el.addEventListener('click', () => {
         const m = matchAt(view.state, view.posAtDOM(el), true);
@@ -95,6 +102,44 @@ export function colorPicker(onChange) {
       });
       return el;
     }
+
+    inputDOM(view) {
+      const el = document.createElement('input');
+      el.type = 'color';
+      el.className = 'cm-color-swatch';
+      el.value = normalizeHex(this.color) ?? '#22ccff';
+      el.setAttribute('aria-label', 'pick color');
+      // the range is looked up per event, not captured: the doc has moved on
+      // by the second drag of the picker, and this widget outlives each one
+      const range = () => matchAt(view.state, view.posAtDOM(el), true);
+      el.addEventListener('input', () => {
+        const m = range();
+        if (!m) return;
+        view.dispatch({
+          changes: { from: m.from, to: m.to, insert: el.value },
+          annotations: pickerChange.of(true),
+        });
+        onChange?.(view.state.doc.toString());
+      });
+      return el;
+    }
+
+    // Every drag inside the picker rewrites the hex, which makes a new widget
+    // for the same spot — and replacing the DOM would tear the <input> out
+    // from under the finger that's dragging in it, closing the picker and
+    // dropping the touch onto the code underneath. Updating in place instead
+    // keeps the node, so the picker stays open for the whole gesture. (The
+    // desktop span has nothing live in it: returning false there lets
+    // CodeMirror rebuild it as before.)
+    updateDOM(dom) {
+      if (dom.tagName !== 'INPUT') return false;
+      const v = normalizeHex(this.color);
+      // equal whenever the change came from this input, so a drag never has
+      // its own value written back over it mid-gesture
+      if (v && dom.value !== v) dom.value = v;
+      return true;
+    }
+
     ignoreEvent() { return true; }
   }
 
@@ -117,6 +162,10 @@ export function colorPicker(onChange) {
         // already comes after the cursor has landed — which is what the old
         // mousedown had to defer through a timeout to get.
         click(e, view) {
+          // On touch the swatch is a real input and tapping it is the way in;
+          // opening from the text as well would mean a tap anywhere near a
+          // colour puts a picker over the code you were trying to edit.
+          if (isTouch) return;
           if (e.target.classList?.contains('cm-color-swatch')) return;
           const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
           if (pos == null) return;

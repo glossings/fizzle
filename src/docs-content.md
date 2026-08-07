@@ -73,17 +73,40 @@ already know.
 
 **One surface at a time.** A mouse can point at the code and the picture at
 once; a finger can't, so with the code up the whole screen is the editor —
-drag to scroll it, pinch to size it (that's the sidebar's font-size box, where
-your thumbs are), tap anywhere on a line to put the cursor there, including
-the empty space past the end of it. Press **⟨/⟩** and the code goes away, and
-now the whole screen is the camera: drag to orbit, pinch to zoom. Nothing is
-ambiguous, because only one of the two is ever listening.
+one finger scrolls it, two zoom it, and a tap anywhere on a line puts the
+cursor there, including the empty space past the end of it. Press **⟨/⟩** and
+the code goes away, and now the whole screen is the camera: drag to orbit,
+pinch to zoom. Nothing is ambiguous, because only one of the two is ever
+listening.
 
-The buttons fade back a few seconds after the code goes, and come back the
-moment you touch them. The sidebar (**☰**, top right) opens closed rather than
-open, and the on-screen keyboard is measured so it never covers the buttons,
-the status line, or the autocomplete list. For the camera, see `video('front')`
-/ `video('back')` under **video input**.
+**Pinching the code zooms it,** the way a page zooms — it magnifies about the
+point between your fingers, up to 4×. Only the editor is transformed, so the
+picture behind it and the buttons over it keep their size and their sharpness.
+Once you're zoomed in, **one finger sideways pans the code** and one finger up
+and down scrolls it as always. Pinch back in to return to 1×, and once you're
+near it a release drops the rest of the way — so the code always ends up square
+to the window rather than a sliver off the edge, and there's no reset gesture
+to remember.
+
+**Two fingers do one thing at a time.** Change the distance between them and
+it's a zoom; carry them along together and it's a pan. Whichever you did first
+is what the gesture stays until you lift, so a pinch can't drift the code
+sideways and a drag can't creep the scale. The camera behaves the same way with
+the code hidden — a pinch dollies without also sliding the scene, which is what
+OrbitControls does with two fingers left to itself.
+
+Lines wrap to the *unzoomed* width, so past about 1.3× you'll be panning
+sideways to read a long one. If what you want is more code on screen rather
+than a closer look at some of it, that's the **font size** box in the sidebar,
+which re-wraps instead of magnifying.
+
+While the code is up the camera is inert — not merely covered, but switched
+off — so nothing you do to the code can dolly the scene behind it. The three
+buttons are always there; the sidebar (**☰**, top right) opens closed rather
+than open; and the on-screen keyboard is measured so it never covers the
+buttons, the status line, or the autocomplete list. Tapping a colour swatch
+opens your phone's own colour picker. For the camera, see `video('front')` /
+`video('back')` under **video input**.
 
 **Projector (`F1`):** a second window with nothing in it but the visuals and
 the code — no sidebar, no status line, no scrollbars — meant to be dragged onto
