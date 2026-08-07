@@ -2,7 +2,7 @@
 // points on a .noise()'d surface instead of the smooth shape underneath it.
 //
 // This is a transliteration, not a reimplementation: every line below has a
-// counterpart in SNOISE_GLSL / NOISE_GLSL / NORMAL_CHUNK, in the same order,
+// counterpart in SNOISE_GLSL / NOISE_GLSL / NOISE_NORMAL, in the same order,
 // and the two must be edited together. A near-miss is worse than nothing here —
 // another simplex variant (three's bundled SimplexNoise, say) uses a different
 // gradient table, so it would produce a field that looks about the same and
@@ -167,7 +167,7 @@ const offset = (px, py, pz, c) => {
     pz * c.freq + k * TDIR[2] + OFF[2] + s, c) * c.amp;
 };
 
-// --- the surface, NORMAL_CHUNK ---------------------------------------------
+// --- the surface, NOISE_NORMAL ---------------------------------------------
 
 // Both of these take an already-normalized n, and write into `out` so a layout
 // fn calling them per copy doesn't allocate.

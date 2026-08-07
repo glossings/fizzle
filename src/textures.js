@@ -1485,6 +1485,17 @@ export class TextureOp {
       rt.texture.wrapS = THREE.RepeatWrapping;
       rt.texture.wrapT = THREE.ClampToEdgeWrapping;
     }
+    // A node feeding .displace() or a material map slot carries a mip pyramid.
+    // For displacement the vertex shader reads it through textureLod at the
+    // level matching the mesh's vertex spacing, which is what turns a busy map
+    // into relief instead of grit; on a surface it's ordinary minification
+    // filtering, so the map doesn't shimmer in the distance. Marked after
+    // allocation too (.displace() added to a chain that already rendered),
+    // which _rt's realloc condition catches.
+    if (this._needsMips) {
+      rt.texture.generateMipmaps = true;
+      rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
+    }
     return rt;
   }
 
@@ -1492,7 +1503,8 @@ export class TextureOp {
     const w = Math.max(1, Math.round(ctx.w * scale));
     const h = Math.max(1, Math.round(ctx.h * scale));
     let rt = this[`_tgt_${key}`];
-    if (!rt || rt.width !== w || rt.height !== h) {
+    if (!rt || rt.width !== w || rt.height !== h
+        || (this._needsMips && !rt.texture.generateMipmaps)) {
       rt?.dispose();
       rt = this[`_tgt_${key}`] = this._wrap(makeRT(w, h));
     }
@@ -1545,7 +1557,11 @@ export class TextureOp {
       const producer = this.engine.textureBuffers.get(name);
       // acyclic: pull the producer fresh this frame (plain routing between
       // chains); cyclic or unpublished: last frame's snapshot (feedback)
-      if (producer && !producer._evaluating) return producer.renderNode(ctx);
+      if (producer && !producer._evaluating) {
+        // whoever renders the texture owns the mip pyramid — see _rt
+        if (this._needsMips) producer._needsMips = true;
+        return producer.renderNode(ctx);
+      }
       // a geometry layer published with geometry .out('name')
       const bit = this.engine.geoLayers.get(name);
       if (bit != null) return ctx.layerTex(name, bit);
@@ -1603,6 +1619,8 @@ export class TextureOp {
     }
 
     if (this.kind === 'switch') {
+      // both, not just the taken branch — the other allocates when cond flips
+      if (this._needsMips) for (const n of this.inputs) n._needsMips = true;
       return this.inputs[resolve(this.params.cond, ctx.t) >= 0.5 ? 1 : 0].renderNode(ctx);
     }
 
@@ -1835,7 +1853,9 @@ TextureOp.prototype.rot = TextureOp.prototype.rotate;
 // textures bound to material map slots — .material({ map: scene().kaleido(6) }).
 // materials.js registers { node, material, slot } on the engine; these render
 // at the top of the frame, before the 3D pass that samples them, and the
-// current texture is written into the slot.
+// current texture is written into the slot. A geometry .displace() registers
+// { node, uniform } here too: same timing, same liveness, but the texture goes
+// into a uniform the vertex shader reads rather than into a material slot.
 
 function renderMaterialMaps(engine, ctx) {
   const binds = engine.textureMaps;
@@ -1850,6 +1870,21 @@ function renderMaterialMaps(engine, ctx) {
     // (first frame, and on resize) — the pixels change under it every frame
     if (tex === b.tex) continue;
     b.tex = tex;
+    // A displacement bind whose node hands over a texture it doesn't render —
+    // a camera VideoTexture, text()'s canvas — rather than one of its own
+    // targets (those get their pyramid at allocation, in _rt). These re-upload
+    // on needsUpdate, which re-applies sampler state, so the flip can happen
+    // any time; a video bumps its version every frame and regenerates its
+    // pyramid with it.
+    if (b.needsMips && !tex.isRenderTargetTexture && !tex.generateMipmaps) {
+      tex.generateMipmaps = true;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.needsUpdate = true;
+    }
+    if (b.uniform) {
+      b.uniform.value = tex;
+      continue;
+    }
     b.configure?.(tex);
     const first = b.material[b.slot] == null;
     b.material[b.slot] = tex;

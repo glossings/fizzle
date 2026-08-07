@@ -364,6 +364,110 @@ icosa({ radius: 1.3, res: 16 })
   high = crinkly detail. It shapes roughness, not overall strength — that's `amp`.
 - `speed` — animates the field · `seed` — same settings, different shape
 
+### .displace — vertex displacement from a texture
+
+`.displace(map, { amount, mid, smooth })` is the same machinery aimed at a
+picture instead of a field: each vertex moves along its normal by the map's
+brightness at its own uv, and the normals are rebuilt from the map's gradient
+so the relief takes light as relief rather than reading as a flat shape that
+happens to be dented.
+
+The map is an imported image by name, or a whole live texture chain — which is
+the interesting half, because a texture chain is animated, so the geometry is
+too.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 2 }).position(4, 6, 3).out()
+
+const height = voronoi({ freq: 5, speed: 0.2 }).blur(2)
+
+sphere({ radius: 1.4, res: 200 })
+  .displace(height, { amount: 0.5 })
+  .material({ color: '#8899ff', roughness: 0.4 })
+  .out()
+```
+
+- `amount` — how far a vertex moves, in world units. Negative pulls inward.
+- `mid` — the map value that means no movement. The default 0.5 lets a
+  mid-gray map push both ways; `mid: 0` only ever pushes out.
+- `smooth` — how wide each vertex reads the map. See below.
+- All three take fns of `t`.
+
+Like `.noise()`, it can only move vertices the shape already has — `res` is
+where the detail comes from, not the map's resolution. A `sphere()` at the
+default `res: 64` has nothing like enough vertices to show a photo.
+
+**Every vertex is a pin.** In the desk toy you press your hand into, each pin
+reports the average height over its own little circle — that's why an
+impression comes out smooth and readable however fine the thing pressed into it
+was. `.displace()` reads the map the same way: a vertex averages the patch of
+the picture that belongs to it, out to one vertex spacing, and the slope it
+lights itself with is measured over that same patch. So a map far busier than
+the mesh comes out as relief rather than as grit, and the shading never shows
+detail the shape doesn't have.
+
+Under the hood that average is a mip pyramid — the same machinery that keeps a
+distant texture from shimmering, aimed at the mesh instead of the screen. Any
+map handed to `.displace()` gets one automatically, and each vertex reads the
+level that matches its own spacing. This is also the antialiasing: detail
+finer than the mesh fades out instead of aliasing into it, and a moving map
+displaces smoothly instead of sizzling frame to frame.
+
+`smooth` is the width of that footprint, in vertex spacings:
+
+| `smooth` | what you get |
+|---|---|
+| `0` | a point sample — every vertex on its own unrelated texel, sparkling and jagged |
+| `1` (default) | the pin: exactly its own share of the picture |
+| `2`–`4` | wider than it is — soft, doughy, rounded-off relief |
+
+Both directions are looks, not mistakes: `smooth: 0` on a fine map is a good
+crackle, and the average stays real however wide you go, so `smooth` can climb
+until the relief is only the map's broadest shapes. (`.blur()` on the map still
+works, and previews what the footprint will see — it just isn't needed anymore
+for displacement to look like a surface.)
+
+**Seams don't tear.** A uv layout usually splits somewhere the surface doesn't
+— the meridian and poles of a sphere, every edge of a box, mirrored islands on
+an imported model. Vertices that share a position but not a uv read the map at
+one agreed spot, so they move together and the shape stays closed under any
+map. A map that doesn't tile still visibly *jumps* across a sphere's seam —
+the mismatch lands as a steep quad beside it rather than an open crack — so a
+tiling map is still what makes a seam disappear entirely.
+
+**Several `.displace()` calls stack**, and `.noise()` joins the same sum — the
+heights add and the gradients add, so lighting follows the total rather than
+whichever came last. The useful shape of that is one wide map for the form and
+one fine map for the texture on it:
+
+```js
+sphere({ radius: 1.4, res: 260 })
+  .displace(noise({ period: 1.2, speed: 0.1 }), { amount: 0.5 })
+  .displace(voronoi({ freq: 14, mode: 'edges' }), { amount: 0.06, smooth: 0.6 })
+  .out()
+```
+
+**Pick a map that's a height, not an edge.** Displacement wants a low-frequency
+signal — brightness that means *how far out*. `.edge()` and `.normalMap()` are
+the two that look like they should work and don't: `.edge()` is a high-pass,
+so it gives you a flat field with thin spikes on it wherever the picture
+changes, and `.normalMap()` encodes a *direction* in RGB, so reading its
+brightness as a height puts ridges where the picture has slopes rather than
+where it's bright. For a face pressed into pins, the map is plain luminance:
+`video()`, `.blur()` if the source is grainy, `.contrast()` to say how hard
+bright maps to far.
+
+Two things it can't do. `.sample()`/`.normal()` see the shape *before* the
+displacement — the map is only ever read on the GPU, and reading a render
+target back per point would stall the pipeline — so a layout source wants
+`.noise()`, which has a CPU twin. And the geometry needs uv coordinates to look
+the map up at: every built-in shape has them, an imported `model()` may not,
+and it says so if it doesn't.
+
+This is a different thing from `.material({ displacementMap })`, which is
+three's own and leaves normals alone: same movement, flat lighting.
+
 ### .instance — many copies, one mesh
 
 `.instance(count, fn)` renders the chain as a single `InstancedMesh`.
@@ -710,8 +814,8 @@ torus({ radius: 1.4, tube: 0.4 }).position(0, 2, 0).rotation(t => t * 0.4, 0, 0)
   texels spread thin, too small and the shadow stops mid-floor.
 - A `point` light shadows in every direction at once — a cube map, so six
   renders. It's the expensive one.
-- `.noise()` displacement is shadowed as displaced, not as the shape it started
-  from. Geometry sent to `.out('name')` casts within its own layer.
+- `.noise()` and `.displace()` are shadowed as displaced, not as the shape they
+  started from. Geometry sent to `.out('name')` casts within its own layer.
 
 ## textures: the shader pipeline
 
@@ -1349,6 +1453,11 @@ into `displacementMap` on a high-`res` shape is a moving terrain.
 
 `repeat` / `offset` / `uvRotate` work as usual, and each binding gets its own
 copy of the chain's output, so two materials can tile one chain differently.
+That copy is mipmapped, so a chain on a surface is filtered under perspective
+like any well-behaved texture — no shimmer in the distance, no crawling at
+grazing angles — and for a color map the pyramid is built in linear light,
+after the sRGB decode, which is the order that keeps distant averages the
+right color.
 
 A bus works here like anywhere else, which is how you build a chain once and
 hang it on several surfaces — or just keep the wiring readable:
