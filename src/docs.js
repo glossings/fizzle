@@ -130,7 +130,7 @@ export const METHODS = {
   posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel. A texture in place of steps sets the count per pixel — scale it first (.mul(8)), since a raw map only ever says 0..1.'],
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. chars is a set name ('ascii', 'dense', 'blocks', ...) or any string of your own, dark→bright. Cells keep the image's color until you name one."],
-  transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
+  transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
   crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to transparent black — nothing is resampled, the frame closes in, and in a comp the surround is a cutout. Sizes above 1 are pixels of the frame's grid, 0..1 a fraction of the frame; h defaults to w. Sizes and center take fns of t."],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t, or textures to vary across the frame."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch. amount, angle and center take fns of t, or textures."],
@@ -468,13 +468,13 @@ const METHOD_KEY_DOCS = {
     seed: 'Picks a different field, for a different shape at the same settings.',
   },
   translate: {
-    wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty — transparent, so it comps as a cutout. Default 'clamp'.",
+    wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
   },
   scale: {
-    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty — transparent, so it comps as a cutout. Default 'clamp' — invisible on a flat source; 'black' is what turns .scale(0.5) into a rectangle on empty background.",
+    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp' — invisible on a flat source; 'transparent' is what turns .scale(0.5) into a small picture on nothing, ready to comp over another chain.",
   },
   rotate: {
-    wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty — transparent, so it comps as a cutout. Default 'clamp'.",
+    wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
   },
   mirror: {
     axis: "'x' folds left onto right, 'y' bottom onto top, 'both' does each in turn. Default 'x'.",
@@ -520,7 +520,7 @@ const METHOD_KEY_DOCS = {
     translate: "[x, y] shift in UV, where 1 is a whole frame. Default [0, 0]. A texture here shifts each pixel by its own R and G; { map, amount, mid } scales and biases what it reads, which is all .displace() is.",
     scale: 'Zoom about the center. A number, or [x, y] to stretch. Default 1. A texture here takes x from red and y from green, so a grayscale map zooms uniformly.',
     rotate: 'Rotation about the center, in radians. Default 0. A texture here turns each pixel by its own angle, and since a rotation keeps the radius, everything slides along concentric circles — the map decides how far around, never how far out.',
-    wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'black' (transparent, so it comps as a cutout). Default 'clamp'.",
+    wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'transparent' (a cutout in a comp; 'black' is its old name and still works). Default 'clamp'.",
   },
   crop: {
     center: '[x, y] the window sits on, in UV, 0..1 from bottom-left. Default [0.5, 0.5]. Takes a fn of t, which slides the window over a picture that stays put — the pan of a locked-off camera.',
@@ -530,7 +530,7 @@ const METHOD_KEY_DOCS = {
     twist: 'Rotates by distance from center, in radians — the middle holds still and the edges spiral. Default 0.',
     zoom: 'Scales about the center. Default 1.',
     center: '[x, y] the warp radiates from, in UV. Default [0.5, 0.5].',
-    wrap: "What fills outside the frame: 'clamp', 'repeat', 'mirror' or 'black' (transparent, so it comps as a cutout). Default 'black'.",
+    wrap: "What fills outside the frame: 'clamp', 'repeat', 'mirror' or 'transparent' (a cutout in a comp; 'black' is its old name and still works). Default 'transparent'.",
   },
   chroma: {
     radial: 'true splits along the radius like a real lens — none at the center, most at the corners. Default false, a uniform split in one direction.',

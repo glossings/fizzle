@@ -206,6 +206,11 @@ sphere({ radius: 1.4, res: 96 })
 which is what you want for stepping through fixed palettes:
 `.color(kick.counter().select(['#f09', '#0fc']))`.
 
+**Texture** color slots — a generator's `color`/`bg`/`a`/`b` — take three more
+forms that carry transparency: `null` (nothing at all), `[r, g, b, a]`, and
+`'#rrggbbaa'` hex. See **compositing** for what an image with holes in it can
+do. 3D colors stay opaque; a material's transparency is its `opacity`.
+
 ## errors don't stop the video
 
 This is a livecoding environment, so a mistake never blanks the screen:
@@ -857,7 +862,8 @@ scene()
 - `circle({ radius, thickness, soft, center, color, bg })` — a disc, hard-edged
   by default (antialiased to a pixel, not feathered; `soft` is the dial that
   feathers it). A `thickness` cuts the middle back out, measured inward from
-  the rim, leaving a band.
+  the rim, leaving a band. `bg: null` draws it on nothing, ready to comp
+  `'over'` anything.
 - `ring({ inner, outer, soft, center, color, bg })` — the same shader addressed
   by its two edges, for when the hole is the point rather than the band.
   `ring({ inner: 0.2, outer: 0.25 })` and `circle({ radius: 0.25, thickness:
@@ -883,6 +889,7 @@ scene()
 - `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
   text. `size` is a font size in screen px (values ≤ 1 = fraction of screen
   height); any CSS font, `\n` for multiline, content may be a fn of `t`.
+  `bg: null` puts the letters on nothing.
 - `video(name?)` — live camera (see **video input**).
 - `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` —
   imported media files (see **media files**).
@@ -1003,15 +1010,16 @@ scene()
 
 ## transforms & tiling
 
-- `.transform({ translate: [x, y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror' })`
+- `.transform({ translate: [x, y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })`
   — UV-space transform. Or the shorthands `.translate(x, y)`, `.rotate(v)`,
   `.scale(v)` — each takes `{ wrap }` as a trailing option. Translation is in
   UV units (1 = a full frame); scale zooms around center.
 - `.crop(w, h?, { center })` — keep the middle `w`×`h` and drop the rest to
-  black. Nothing is resampled: the picture stays the size it was and the black
-  closes in around it, the way `resolution()`'s own letterboxing does. It's
-  `.mask(constant('white').scale(0.5, { wrap: 'black' }))` with the rectangle
-  written in pixels.
+  transparent black. Nothing is resampled: the picture stays the size it was
+  and the emptiness closes in around it, the way `resolution()`'s own
+  letterboxing does — black on its own, a cutout in a comp. It's
+  `.mask(constant('white').scale(0.5, { wrap: 'transparent' }))` with the
+  rectangle written in pixels.
   Sizes above 1 count pixels of the frame's own grid — the numbers
   `resolution()` was given, or the canvas as displayed when a sketch didn't set
   one, so neither retina nor `quality()` moves the count. 0..1 is a fraction of
@@ -1078,8 +1086,37 @@ ramp({ type: 'angular', a: '#000000', b: '#334455' })
   .out()
 ```
 
-`text()` renders as an opaque image (black bg by default), so overlay it with
-`'add'` / `'screen'`, or `.threshold()` it into a mask.
+### alpha — drawing on nothing
+
+Every buffer in the pipeline is RGBA, and `'over'` means it: the layer lands
+only where its alpha says so. The shape generators (`circle`, `ring`, `text`,
+`ascii`) take `bg: null` to draw on nothing, and `null` works in
+`ramp`/`noise`/`voronoi`'s `a`/`b` too — a radial ramp to `null` is a vignette
+that comps over anything. So picture-in-picture is one `transform` and one
+`comp` — swap the two generators here for two `videofile()`s and it's real:
+
+```js
+voronoi({ freq: 7, speed: 0.4, a: '#0d1030', b: '#3a7f8f' })
+  .comp(noise({ period: 0.5, a: '#200933', b: '#ff9f5f' }).transform({ scale: 0.35, translate: [0.28, 0.24], wrap: 'transparent' }), 'over')
+  .comp(text('LIVE', { size: 0.07, pos: [0.88, 0.9], color: '#ff4f4f', bg: null }), 'over')
+  .out()
+```
+
+- `wrap: 'transparent'` is what empties the off-frame region — the default
+  `'clamp'` would smear the small picture's edge pixels across the base.
+  (`'black'` is this mode's old name and still works; `.crop()` empties its
+  surround the same way.)
+- Every other blend mode reads alpha too: the layer's alpha gates it per
+  pixel, so a `mult` or `overlay` through a transparent-bg shape only lands
+  inside the shape.
+- `.alpha(v)` fades a whole chain toward nothing (color dims with it); a
+  texture in `v` fades per pixel by its luma. `.tint(color, { bg: null })`
+  turns any mask into a colored cutout.
+- Several naked `.out()`s stack in code order, later over earlier — an overlay
+  can live at the end of the sketch without threading a `.comp()` through it.
+- On screen, transparency reads as black: buffers store color premultiplied
+  ("the image over nothing"), so a lone transparent chain looks exactly like
+  its opaque-black twin until something is behind it.
 
 ## masking & switching
 
@@ -1167,7 +1204,7 @@ Two details the call handles because it owns both ends:
   past the edge comes around the other side instead of smearing the last
   column. Without that a `.blur([8, 0])` leaves a hairline crack down the
   frame. UV ops in the span default to it; pass an explicit `{ wrap }` to
-  override — on a tunnel, `'black'` leaves the middle empty rather than
+  override — on a tunnel, `'transparent'` leaves the middle empty rather than
   smearing the innermost ring outward.
 - **Radius 1 is the frame corner**, so a round trip covers the whole frame
   rather than cropping it to the inscribed circle.
@@ -1408,8 +1445,10 @@ see **state that survives a re-run** below.
 
 `.out('name')` on a **geometry** publishes it under the same namespace: the
 object renders into its own layer (not the visible scene), and `input('name')`
-pulls that layer as a texture — same camera, lit, on a black background, so
-layers comp cleanly with `add`/`screen`/`lighten`. Lights hit every layer by default;
+pulls that layer as a texture — same camera, lit, on nothing: the layer
+carries real coverage alpha, so it comps `'over'` like a sprite, and
+`add`/`screen`/`lighten` still land it on black exactly as before. Lights hit
+every layer by default;
 a light's own `.out('name')` restricts it to one layer.
 
 ```js

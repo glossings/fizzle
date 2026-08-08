@@ -118,7 +118,7 @@ uniform float uTime;
 #define LUMA vec3(0.2126, 0.7152, 0.0722)
 
 // what happens outside [0,1] after a UV transform — 0 clamp, 1 repeat,
-// 2 mirror, 3 black, 4 polar. Shared by transform and warp.
+// 2 mirror, 3 transparent, 4 polar. Shared by transform and warp.
 vec4 wrapSample(sampler2D tex, vec2 p, float mode) {
   // polar: x is an angle, so it comes back around; y is a radius and doesn't
   if (mode > 3.5) p = vec2(fract(p.x), clamp(p.y, 0.0, 1.0));
@@ -685,7 +685,7 @@ const SPECS = {
       u.uZoom.value = resolve(par(p.zoom, 1), t);
       const c = par(p.center, [0.5, 0.5]);
       u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
-      u.uWrap.value = WRAP_MODES[p.wrap ?? 'black'] ?? 3;
+      u.uWrap.value = WRAP_MODES[p.wrap ?? 'transparent'] ?? 3;
     },
   },
 
@@ -835,7 +835,9 @@ const SPECS = {
   },
 };
 
-const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, black: 3, polar: 4 };
+// 'black' is the pre-alpha name for 'transparent' — same mode, kept for
+// existing sketches (displayed on nothing it *is* black; in a comp it's a cutout)
+const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, transparent: 3, black: 3, polar: 4 };
 
 // First spelling of each mode is the canonical one — that's the set docs and
 // completion offer (BLEND_MODE_NAMES); the rest are aliases.
