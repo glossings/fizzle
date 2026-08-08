@@ -912,8 +912,8 @@ scene()
 ```
 
 The whole useful range of `period` lives in 0..1, which is exactly what a
-signal hands you — so `rand()`, `audio()` or `beat()` go straight in and sweep
-from one gradient to a dense grating without a `.mul()` in front of them.
+signal hands you — so `rand()`, `audio()` or `beat().saw()` go straight in and
+sweep from one gradient to a dense grating without a `.mul()` in front of them.
 
 **`period` or `freq`, whichever avoids a fraction.** Every periodic generator —
 `ramp()`, `noise()`, `voronoi()` and geometry `.noise()` — takes both spellings
@@ -968,7 +968,7 @@ geometry.
   scene().edge({ strength: 2 }).tint('#ff00ff', { bg: '#120018' }).out()
   ```
 
-  Both colors take fns of `t` and signals, so `.tint(beat(4).counter().select(palette))`
+  Both colors take fns of `t` and signals, so `.tint(beat(1).select(palette))`
   recolors on the bar. More than two stops is `.lookup(ramp)` — `.tint()` is
   that with the ramp written inline.
 - `.contrast(v)` · `.saturation(v)` · `.gamma(v)` — 1 = unchanged. Or combined: `.levels({ contrast, saturation, gamma, hue })`.
@@ -1138,9 +1138,13 @@ Unlike `.mask`, only the active branch renders.
 
 ```js
 noise({ freq: 3, speed: 0.5, b: '#7ee787' })
-  .when(beat(1).sqr(0.25), s => s.invert())
+  .when(beat(4).sqr(0.25), s => s.invert())
   .out()
 ```
+
+`select([a, b, c], index)` is the same switch with more than two ways to go and
+an index instead of a condition — see
+[select — the list as the subject](#select-the-list-as-the-subject).
 
 ## warping
 
@@ -1423,7 +1427,7 @@ from: `.mask(motion, s => ...)` treats only what's moving, and comping delays
 at falling opacity is an echo rather than a trail, each ghost a definite age.
 
 The count takes a fn of t like every other number, so the lag can move
-(`.delay(beat(4).select([1, 6, 20]))`), and the ring grows to the longest
+(`.delay(beat(1).select([1, 6, 20]))`), and the ring grows to the longest
 delay asked for.
 
 What it costs is memory: a delay is frames of video, ~47 MB each at a retina
@@ -1610,8 +1614,8 @@ by name like anything else, and an import of the same name shadows them.
 - `imagefile(name?)` — a still image as a texture.
 - `imageseq([names], index?)` — several images with a signal choosing the
   current one (floored, wrapped). Dropping multiple images at once types
-  `imageseq([...], beat(1).counter())` for you — swap the index for any
-  counter: `.counter()` of `.kicks()` steps on kicks, `rand().beat(1).mul(9)`
+  `imageseq([...], beat(4))` for you — swap the index for any
+  counter: `.counter()` of `.kicks()` steps on kicks, `rand().beat(4).mul(9)`
   jumps randomly each beat. Default: one image per second.
 - `audiofile(name?, { volume, speed, loop, restart, chan })` — an audio file,
   played out loud and analysed like `audio()`: it returns a level **signal**
@@ -1636,15 +1640,15 @@ doesn't restart your clip. To rewind:
 - `restartMedia(name?)` — in a sketch; runs on every execute. No name = all,
   a name matches by substring.
 - `restart:` option — a fn of `t` or signal; a rising edge through 0.5
-  rewinds. `videofile('clip.mp4', { restart: beat(8).sqr(0.05) })` restarts
-  every 8 beats; `{ restart: audio().kicks() }` on every kick.
+  rewinds. `videofile('clip.mp4', { restart: beat(1).sqr(0.05) })` restarts
+  every bar; `{ restart: audio().kicks() }` on every kick.
 
 Or take the position yourself. `phase` is where in the clip to sit — 0 the
 start, 1 the end — and setting it stops playback, so the frame goes wherever
 the signal puts it and stays there:
 
 ```js static
-videofile('clip.mp4', { phase: rand().beat(1) })          // a new spot each beat
+videofile('clip.mp4', { phase: rand().beat(4) })          // a new spot each beat
 videofile('clip.mp4', { phase: audio().smooth(0.2) })     // loudness scrubs it
 videofile('clip.mp4', { phase: (t) => t * 0.05 })         // a 20-second crawl
 ```
@@ -1661,7 +1665,7 @@ on its own stops the clip to hold a frame still, and a stopped clip is silent.
 `phase` instead of the start and lets the clip **play on** from there.
 
 ```js static
-videofile('clip.mp4', { mute: false, phase: rand(), jump: beat(1).sqr(0.05) })
+videofile('clip.mp4', { mute: false, phase: rand(), jump: beat(4).sqr(0.05) })
 videofile('clip.mp4', { mute: false, phase: rand(), jump: audio().kicks() })
 ```
 
@@ -1690,7 +1694,7 @@ live block — drop your own files in and the names write themselves:
 ```js static
 const kick = audiofile('drums.mp3').bandpass(30, 160).kicks()
 
-videofile('clip.mp4', { speed: 1, restart: beat(16).sqr(0.05) })
+videofile('clip.mp4', { speed: 1, restart: beat(0.25).sqr(0.05) })
   .comp(imageseq(['a.png', 'b.png', 'c.png'], kick.counter()), 'screen', 0.5)
   .scale(kick.mul(0.1).add(1))
   .out()
@@ -1750,28 +1754,63 @@ mic → speakers will howl.
 
 ## tempo & sequencing
 
-`beat(div)` is a tempo-synced phase ramp — 0..1 over `div` beats at the
-sidebar's bpm. Any signal can be shaped, gated, counted, or used to pick from
-a list:
+`beat(perBar)` is the tempo as a phase, counting up: `perBar` cycles per bar of
+four beats at the sidebar's bpm. The number is the note value, so it counts
+*up* as the pulse gets faster:
+
+| call | pulse |
+|---|---|
+| `beat(1)` | once a bar |
+| `beat(4)` | quarter notes — once a beat, and the default |
+| `beat(8)` | eighths |
+| `beat(16)` | sixteenths |
+| `beat(0.5)` | once every two bars |
+
+It's the same shape as `sig()`, which counts seconds — **whole part = which
+cycle you're in, fraction = where inside it**. That one property is what makes
+the rest of the vocabulary line up. The shapers all take the fraction, so
+`beat(4).sin()` oscillates and `beat(4).saw()` is the plain 0..1 ramp; anything
+that floors takes the count, so `beat(1)` used as an index steps a list on the
+downbeat, and `beat(1).floor()` is the bar number if you want it as a value:
 
 ```js
-const step = beat(1).counter(4)
-
 circle({
-  radius: beat(1).mul(-0.2).add(0.4),
+  radius: beat(4).saw().mul(-0.2).add(0.4),
   soft: 0.06,
-  color: step.select(['#ff5f9e', '#4fd1c5', '#ffd166', '#a78bfa']),
+  color: beat(1).select(['#ff5f9e', '#4fd1c5', '#ffd166', '#a78bfa']),
 }).out()
 ```
 
+Note there's no `.counter()` in there. `.counter()` counts **events** — kicks,
+gates, clicks — and it fires on a rising edge through 0.5, which on a ramp lands
+in the middle of the cycle rather than on the downbeat. Tempo doesn't need it:
+`beat()` is already the count.
+
+**As a trigger,** `.sqr()` turns the phase into a gate: 1 from the onset,
+0 halfway through, so `beat(4).sqr()` is an eighth-note gate on every quarter
+note. That's the form the trigger slots want, and the form `.counter()` counts
+correctly:
+
+```js static
+videofile('clip.mp4', { restart: beat(1).sqr(0.05) })   // tighten the pulse with width
+scene().when(beat(4).sqr(), s => s.invert())            // half of every beat
+beat(4).sqr().counter()                                 // +1 on each onset
+```
+
+Prefer plain `beat(1)` to `beat(1).sqr().counter()` for stepping a list, though.
+The phase is absolute — a line typed mid-set is on the grid the instant it runs
+— while a counter starts from zero whenever it was created, so it lands on the
+right *rate* at an arbitrary offset.
+
 - `.sin()` `.tri()` `.saw()` `.sqr(width)` — waveshapes of value-as-phase (one
   cycle per whole unit, 0..1 out). `beat(2).sin()` = two-beat LFO,
-  `beat(0.25).sqr(0.3)` = sixteenth-note gates.
-- `.beat(div?)` — tempo-synced sample-and-hold: freezes a new value of the
-  signal at the start of every `div` beats. `rand().beat(4)` = new random
+  `beat(16).sqr(0.3)` = sixteenth-note gates, `.saw()` = the ramp itself.
+- `.beat(perBar?)` — tempo-synced sample-and-hold: freezes a new value of the
+  signal on the same grid `beat()` runs on. `rand().beat(1)` = new random
   value per bar.
 - `.counter(max?, threshold?)` — counts rising edges (kick hits, gates),
-  wrapping at `max`.
+  wrapping at `max`. It's for event streams — the tempo grid is already
+  counted by `beat()` itself.
 - `.select([...])` — index a list by the value (floored, wrapped); items can
   be numbers, colors, strings, or fns of `t`.
 - `.gte(v)` / `.lte(v)` — comparison gates, mainly for `.when()` and `.counter()`.
@@ -1779,17 +1818,52 @@ circle({
   freezes the current value each time the trigger crosses up through threshold.
 - `.round()` `.floor()` `.ceil()` `.abs()` — the usual math, chainable.
 
+### select — the list as the subject
+
+`select([...], index)` is `.select()` written the other way round, with the list
+first and the index passed in. For plain values the two are the same call:
+
+```js static
+beat(1).select(PALETTE)               // the same pick,
+select(PALETTE, beat(1))              // said either way
+```
+
+What the standalone form can do that the method can't is **texture chains**. A
+signal can only hand back a value, and a texture handed back as a value isn't
+wired into anything — so picking between chains needs the call that builds a
+switch node:
+
+```js static
+select([video(), noise({ freq: 3 }), voronoi()], beat(1)).out()
+```
+
+All the branches are built once and only the chosen one renders, exactly as
+with `.when()`. Because the index is an ordinary signal, it carries the timing
+too — there's no scheduling to configure here:
+
+```js static
+select(CHAINS, beat(1))                        // next one each bar, in order
+select(CHAINS, audio().kicks().counter())      // advance on every kick
+select(CHAINS, rand().mul(3).beat())           // somewhere new each beat
+select(CHAINS, mouse('down').counter())        // click to advance
+```
+
+The index is floored and wrapped, so an ever-climbing `.counter()` is fine and
+nothing can index off the end. With no index at all it steps one item per
+second, like `imageseq()`. Feed it a fixed number and it resolves to that
+branch on the spot — nothing else gets built.
+
 ## random & custom signals
 
 `rand({ freq, seed })` is a smooth random signal — deterministic value noise of
 `t`, 0..1 — the signal cousin of the `noise()` texture (positional
 `rand(freq, seed)` works too). Different seeds give independent signals —
 `rand({ seed: i })` inside a `.tile()` or `.instance()` fn gives every copy its
-own. `.beat(div)` snaps it to the grid, and `.hold` samples a new random value
-per trigger:
+own. `.beat(perBar)` snaps it to the grid, and `.hold` samples a new random
+value per trigger:
 
 ```js
-const hit = beat(1).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())
+const hit = beat(4).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())
 
 ambient({ intensity: 0.25 })
 directional({ intensity: 1.5 }).position(4, 6, 3).out()
@@ -1800,12 +1874,33 @@ sphere({ res: 96 })
   .out()
 ```
 
+**A random pick** is `rand()` scaled to the length of a list and used as an
+index — `.select()` and `select()` both floor what they're given, so there's
+nothing to round:
+
+```js static
+const color = rand().mul(3).beat(1).select(PALETTE)   // a new color each bar
+select(CHAINS, rand().mul(3).beat())                  // a new chain each beat
+```
+
+One thing to know about that: `rand()` is *smooth*, so its values cluster
+toward the middle, and a pick built on it favors the middle of the list. Over
+four items it lands 19 / 31 / 31 / 19 rather than 25 each — the ends come up
+about 40% less often. Fine for a wobble, worth knowing when the list is a
+palette you want an even walk through. `.counter()` on a trigger is the even
+alternative, and remembers where it is:
+
+```js static
+select(CHAINS, audio().kicks().counter())   // every kick advances one, in order
+```
+
 `sig(fn)` lifts any `t => ...` into a chainable signal when you want the
 processing methods on it: `sig(t => Math.sin(t)).smooth(0.2)`. Free-running
 LFOs don't need it — `t => Math.sin(t)` is already idiomatic everywhere.
 
 Bare `sig()` is `t` itself: the seconds-based phase source that `beat()` is the
-tempo-synced version of. That's usually the shorter road to a shaped
+tempo-synced version of — same shape, one counting seconds and the other
+counting note values. That's usually the shorter road to a shaped
 oscillation, because the shapers are already normalized — `sig().sin()` is a
 1 Hz LFO over 0..1, so ranging it needs no arithmetic about amplitude:
 

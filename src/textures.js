@@ -1762,9 +1762,19 @@ export class TextureOp {
     }
 
     if (this.kind === 'switch') {
-      // both, not just the taken branch — the other allocates when cond flips
+      // all of them, not just the taken branch — the others allocate on a flip
       if (this._needsMips) for (const n of this.inputs) n._needsMips = true;
-      return this.inputs[resolve(this.params.cond, ctx.t) >= 0.5 ? 1 : 0].renderNode(ctx);
+      // cond picks between two (.when), index picks among any number (select)
+      const { cond, index } = this.params;
+      let i;
+      if (cond != null) i = resolve(cond, ctx.t) >= 0.5 ? 1 : 0;
+      else {
+        const n = this.inputs.length;
+        i = Math.floor(resolve(index, ctx.t)) % n;
+        if (!Number.isFinite(i)) i = 0;
+        else if (i < 0) i += n;
+      }
+      return this.inputs[i].renderNode(ctx);
     }
 
     // camera capture (stream owned by the engine, black until it's live)

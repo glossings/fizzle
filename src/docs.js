@@ -54,11 +54,12 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
-  beat: ['beat(div = 1)', 'Tempo-synced phase ramp 0..1 over div beats (tempo in the sidebar).'],
+  beat: ['beat(perBar = 4)', 'Tempo-synced phase, counting up: perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) once a bar.\nWhole part = which cycle, fraction = where inside it, the way sig() counts seconds. Shapers take the fraction (.sin() .tri() .sqr(), and .saw() for the plain 0..1 ramp); anything that floors takes the count, so beat(1).select([...]) steps a list on the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input level as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and returning its level as a signal like audio(). Empty call = picker; drag a file in to import; ctrl+r or restartMedia() rewinds.'],
   restartMedia: ['restartMedia(name?)', 'Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute; ctrl+r does the same from the keyboard.'],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1. Positional rand(freq, seed) also works.'],
+  select: ['select([a, b, c], index?)', "Pick from a list by index (floored, wrapped) — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nThe index is any signal, so it carries the timing: beat(1) steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second."],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
   T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
   mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up. Default axis is x; mouse('down') is a 1/0 gate while a button is held."],
@@ -116,7 +117,7 @@ export const METHODS = {
   tri: ['.tri()', 'Signal: triangle shape of the value-as-phase (0..1 out).'],
   saw: ['.saw()', 'Signal: fractional part of the value — a ramp per cycle.'],
   sqr: ['.sqr(width = 0.5)', 'Signal: 1 while the phase is below width, else 0 — square LFO / rhythmic gate.'],
-  beat: ['.beat(div = 1)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal at the start of every div beats (tempo in the sidebar).'],
+  beat: ['.beat(perBar = 4)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal perBar times a bar, on the same grid as beat().'],
   hold: ['.hold(trigger, threshold = 0.5)', 'Signal: sample-and-hold driven by another signal — freezes the current value each time trigger crosses up through threshold.'],
   round: ['.round()', 'Signal: round to the nearest integer.'],
   floor: ['.floor()', 'Signal: round down to an integer.'],
@@ -401,9 +402,9 @@ const GLOBAL_KEY_DOCS = {
     speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t. Rates past 16 clamp; negative freezes, since no browser plays a video backwards.',
     loop: 'Start over at the end. Default true.',
     mute: 'Default true. false lets the file\'s own audio play out loud.',
-    restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(8).sqr(0.05) retriggers every 8 beats.',
-    phase: 'Where in the clip to sit: 0 the start, 1 the end. Setting it stops playback and hands the position to the signal, so phase: rand().beat(1) jumps around each beat. Wraps while looping, and is silent on its own — add jump to keep the sound.',
-    jump: 'Seeks to phase whenever this crosses 0.5 upward, then plays on from there. Unlike phase alone it leaves the clip running, so mute: false stays audible: { mute: false, phase: rand(), jump: beat(1).sqr(0.05) } re-cues picture and sound every beat.',
+    restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(1).sqr(0.05) retriggers every bar.',
+    phase: 'Where in the clip to sit: 0 the start, 1 the end. Setting it stops playback and hands the position to the signal, so phase: rand().beat(4) jumps around each beat. Wraps while looping, and is silent on its own — add jump to keep the sound.',
+    jump: 'Seeks to phase whenever this crosses 0.5 upward, then plays on from there. Unlike phase alone it leaves the clip running, so mute: false stays audible: { mute: false, phase: rand(), jump: beat(4).sqr(0.05) } re-cues picture and sound every beat.',
   },
   noise: {
     period: "How much of the frame one blob of noise spans. Default 0.25, four across — 0.5 is big soft shapes, 0.03 is fine grain. The useful range lives in 0..1 like ramp's, so a bare signal drops in: period: audio() churns the grain with the level.",
@@ -633,7 +634,7 @@ const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   light: 'ambient directional point spot hemi',
   texture: 'scene depth input constant ramp circle ring video videofile imagefile imageseq noise voronoi text',
-  signal: 'beat audio audiofile rand sig T mouse',
+  signal: 'beat audio audiofile rand select sig T mouse',
 };
 
 const methodKinds = {
