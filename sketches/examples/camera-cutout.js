@@ -21,3 +21,6 @@ noise({ freq: 7, speed: 0.6 })
 
 // with a real green screen the key is one filter:
 // video().chromaKey('#00ff00').out()
+
+// a part masks one region — tint just the hair:
+// video().mask(person({ part: 'hair' })).tint('#ff5f9e', { bg: null }).out()

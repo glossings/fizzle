@@ -1623,9 +1623,21 @@ sees somebody, black elsewhere, gray at the uncertain edge. It shares
 the first use also fetches the model and its wasm backend (~12 MB, cached
 after that), so it starts black for a beat longer than the camera does. The
 mask is computed at a small working resolution and smoothed on the way up;
-it's a texture like any other, so `.blur()`, `.threshold()` and `.edge()` all
-shape it, and `.mask(person())` on the video is the background-removal move
-(see **keying**, and the **camera-cutout** example).
+it's a texture like any other, so `.blur()` feathers it, `.threshold()`
+re-cuts it, `.edge()` outlines it, and `.mask(person())` on the video is the
+background-removal move (see **keying**, and the **camera-cutout** example).
+Matte finishing is deliberately left to those chain ops rather than params of
+its own; the one baked-in knob is `smooth` (0..1, default 0.4) — how much of
+the previous frame's mask each new one keeps, steadying the model's flicker
+at the cost of a trailing edge on fast movement, which is the single
+trade-off no downstream op can revisit.
+
+A `part` narrows the mask to one region — `person({ part: 'hair' })`, with
+`'face'`, `'body'`, `'skin'` (face + body), `'clothes'` and `'other'`
+(accessories) alongside — via a larger multiclass model (~16 MB more, again
+fetched on first use). Every part of one camera comes out of a single
+segmentation pass, so tinting hair over recolored clothes costs one
+inference, not two.
 
 ## media files
 

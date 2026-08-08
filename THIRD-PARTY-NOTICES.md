@@ -5,8 +5,9 @@ dependencies, whose licenses ship in `node_modules/`):
 
 ## MediaPipe Selfie Segmenter (person())
 
-- `src/assets/selfie_segmenter.tflite` — the segmentation model, committed
-  here so builds don't depend on Google's servers. From the
+- `src/assets/selfie_segmenter.tflite` and
+  `src/assets/selfie_multiclass_256x256.tflite` — the segmentation models,
+  committed here so builds don't depend on Google's servers. From the
   [MediaPipe image segmenter model card](https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter#selfie-model).
 - `@mediapipe/tasks-vision` — the wasm/JS runtime that runs it, copied into
   build output by Vite.

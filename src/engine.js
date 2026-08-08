@@ -373,17 +373,19 @@ export class Engine {
   }
 
   // Person mask for the person() texture: the same camera stream video(name)
-  // uses, fed through a lazily loaded segmenter (segment.js — the model and
-  // wasm download on first use). Entries survive re-runs like the streams do.
-  ensureSegment(name) {
-    const key = name ?? '';
+  // uses, fed through a lazily loaded segmenter (segment.js — the models and
+  // wasm download on first use). One entry per camera+part, all parts of a
+  // camera sharing one inference pass over there; entries survive re-runs
+  // like the streams do.
+  ensureSegment(name, part) {
+    const key = `${part ?? ''}|${name ?? ''}`;
     let s = this.segments.get(key);
     if (s) return s;
     s = { texture: null, wanted: 0 };
     this.segments.set(key, s);
     const v = this.ensureVideo(name);
     import('./segment.js').then(
-      ({ startSegment }) => startSegment(s, v),
+      ({ startSegment }) => startSegment(s, v, part ?? null, name ?? ''),
       (e) => warn(`person: ${e.message ?? e}`)
     );
     return s;

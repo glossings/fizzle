@@ -1840,8 +1840,11 @@ export class TextureOp {
     // live. The stamp tells the inference loop someone is still reading, so
     // an edited-out person() stops costing (see segment.js).
     if (this.kind === 'segment') {
-      const s = this.engine.ensureSegment(this.params.name);
+      const s = this.engine.ensureSegment(this.params.name, this.params.part);
       s.wanted = performance.now();
+      // capped short of 1, where the mask would freeze and never recover
+      if (this.params.smooth != null)
+        s.smooth = Math.min(0.95, Math.max(0, resolve(this.params.smooth, ctx.t)));
       return s.texture ?? blackTex();
     }
 
