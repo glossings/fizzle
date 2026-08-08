@@ -1604,9 +1604,9 @@ before you've dropped anything in: `ship.obj`, the HDRI
 `cobblestone_floor_08_1k` (the latter two from Poly Haven, CC0). They resolve
 by name like anything else, and an import of the same name shadows them.
 
-- `videofile(name?, { speed, loop, mute, restart })` — a looping video as a
-  texture. `speed` and `loop` take fns of `t`; `mute: false` unmutes its
-  soundtrack.
+- `videofile(name?, { speed, loop, mute, restart, phase, jump })` — a looping
+  video as a texture. `speed` and `loop` take fns of `t`; `mute: false` unmutes
+  its soundtrack; `phase` and `jump` move it around (below).
 - `imagefile(name?)` — a still image as a texture.
 - `imageseq([names], index?)` — several images with a signal choosing the
   current one (floored, wrapped). Dropping multiple images at once types
@@ -1638,6 +1638,51 @@ doesn't restart your clip. To rewind:
 - `restart:` option — a fn of `t` or signal; a rising edge through 0.5
   rewinds. `videofile('clip.mp4', { restart: beat(8).sqr(0.05) })` restarts
   every 8 beats; `{ restart: audio().kicks() }` on every kick.
+
+Or take the position yourself. `phase` is where in the clip to sit — 0 the
+start, 1 the end — and setting it stops playback, so the frame goes wherever
+the signal puts it and stays there:
+
+```js static
+videofile('clip.mp4', { phase: rand().beat(1) })          // a new spot each beat
+videofile('clip.mp4', { phase: audio().smooth(0.2) })     // loudness scrubs it
+videofile('clip.mp4', { phase: (t) => t * 0.05 })         // a 20-second crawl
+```
+
+Values outside 0..1 wrap while the clip is looping (so a rising ramp runs it
+round and round) and clamp when `loop: false`. Scrubbing is a seek per changed
+value, and a codec with sparse keyframes seeks slower than it plays — if
+jittery phase stutters, that's the file, and re-encoding with a short keyframe
+interval (or an all-intra codec) fixes it.
+
+**Keeping the sound.** `mute: false` plays the file's own audio, but `phase`
+on its own stops the clip to hold a frame still, and a stopped clip is silent.
+`jump` is the noisy version: a trigger, like `restart`, except it lands on
+`phase` instead of the start and lets the clip **play on** from there.
+
+```js static
+videofile('clip.mp4', { mute: false, phase: rand(), jump: beat(1).sqr(0.05) })
+videofile('clip.mp4', { mute: false, phase: rand(), jump: audio().kicks() })
+```
+
+Picture and sound re-cue together, so a clip with dialogue or music in it
+becomes an instrument you play with the trigger. Each jump costs one seek, and
+the audio gaps for however long that seek takes — brief on a keyframe-dense
+file, a noticeable stutter on a long-GOP one. That gap is part of the sound.
+
+**Speed.** `speed` is the playback rate: `1` normal, `0.5` half, `0` a freeze.
+It takes a fn of `t` like anything else, so `speed: rand().beat(2)` re-rolls it
+every couple of beats.
+
+Browsers only play a video over a limited range of rates (roughly 1/16× to
+16×), and only forwards — there's no reverse to be had from a video element, so
+a negative speed freezes rather than backing up. Anything out of range is
+brought to what will actually play, and said once in the **console** rather
+than the status bar, so a speed that randoms past the edge doesn't nag:
+`speed: rand().mul(30)` just tops out.
+
+To move backwards through a clip, drive `phase` down instead — `phase: (t) => -t * 0.05`
+scrubs in reverse, at the cost of being a seek per frame (see above).
 
 No video or audio ships with fizzle, so this one is a template rather than a
 live block — drop your own files in and the names write themselves:

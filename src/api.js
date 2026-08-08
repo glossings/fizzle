@@ -5,7 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
-import { TextureOp, reciprocal, autoBuffer } from './textures.js';
+import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
@@ -1270,7 +1270,7 @@ export function makeApi(engine) {
       engine.updaters.push((t) => {
         if (o.volume != null) m.ae.setVolume(resolve(o.volume, t));
         if (!m.el) return;
-        if (o.speed != null) m.el.playbackRate = Math.max(0, resolve(o.speed, t));
+        if (o.speed != null) setRate(m.el, resolve(o.speed, t) || 0, `audiofile "${name}"`);
         if (o.loop != null) m.el.loop = resolve(o.loop, t) >= 0.5;
         if (o.restart != null) {
           const v = resolve(o.restart, t);

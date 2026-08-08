@@ -46,7 +46,7 @@ export const GLOBALS = {
   circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (soft feathers it), or a ring once thickness cuts the middle out. radius, thickness, soft and center take fns of t, or textures.'],
   ring: ['ring({ inner, outer, soft, center, color, bg })', "Texture generator: an annulus addressed by its two edges — circle() for when the hole is the point. inner and outer take fns of t; everything else is circle()'s."],
   video: ['video(name?)', "Texture generator: live camera — permission prompt on first use, black until the stream is live. No name = the default camera (the console lists sources); video('front') / video('back') ask for a facing; any other name matches a camera label by substring."],
-  videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring. ctrl+r or restartMedia() rewinds."],
+  videofile: ["videofile(name?, { speed, loop, mute, restart, phase, jump })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring. ctrl+r or restartMedia() rewinds; phase scrubs it by hand, jump throws it around while it plays."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
@@ -398,10 +398,12 @@ const GLOBAL_KEY_DOCS = {
     bg: 'Color of the hole and everything outside. Default black; null leaves both transparent, so the base shows through the hole.',
   },
   videofile: {
-    speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t.',
+    speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t. Rates past 16 clamp; negative freezes, since no browser plays a video backwards.',
     loop: 'Start over at the end. Default true.',
     mute: 'Default true. false lets the file\'s own audio play out loud.',
     restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(8).sqr(0.05) retriggers every 8 beats.',
+    phase: 'Where in the clip to sit: 0 the start, 1 the end. Setting it stops playback and hands the position to the signal, so phase: rand().beat(1) jumps around each beat. Wraps while looping, and is silent on its own — add jump to keep the sound.',
+    jump: 'Seeks to phase whenever this crosses 0.5 upward, then plays on from there. Unlike phase alone it leaves the clip running, so mute: false stays audible: { mute: false, phase: rand(), jump: beat(1).sqr(0.05) } re-cues picture and sound every beat.',
   },
   noise: {
     period: "How much of the frame one blob of noise spans. Default 0.25, four across — 0.5 is big soft shapes, 0.03 is fine grain. The useful range lives in 0..1 like ramp's, so a bare signal drops in: period: audio() churns the grain with the level.",
@@ -445,7 +447,7 @@ const GLOBAL_KEY_DOCS = {
   },
   audiofile: {
     volume: '0..1 playback level. Only how loud it plays — the signal it returns is unaffected.',
-    speed: 'Playback rate: 1 normal, 0.5 half. Takes a fn of t.',
+    speed: 'Playback rate: 1 normal, 0.5 half. Takes a fn of t. Rates past 16 clamp; negative freezes.',
     loop: 'Start over at the end. Default true.',
     restart: 'Rewinds whenever this crosses 0.5 upward.',
     chan: 'Analyse one channel by index instead of the mix.',
