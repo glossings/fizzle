@@ -35,6 +35,20 @@ The consequences worth internalising:
   passes and come back. `.add(-0.5).mul(2)` carrying negatives is load-bearing,
   not incidental — it's how a signed map gets built.
 
+## Alpha is premultiplied, end to end
+
+Buffers are RGBA and the RGB is stored premultiplied — "the image over
+nothing." That one convention is why alpha costs almost nothing: an opaque
+chain is bit-identical to the pre-alpha pipeline, resampling passes (blur,
+transform, delay) are correct on transparency without special cases, and the
+display pass is unchanged, since premultiplied RGB over the opaque canvas *is*
+the image on black. Generators premultiply at the uniform
+([`setColor4`](../src/textures.js#L64)); `bg: null` is how a shape gets drawn
+on nothing; filters preserve coverage; `.comp(x, 'over')` is true source-over,
+and the other modes take the layer's alpha as a per-pixel gate. Multiple naked
+`.out()`s stack in code order through the same over pass. The two straight-alpha
+imports — `text()`'s canvas and `imagefile()` PNGs — premultiply on upload.
+
 ## The two levels, and why `t` is on the surprising one
 
 This is the part the `(x, y, t)` model gets wrong.

@@ -51,6 +51,39 @@ export const periodic = (period, legacy, dflt, t) =>
 // means "already in working space": no conversion.
 const setColor = (target, v, t) => writeColor(target, v, t, THREE.LinearSRGBColorSpace);
 
+// Alpha convention: buffers hold RGB premultiplied by alpha — "the image over
+// nothing" — so an opaque chain (alpha 1 everywhere) is bit-identical to the
+// pre-alpha pipeline, resampling passes (blur, transform, delay) are correct
+// without special cases, and the display pass needs none either: premultiplied
+// RGB over the opaque canvas *is* the image composited on black.
+//
+// A generator color slot takes the alpha spellings on top of the usual four
+// forms: null (or 'transparent') is fully transparent, an [r, g, b, a] array
+// and '#rrggbbaa'/'#rgba' hex carry their own alpha. The uniform is a vec4
+// premultiplied here, so shader mixes stay in premultiplied space.
+const _col4 = new THREE.Color();
+const ALPHA_HEX = /^#([0-9a-f]{4}|[0-9a-f]{8})$/i;
+function setColor4(target, v, t) {
+  v = resolve(v, t);
+  if (v == null || v === 'transparent') return target.set(0, 0, 0, 0);
+  let a = 1;
+  if (Array.isArray(v) && v.length === 4) {
+    a = resolve(v[3], t);
+    v = v.slice(0, 3);
+  } else if (typeof v === 'string' && ALPHA_HEX.test(v)) {
+    const hex = v.length === 5 ? [...v.slice(1)].map((c) => c + c).join('') : v.slice(1);
+    a = parseInt(hex.slice(6, 8), 16) / 255;
+    v = '#' + hex.slice(0, 6);
+  }
+  setColor(_col4, v, t);
+  a = Math.min(1, Math.max(0, Number(a) || 0));
+  return target.set(_col4.r * a, _col4.g * a, _col4.b * a, a);
+}
+
+// bg (and friends) default per call site, but an explicit null means
+// transparent — which ?? would swallow
+const orDflt = (v, d) => (v === undefined ? d : v);
+
 // A per-channel value: one number broadcast to all three, an [r, g, b], or a
 // color in any of the forms color.js takes — .mul('#ff00ff') is a tint, and
 // without the last branch it would quietly hand the uniform three strings.
@@ -90,7 +123,8 @@ vec4 wrapSample(sampler2D tex, vec2 p, float mode) {
   // polar: x is an angle, so it comes back around; y is a radius and doesn't
   if (mode > 3.5) p = vec2(fract(p.x), clamp(p.y, 0.0, 1.0));
   else if (mode > 2.5) {
-    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
+    // transparent, not opaque black: the emptied region comps as a cutout
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return vec4(0.0);
   }
   else if (mode > 1.5) { vec2 m = mod(p, 2.0); p = 1.0 - abs(m - 1.0); }
   else if (mode > 0.5) p = fract(p);
@@ -129,10 +163,10 @@ const SPECS = {
   // one color, whole frame — the thing to comp, mask or multiply against when
   // what's wanted is a flat wash rather than an image
   constant: {
-    extras: { uColor: '#ffffff' },
-    frag: `void main() { gl_FragColor = vec4(uColor, 1.0); }`,
+    extras: { uColor: [1, 1, 1, 1] },
+    frag: `void main() { gl_FragColor = uColor; }`,
     update(u, p, t) {
-      setColor(u.uColor.value, p.color ?? '#ffffff', t);
+      setColor4(u.uColor.value, orDflt(p.color, '#ffffff'), t);
     },
   },
 
@@ -141,7 +175,7 @@ const SPECS = {
   // too, and a period shorter than the frame is a band pattern. A ramp is
   // beat() in space.
   ramp: {
-    extras: { uMode: 0, uColA: '#000000', uColB: '#ffffff', uAngle: 0, uPhase: 0, uFreq: 1, uShape: 0, uRepeat: 0 },
+    extras: { uMode: 0, uColA: [0, 0, 0, 1], uColB: [1, 1, 1, 1], uAngle: 0, uPhase: 0, uFreq: 1, uShape: 0, uRepeat: 0 },
     frag: `
       void main() {
         vec2 p = vUv - 0.5;
@@ -156,12 +190,12 @@ const SPECS = {
         if (uShape > 2.5) f = step(0.5, f);
         else if (uShape > 1.5) f = 0.5 - 0.5 * cos(6.2831853 * f);
         else if (uShape > 0.5) f = 1.0 - abs(2.0 * f - 1.0);
-        gl_FragColor = vec4(mix(uColA, uColB, f), 1.0);
+        gl_FragColor = mix(uColA, uColB, f);
       }`,
     update(u, p, t) {
       u.uMode.value = { linear: 0, radial: 1, angular: 2 }[p.type ?? 'linear'] ?? 0;
-      setColor(u.uColA.value, p.a ?? '#000000', t);
-      setColor(u.uColB.value, p.b ?? '#ffffff', t);
+      setColor4(u.uColA.value, orDflt(p.a, '#000000'), t);
+      setColor4(u.uColB.value, orDflt(p.b, '#ffffff'), t);
       u.uAngle.value = resolve(p.angle ?? 0, t);
       u.uPhase.value = resolve(p.phase ?? 0, t);
       u.uFreq.value = periodic(p.period, p.freq, 1, t);
@@ -180,7 +214,7 @@ const SPECS = {
     // uThick < 0 is "no thickness named", i.e. a solid disc — which a width of
     // 0 is not: that's a band with nothing left in it, and it draws nothing.
     // The distinction is what lets ring()'s hole grow into its rim and close.
-    extras: { uCenter: [0.5, 0.5], uRadius: 0.25, uSoft: 0, uThick: -1, uColA: '#ffffff', uColB: '#000000' },
+    extras: { uCenter: [0.5, 0.5], uRadius: 0.25, uSoft: 0, uThick: -1, uColA: [1, 1, 1, 1], uColB: [0, 0, 0, 1] },
     // a texture in radius perturbs the rim per pixel: the disc stops being one
     // and becomes whatever blob the map describes
     texParams: { radius: 'uRadius', soft: 'uSoft', center: 'uCenter', thickness: 'uThick' },
@@ -199,7 +233,7 @@ const SPECS = {
         // thickness past the radius puts the inner edge behind the center,
         // where there is nothing left to cut
         if (th >= 0.0) m *= smoothstep(r - th - sf, r - th + sf, d);
-        gl_FragColor = vec4(mix(uColB, uColA, m), 1.0);
+        gl_FragColor = mix(uColB, uColA, m);
       }`,
     update(u, p, t) {
       const c = par(p.center, [0.5, 0.5]);
@@ -207,13 +241,13 @@ const SPECS = {
       u.uRadius.value = resolve(par(p.radius, 0.25), t);
       u.uSoft.value = resolve(par(p.soft, 0), t);
       u.uThick.value = resolve(par(p.thickness, -1), t);
-      setColor(u.uColA.value, p.color ?? '#ffffff', t);
-      setColor(u.uColB.value, p.bg ?? '#000000', t);
+      setColor4(u.uColA.value, orDflt(p.color, '#ffffff'), t);
+      setColor4(u.uColB.value, orDflt(p.bg, '#000000'), t);
     },
   },
 
   noiseGen: {
-    extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uSeed: 0, uChannels: 1, uColA: '#000000', uColB: '#ffffff' },
+    extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uSeed: 0, uChannels: 1, uColA: [0, 0, 0, 1], uColB: [1, 1, 1, 1] },
     pre: SNOISE_GLSL,
     frag: `
       float fbm2(vec2 p, float zoff) {
@@ -228,7 +262,7 @@ const SPECS = {
       void main() {
         vec2 p = vUv * vec2(uAspect, 1.0) * uFreq;
         if (uChannels < 1.5) {
-          gl_FragColor = vec4(mix(uColA, uColB, fbm2(p, 0.0)), 1.0);
+          gl_FragColor = mix(uColA, uColB, fbm2(p, 0.0));
         } else {
           // independent fields per channel (seed-offset); unused stay 0
           vec4 c = vec4(0.0, 0.0, 0.0, 1.0);
@@ -247,8 +281,8 @@ const SPECS = {
       u.uSpeed.value = resolve(p.speed ?? 0.3, t);
       u.uSeed.value = resolve(p.seed ?? 0, t);
       u.uChannels.value = Math.min(4, Math.max(1, Math.round(resolve(p.channels ?? 1, t))));
-      setColor(u.uColA.value, p.a ?? '#000000', t);
-      setColor(u.uColB.value, p.b ?? '#ffffff', t);
+      setColor4(u.uColA.value, orDflt(p.a, '#000000'), t);
+      setColor4(u.uColB.value, orDflt(p.b, '#ffffff'), t);
     },
   },
 
@@ -257,7 +291,7 @@ const SPECS = {
   // neighbourhood — the a→b color mapping is the same for all of them, so any
   // mode is also a usable mask or displace map.
   voronoi: {
-    extras: { uScale: 6, uSpeed: 0.3, uBlend: 0, uSeed: 0, uMode: 0, uColA: '#000000', uColB: '#ffffff' },
+    extras: { uScale: 6, uSpeed: 0.3, uBlend: 0, uSeed: 0, uMode: 0, uColA: [0, 0, 0, 1], uColB: [1, 1, 1, 1] },
     // a texture in blend: hard cells where the map is dark, cells melting into
     // each other where it's bright
     texParams: { blend: 'uBlend' },
@@ -294,7 +328,7 @@ const SPECS = {
         if (uMode < 0.5) f = vsum / wsum;
         else if (uMode < 1.5) f = dsum / wsum;
         else f = 1.0 - smoothstep(0.0, max(uBlend, 0.0) + 0.02, d2 - d1);
-        gl_FragColor = vec4(mix(uColA, uColB, clamp(f, 0.0, 1.0)), 1.0);
+        gl_FragColor = mix(uColA, uColB, clamp(f, 0.0, 1.0));
       }`,
     update(u, p, t) {
       u.uScale.value = periodic(p.period, p.freq ?? p.scale, 6, t);
@@ -305,8 +339,8 @@ const SPECS = {
       const mode = p.mode ?? 'cells';
       if (modes[mode] == null) warn(`voronoi: no mode '${mode}' — cells, distance or edges; showing cells`);
       u.uMode.value = modes[mode] ?? 0;
-      setColor(u.uColA.value, p.a ?? '#000000', t);
-      setColor(u.uColB.value, p.b ?? '#ffffff', t);
+      setColor4(u.uColA.value, orDflt(p.a, '#000000'), t);
+      setColor4(u.uColB.value, orDflt(p.b, '#ffffff'), t);
     },
   },
 
@@ -408,7 +442,8 @@ const SPECS = {
     texParams: { contrast: 'uContrast', saturation: 'uSat', gamma: 'uGamma', hue: 'uHue' },
     frag: `
       void main() {
-        vec3 c = texture2D(tex0, vUv).rgb;
+        vec4 src = texture2D(tex0, vUv);
+        vec3 c = src.rgb;
         c = (c - 0.5) * uContrast + 0.5;
         c = mix(vec3(dot(c, LUMA)), c, uSat);
         float hue = uHue * 6.2831853;    // turns: 1 = full wheel
@@ -419,7 +454,7 @@ const SPECS = {
           c = c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
         }
         c = pow(max(c, 0.0), vec3(1.0 / max(uGamma, 0.001)));
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = vec4(c, src.a);
       }`,
     update(u, p, t) {
       u.uContrast.value = resolve(par(p.contrast, 1), t);
@@ -442,7 +477,8 @@ const SPECS = {
     texParams: { pow: 'uPow', mul: 'uMul', div: 'uDiv', add: 'uAdd', sub: 'uSub' },
     frag: `
       void main() {
-        vec3 raw = texture2D(tex0, vUv).rgb;
+        vec4 src = texture2D(tex0, vUv);
+        vec3 raw = src.rgb;
         // pow is undefined for a negative base and for 0 raised to <= 0, and
         // both reach here — the targets are half-float and nothing clamps a
         // chain that has been through .sub(). Only the exponent's own branch
@@ -456,7 +492,7 @@ const SPECS = {
         // divisor still flips the image.
         vec3 dv = uDiv;
         vec3 d = mix(max(dv, 1e-3), min(dv, -1e-3), 1.0 - step(vec3(0.0), dv));
-        gl_FragColor = vec4(c * uMul / d + uAdd - uSub, 1.0);
+        gl_FragColor = vec4(c * uMul / d + uAdd - uSub, src.a);
       }`,
     update(u, p, t) {
       setVec3(u.uPow.value, par(p.pow, 1), t);
@@ -472,9 +508,9 @@ const SPECS = {
     texParams: { steps: 'uSteps' },
     frag: `
       void main() {
-        vec3 c = texture2D(tex0, vUv).rgb;
+        vec4 src = texture2D(tex0, vUv);
         float n = max(uSteps, 2.0);
-        gl_FragColor = vec4(clamp(floor(c * n) / (n - 1.0), 0.0, 1.0), 1.0);
+        gl_FragColor = vec4(clamp(floor(src.rgb * n) / (n - 1.0), 0.0, 1.0), src.a);
       }`,
     update(u, p, t) { u.uSteps.value = resolve(par(p.steps, 4), t); },
   },
@@ -501,7 +537,7 @@ const SPECS = {
   // atlas built in _render: uCount cells in a row, dark→bright, each glyph
   // inset by uPad so a filled one can't bleed into its neighbor.
   ascii: {
-    extras: { uGrid: [80, 24], uCount: 10, uPad: [0, 0], uColor: '#ffffff', uBg: '#000000', uTint: 1 },
+    extras: { uGrid: [80, 24], uCount: 10, uPad: [0, 0], uColor: [1, 1, 1, 1], uBg: [0, 0, 0, 1], uTint: 1 },
     frag: `
       void main() {
         vec2 cell = floor(vUv * uGrid);
@@ -509,19 +545,19 @@ const SPECS = {
         // average the cell instead of point-sampling it: the glyph stands in
         // for everything under it, and one tap would report whatever detail
         // happened to land on the center
-        vec3 src = vec3(0.0);
+        vec4 src = vec4(0.0);
         for (int y = 0; y < 3; y++) {
           for (int x = 0; x < 3; x++) {
-            src += texture2D(tex0, (cell + (vec2(float(x), float(y)) + 0.5) / 3.0) / uGrid).rgb;
+            src += texture2D(tex0, (cell + (vec2(float(x), float(y)) + 0.5) / 3.0) / uGrid);
           }
         }
         src /= 9.0;
-        float l = clamp(dot(src, LUMA), 0.0, 1.0);
+        float l = clamp(dot(src.rgb, LUMA), 0.0, 1.0);
         float idx = min(floor(l * uCount), uCount - 1.0);
         vec2 a = vec2((idx + uPad.x + local.x * (1.0 - 2.0 * uPad.x)) / uCount,
                       uPad.y + local.y * (1.0 - 2.0 * uPad.y));
         float g = texture2D(tex1, a).r;
-        gl_FragColor = vec4(mix(uBg, uTint > 0.5 ? src : uColor, g), 1.0);
+        gl_FragColor = mix(uBg, uTint > 0.5 ? src : uColor, g);
       }`,
   },
 
@@ -532,8 +568,9 @@ const SPECS = {
   lookup: {
     frag: `
       void main() {
-        float l = clamp(dot(texture2D(tex0, vUv).rgb, LUMA), 0.0, 1.0);
-        gl_FragColor = texture2D(tex1, vec2(l, 0.5));
+        vec4 src = texture2D(tex0, vUv);
+        float l = clamp(dot(src.rgb, LUMA), 0.0, 1.0);
+        gl_FragColor = texture2D(tex1, vec2(l, 0.5)) * src.a;
       }`,
   },
 
@@ -541,15 +578,17 @@ const SPECS = {
   // white-on-black source (edge, text, threshold, a mask) always wanted and had
   // to build a ramp to say.
   tint: {
-    extras: { uColor: '#ffffff', uBg: '#000000' },
+    extras: { uColor: [1, 1, 1, 1], uBg: [0, 0, 0, 1] },
     frag: `
       void main() {
-        float l = clamp(dot(texture2D(tex0, vUv).rgb, LUMA), 0.0, 1.0);
-        gl_FragColor = vec4(mix(uBg, uColor, l), 1.0);
+        vec4 src = texture2D(tex0, vUv);
+        float l = clamp(dot(src.rgb, LUMA), 0.0, 1.0);
+        // × coverage: the recolor happens within the image's own alpha
+        gl_FragColor = mix(uBg, uColor, l) * src.a;
       }`,
     update(u, p, t) {
-      setColor(u.uColor.value, p.color ?? '#ffffff', t);
-      setColor(u.uBg.value, p.bg ?? '#000000', t);
+      setColor4(u.uColor.value, orDflt(p.color, '#ffffff'), t);
+      setColor4(u.uBg.value, orDflt(p.bg, '#000000'), t);
     },
   },
 
@@ -663,11 +702,12 @@ const SPECS = {
         vec2 d = uRadial > 0.5
           ? (vUv - uCenter) * 2.0 * uAmount
           : vec2(cos(uAngle) / uAspect, sin(uAngle)) * uAmount;
+        vec4 c = texture2D(tex0, vUv);
         gl_FragColor = vec4(
           texture2D(tex0, vUv + d).r,
-          texture2D(tex0, vUv).g,
+          c.g,
           texture2D(tex0, vUv - d).b,
-          1.0);
+          c.a);
       }`,
     update(u, p, t) {
       u.uAmount.value = resolve(par(p.amount, 0.005), t);
@@ -683,12 +723,14 @@ const SPECS = {
     texParams: { level: 'uLevel', soft: 'uSoft' },
     frag: `
       void main() {
-        float l = dot(texture2D(tex0, vUv).rgb, LUMA);
+        vec4 src = texture2D(tex0, vUv);
+        float l = dot(src.rgb, LUMA);
         // read once into locals: a texture-driven level/soft is a fetch, and
         // the #define would otherwise repeat it inside the branch
         float lv = uLevel, sf = uSoft;
         float m = sf > 0.0 ? smoothstep(lv - sf, lv + sf, l) : step(lv, l);
-        gl_FragColor = vec4(vec3(m), 1.0);
+        // scaled by coverage, so a cutout thresholds to a cutout mask
+        gl_FragColor = vec4(vec3(m), 1.0) * src.a;
       }`,
     update(u, p, t) {
       u.uLevel.value = resolve(par(p.level, 0.5), t);
@@ -696,8 +738,23 @@ const SPECS = {
     },
   },
 
+  // .alpha(v) — scale the image's alpha, rgb with it (premultiplied), so 0 is
+  // fully transparent and 1 leaves it alone. A texture in v fades per pixel.
+  alpha: {
+    extras: { uAlpha: 1 },
+    texParams: { alpha: 'uAlpha' },
+    frag: `void main() { gl_FragColor = texture2D(tex0, vUv) * clamp(uAlpha, 0.0, 1.0); }`,
+    update(u, p, t) { u.uAlpha.value = resolve(par(p.alpha, 1), t); },
+  },
+
   invert: {
-    frag: `void main() { gl_FragColor = vec4(1.0 - texture2D(tex0, vUv).rgb, 1.0); }`,
+    // a - rgb, not 1 - rgb: the premultiplied invert, which flips only within
+    // the image's own coverage (transparent stays transparent, opaque is 1-rgb)
+    frag: `
+      void main() {
+        vec4 c = texture2D(tex0, vUv);
+        gl_FragColor = vec4(c.a - c.rgb, c.a);
+      }`,
   },
 
   // sRGB -> linear, appended to a chain feeding a *color* map slot. textures work
@@ -735,8 +792,9 @@ const SPECS = {
     `,
     frag: `
       void main() {
-        vec3 B = texture2D(tex0, vUv).rgb;   // base (this chain)
-        vec3 L = texture2D(tex1, vUv).rgb;   // layer (composited on top)
+        vec4 Bt = texture2D(tex0, vUv);      // base (this chain)
+        vec4 Lt = texture2D(tex1, vUv);      // layer (composited on top)
+        vec3 B = Bt.rgb, L = Lt.rgb;
         vec3 r;
         float m = uMode;
         if (m < 0.5)       r = L;
@@ -759,7 +817,16 @@ const SPECS = {
         else if (m < 14.5) r = B / max(L, vec3(0.001));
         else if (m < 15.5) r = setLum(B, dot(L, LUMA));   // luminosity: base's color, layer's brightness
         else               r = setLum(L, dot(B, LUMA));   // color: layer's color, base's brightness
-        gl_FragColor = vec4(mix(B, clamp(r, 0.0, 1.0), uOpacity), 1.0);
+        // The layer's alpha gates the blend per pixel; on opaque inputs la is
+        // uOpacity and everything below collapses to the pre-alpha behavior.
+        // 'over' is the true premultiplied source-over; the other modes read
+        // premultiplied rgb straight, which is exact where the layer is opaque
+        // or absent and merely a touch soft along partial-alpha edges.
+        float la = clamp(Lt.a, 0.0, 1.0) * uOpacity;
+        vec3 rgb = m < 0.5
+          ? L * uOpacity + B * (1.0 - la)
+          : mix(B, clamp(r, 0.0, 1.0), la);
+        gl_FragColor = vec4(rgb, Bt.a + la - Bt.a * la);
       }`,
     update(u, p, t) {
       u.uMode.value = BLEND_MODES[p.mode ?? 'over'] ?? 0;
@@ -817,7 +884,11 @@ export class Quad {
 function inferUniform(v) {
   if (typeof v === 'number') return { value: v };
   if (Array.isArray(v)) {
-    return { value: v.length === 3 ? new THREE.Vector3(...v) : new THREE.Vector2(...v) };
+    return {
+      value: v.length === 4 ? new THREE.Vector4(...v)
+        : v.length === 3 ? new THREE.Vector3(...v)
+        : new THREE.Vector2(...v),
+    };
   }
   return { value: new THREE.Color().setStyle(v, THREE.LinearSRGBColorSpace) };
 }
@@ -825,6 +896,7 @@ function inferUniform(v) {
 function uniformType(init) {
   return typeof init === 'number' ? 'float'
     : Array.isArray(init) && init.length === 2 ? 'vec2'
+    : Array.isArray(init) && init.length === 4 ? 'vec4'
     : 'vec3';
 }
 
@@ -924,8 +996,6 @@ function makeMaterial(spec, binds = []) {
   });
 }
 
-const LAYER_BG = new THREE.Color(0x000000);
-
 // 1×1 black fallback (video() before the camera stream is live)
 let BLACK_TEX;
 function blackTex() {
@@ -985,14 +1055,25 @@ function delayFit(frames, scale, w, h) {
 }
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
-let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP;
+let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER;
 function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
+  // premultiplied source-over, for stacking several naked .out()s
+  MAT_OVER ??= makeMaterial({
+    frag: `
+      void main() {
+        vec4 a = texture2D(tex0, vUv);   // under
+        vec4 b = texture2D(tex1, vUv);   // over
+        float ba = clamp(b.a, 0.0, 1.0);
+        gl_FragColor = vec4(b.rgb + a.rgb * (1.0 - ba), ba + a.a * (1.0 - ba));
+      }`,
+  });
   // three only tone-maps + sRGB-encodes when rendering to the canvas, so the
   // scene lands in its RT linear. This pass replicates the renderer's ACES
   // filmic + sRGB output at the scene→texture boundary; downstream ops then see
   // exactly what a direct render would have shown.
   MAT_TONEMAP ??= makeMaterial({
+    extras: { uKeepAlpha: 0 },
     frag: `
       vec3 RRTAndODTFit(vec3 v) {
         vec3 a = v * (v + 0.0245786) - 0.000090537;
@@ -1010,19 +1091,23 @@ function ensurePassMaterials() {
           vec3( -0.53108,  1.10813, -0.07276 ),
           vec3( -0.07367, -0.00605,  1.07602 )
         );
-        vec3 c = texture2D(tex0, vUv).rgb;
-        c = ACESInputMat * (c / 0.6);
+        vec4 s = texture2D(tex0, vUv);
+        vec3 c = ACESInputMat * (s.rgb / 0.6);
         c = clamp(ACESOutputMat * RRTAndODTFit(c), 0.0, 1.0);
         c = mix(pow(c, vec3(0.41666)) * 1.055 - 0.055, c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308))));
-        gl_FragColor = vec4(c, 1.0);
+        // uKeepAlpha 1: a geometry layer's real coverage, off its transparent
+        // clear. 0: the display scene — it sits on an opaque background, so
+        // its honest coverage is 1 even where blended materials smudged the
+        // GL destination alpha.
+        gl_FragColor = vec4(c, mix(1.0, s.a, uKeepAlpha));
       }`,
   });
   MAT_BRIGHT ??= makeMaterial({
     extras: { uThresh: 0.7 },
     frag: `
       void main() {
-        vec3 c = texture2D(tex0, vUv).rgb;
-        gl_FragColor = vec4(max(c - uThresh, 0.0) / max(1.0 - uThresh, 0.001), 1.0);
+        vec4 c = texture2D(tex0, vUv);
+        gl_FragColor = vec4(max(c.rgb - uThresh, 0.0) / max(1.0 - uThresh, 0.001), c.a);
       }`,
   });
   MAT_BLUR ??= makeMaterial({
@@ -1031,20 +1116,23 @@ function ensurePassMaterials() {
       void main() {
         float w[5];
         w[0] = 0.227027; w[1] = 0.1945946; w[2] = 0.1216216; w[3] = 0.054054; w[4] = 0.016216;
-        vec3 c = texture2D(tex0, vUv).rgb * w[0];
+        // all four channels: blurring premultiplied rgba is the correct blur
+        // of a transparent image, feathered coverage included
+        vec4 c = texture2D(tex0, vUv) * w[0];
         for (int i = 1; i < 5; i++) {
           vec2 o = uDir * uTexel * float(i);
-          c += texture2D(tex0, vUv + o).rgb * w[i];
-          c += texture2D(tex0, vUv - o).rgb * w[i];
+          c += texture2D(tex0, vUv + o) * w[i];
+          c += texture2D(tex0, vUv - o) * w[i];
         }
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = c;
       }`,
   });
   MAT_COMBINE ??= makeMaterial({
     extras: { uStrength: 1 },
     frag: `
       void main() {
-        gl_FragColor = vec4(texture2D(tex0, vUv).rgb + texture2D(tex1, vUv).rgb * uStrength, 1.0);
+        vec4 b = texture2D(tex0, vUv);
+        gl_FragColor = vec4(b.rgb + texture2D(tex1, vUv).rgb * uStrength, b.a);
       }`,
   });
 }
@@ -1348,6 +1436,9 @@ export class TextureOp {
     return r ? this._n('lookup', {}, [r]) : this;
   }
   tint(color = '#ffffff', o = {}) { return this._n('tint', { color, ...o }); }
+  // .alpha(0.5) is a half-faded image; .alpha(map) fades per pixel by the
+  // map's luma. Fading is premultiplied, so the color dims with the coverage.
+  alpha(v = 1) { return this._n('alpha', { alpha: v }); }
   // Sugar over .transform({ translate: map }): the only thing displace adds is
   // the mid 0.5 bias, without which an unsigned map only ever pushes one way.
   displace(map, amount = 0.1, o = {}) {
@@ -1465,13 +1556,16 @@ export class TextureOp {
     return new TextureOp(this.engine, 'tile', { nx, ny, map }, variants);
   }
 
-  // .out() — make this chain the display output. .out('name') — publish this
-  // point of the chain as a named buffer instead: input('name') reads it, same
-  // frame when the wiring is acyclic, last frame's snapshot when it loops
-  // (which is what makes a cycle a feedback loop). Both are passthrough.
+  // .out() — send this chain to the display; several naked .out()s stack in
+  // code order, each composited over the ones before it (premultiplied over,
+  // so only where a later chain is transparent do the earlier ones show).
+  // .out('name') — publish this point of the chain as a named buffer instead:
+  // input('name') reads it, same frame when the wiring is acyclic, last
+  // frame's snapshot when it loops (which is what makes a cycle a feedback
+  // loop). Both are passthrough.
   out(name) {
     if (name != null) this.engine.textureBuffers.set(String(name), this);
-    else this.engine.textureOutput = this;
+    else if (!this.engine.textureOutputs.includes(this)) this.engine.textureOutputs.push(this);
     return this;
   }
 
@@ -1529,7 +1623,7 @@ export class TextureOp {
 
     if (this.kind === 'scene') {
       const out = this._rt(ctx);
-      runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out);
+      runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out, (u) => { u.uKeepAlpha.value = 0; });
       return out.texture;
     }
 
@@ -1582,9 +1676,10 @@ export class TextureOp {
       const shownH = ctx.renderer.domElement.clientHeight || window.innerHeight;
       const fontPx = size <= 1 ? size * ctx.h : size * (ctx.h / shownH);
       // this one paints on a 2D canvas rather than into a uniform, so the
-      // color has to come back out as CSS
+      // color has to come back out as CSS; a null bg paints nothing at all
       const color = cssColor(p.color ?? '#ffffff', ctx.t);
-      const bg = cssColor(p.bg ?? '#000000', ctx.t);
+      const bgRaw = orDflt(p.bg, '#000000');
+      const bg = bgRaw == null || bgRaw === 'transparent' ? null : cssColor(bgRaw, ctx.t);
       const pos = p.pos ?? [0.5, 0.5];
       const px = resolve(pos[0], ctx.t), py = resolve(pos[1], ctx.t);
       const ff = cssFont(String(p.font ?? 'ui-monospace, Menlo, monospace'), p.weight ?? 700);
@@ -1592,19 +1687,25 @@ export class TextureOp {
       const weight = p.weight ?? 700;
       const align = p.align ?? 'center';
       // ff.loaded flips when a URL font finishes loading, forcing a redraw
-      const sig = [str, fontPx, color, bg, px, py, font, ff.loaded, weight, align, ctx.w, ctx.h].join('\x1f');
+      const sig = [str, fontPx, color, bg ?? '', px, py, font, ff.loaded, weight, align, ctx.w, ctx.h].join('\x1f');
       if (sig !== this._textSig) {
         this._textSig = sig;
         if (!this._canvas) {
           this._canvas = document.createElement('canvas');
           this._ctex = new THREE.CanvasTexture(this._canvas);
+          // the canvas holds straight alpha; the pipeline is premultiplied.
+          // With an opaque bg this is the identity it always was.
+          this._ctex.premultiplyAlpha = true;
         }
         const c = this._canvas;
         c.width = ctx.w;
         c.height = ctx.h;
         const g = c.getContext('2d');
-        g.fillStyle = bg;
-        g.fillRect(0, 0, c.width, c.height);
+        if (bg == null) g.clearRect(0, 0, c.width, c.height);
+        else {
+          g.fillStyle = bg;
+          g.fillRect(0, 0, c.width, c.height);
+        }
         g.fillStyle = color;
         g.font = `${weight} ${Math.round(fontPx)}px ${font}`;
         g.textAlign = align;
@@ -1769,8 +1870,8 @@ export class TextureOp {
         u.uCount.value = atlas.count;
         u.uPad.value.set(atlas.pad[0], atlas.pad[1]);
         u.uTint.value = p.color == null ? 1 : 0;
-        if (p.color != null) setColor(u.uColor.value, p.color, ctx.t);
-        setColor(u.uBg.value, p.bg ?? '#000000', ctx.t);
+        if (p.color != null) setColor4(u.uColor.value, p.color, ctx.t);
+        setColor4(u.uBg.value, orDflt(p.bg, '#000000'), ctx.t);
       });
       return out.texture;
     }
@@ -1914,7 +2015,8 @@ export function renderTextures(engine) {
   // With no texture .out() the display *is* the scene (we're only here to feed a
   // material map) — it still goes through the offscreen render, so that
   // scene() and input() mean the same thing they always do.
-  const needsScene = !engine.textureOutput || needsDepth || engine.textureNodes.some((n) => n.kind === 'scene');
+  const outs = engine.textureOutputs;
+  const needsScene = !outs.length || needsDepth || engine.textureNodes.some((n) => n.kind === 'scene');
   if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y
       || (needsDepth && !st.sceneRT.depthTexture))) {
     st.sceneRT?.depthTexture?.dispose();
@@ -1946,8 +2048,10 @@ export function renderTextures(engine) {
   };
 
   // named geometry layers: render the scene with the camera masked to one
-  // layer, on black (so layers comp cleanly with add/screen), then tonemap —
-  // same display-space boundary as scene(). Memoized per frame per name.
+  // layer, on a transparent clear — the layer carries real coverage alpha, so
+  // it comps 'over' as a sprite and still adds/screens exactly as it did on
+  // black — then tonemap, same display-space boundary as scene(). Memoized
+  // per frame per name.
   st.layerRTs ??= new Map();
   const layerTex = (name, bit) => {
     let e = st.layerRTs.get(name);
@@ -1966,13 +2070,16 @@ export function renderTextures(engine) {
       const cam = engine.camera;
       const mask = cam.layers.mask;
       const bg = engine.scene.background;
-      engine.scene.background = LAYER_BG;
+      const clearAlpha = renderer.getClearAlpha();
+      engine.scene.background = null;
+      renderer.setClearAlpha(0);
       cam.layers.mask = 1 << bit;
       renderer.setRenderTarget(e.lin);
       renderer.render(engine.scene, cam);
       cam.layers.mask = mask;
       engine.scene.background = bg;
-      runPass(ctx, MAT_TONEMAP, e.lin.texture, null, e.out);
+      renderer.setClearAlpha(clearAlpha);
+      runPass(ctx, MAT_TONEMAP, e.lin.texture, null, e.out, (u) => { u.uKeepAlpha.value = 1; });
     }
     return e.out.texture;
   };
@@ -2006,8 +2113,25 @@ export function renderTextures(engine) {
     renderer.render(engine.scene, engine.camera);
   }
 
-  if (engine.textureOutput) {
-    const outTex = engine.textureOutput.renderNode(ctx);
+  if (outs.length) {
+    let outTex = outs[0].renderNode(ctx);
+    // stacked outs fold left to right through the premultiplied-over pass, so
+    // the last .out() in the sketch lands on top; a single out skips all this
+    if (outs.length > 1) {
+      for (const key of ['stackA', 'stackB']) {
+        if (!st[key] || st[key].width !== size.x || st[key].height !== size.y) {
+          st[key]?.dispose();
+          st[key] = makeRT(size.x, size.y);
+        }
+      }
+      let flip = false;
+      for (let i = 1; i < outs.length; i++) {
+        const target = flip ? st.stackB : st.stackA;
+        runPass(ctx, MAT_OVER, outTex, outs[i].renderNode(ctx), target);
+        outTex = target.texture;
+        flip = !flip;
+      }
+    }
     runPass(ctx, MAT_COPY, outTex, null, null);
     // snapshot for next frame's input(); frozen while paused so trails hold
     if (!engine.paused && outTex !== st.feedbackRT.texture) {
@@ -2018,8 +2142,9 @@ export function renderTextures(engine) {
     // material, so what's on screen is the scene, reaching the canvas through
     // the same tonemap the scene texture uses (and snapshot for next frame's
     // input(), which is otherwise the one thing this path would break)
-    runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, null);
-    if (!engine.paused) runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, st.feedbackRT);
+    const opaque = (u) => { u.uKeepAlpha.value = 0; };
+    runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, null, opaque);
+    if (!engine.paused) runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, st.feedbackRT, opaque);
   }
   // named buffers: render each published chain (memoized if it was already
   // pulled this frame) and snapshot it for next frame's cyclic input(name)

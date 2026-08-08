@@ -105,7 +105,7 @@ export class Engine {
     // than opening wherever that one parked.
     this.orbitPose = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
     this.textureNodes = [];            // texture graph nodes from the current sketch
-    this.textureOutput = null;         // texture chain marked with .out(), if any
+    this.textureOutputs = [];          // texture chains marked with .out(), display-stacked in order
     this.textureBuffers = new Map();   // name -> node published with .out(name)
     this.textureMaps = [];             // texture chains bound to a material map slot
     this.geoLayers = new Map();        // name -> three.js layer bit, geometry .out(name)
@@ -211,7 +211,7 @@ export class Engine {
     // camera stays interactive while paused (unless the sketch drives it)
     if (!this.cameraProgrammed) this.controls.update();
     // textures feeding a material map need the graph running even with no .out()
-    if (this.textureOutput || this.textureMaps.length) {
+    if (this.textureOutputs.length || this.textureMaps.length) {
       try {
         renderTextures(this);
       } catch (e) {
@@ -417,6 +417,9 @@ export class Engine {
           await img.decode();
           m.el = img;
           m.texture = new THREE.Texture(img);
+          // the texture pipeline is premultiplied, and a PNG's alpha is
+          // straight — identity for the JPEGs and opaque PNGs it always fed
+          m.texture.premultiplyAlpha = true;
           m.texture.needsUpdate = true;
         } else {
           const el = document.createElement(kind === 'video' ? 'video' : 'audio');
@@ -685,7 +688,7 @@ export class Engine {
 
     for (const node of this.textureNodes) node.dispose();
     this.textureNodes = [];
-    this.textureOutput = null;
+    this.textureOutputs = [];
     this.textureBuffers.clear();
     this.textureMaps = [];
     this.geoLayers.clear();

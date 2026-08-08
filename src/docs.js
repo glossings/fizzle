@@ -40,8 +40,8 @@ export const GLOBALS = {
 
   scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far. With { focus, range } it measures distance from a focal plane instead — a depth-of-field mask."],
-  input: ['input(name?)', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus or a geometry layer, rendered on black."],
-  constant: ['constant(color)', "Texture generator: one flat color, whole frame. Any color form, or a fn of t."],
+  input: ['input(name?)', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite)."],
+  constant: ['constant(color)', "Texture generator: one flat color, whole frame. Any color form, or a fn of t; null, [r, g, b, a] and '#rrggbbaa' carry transparency, like every texture color slot."],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it. period/freq repeat it into bands, shape waveshapes each cycle, phase scrolls."],
   circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (soft feathers it), or a ring once thickness cuts the middle out. radius, thickness, soft and center take fns of t, or textures.'],
   ring: ['ring({ inner, outer, soft, center, color, bg })', "Texture generator: an annulus addressed by its two edges — circle() for when the hole is the point. inner and outer take fns of t; everything else is circle()'s."],
@@ -51,7 +51,7 @@ export const GLOBALS = {
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text on a solid background. Content can be a fn of t; \\n for multiline."],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   beat: ['beat(div = 1)', 'Tempo-synced phase ramp 0..1 over div beats (tempo in the sidebar).'],
@@ -85,7 +85,7 @@ export const METHODS = {
   color: ['.color(c)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists."],
-  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
+  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output — several naked .out()s stack in code order, later over earlier, showing through where a chain is transparent. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other. A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
@@ -122,7 +122,7 @@ export const METHODS = {
   floor: ['.floor()', 'Signal: round down to an integer.'],
   ceil: ['.ceil()', 'Signal: round up to an integer.'],
   abs: ['.abs()', 'Signal: absolute value.'],
-  tint: ['.tint(color, { bg })', "Texture: recolor by brightness — black becomes bg, white becomes color, everything between mixes. Both colors take fns of t."],
+  tint: ['.tint(color, { bg })', "Texture: recolor by brightness — black becomes bg, white becomes color, everything between mixes. Both colors take fns of t; bg: null keeps the dark end transparent, which turns a mask into a colored cutout."],
   when: ['.when(cond, s => ...)', 'Texture: per-frame switch — while cond >= 0.5 the chain becomes fn(chain), otherwise it passes through. Only the active branch renders.'],
   contrast: ['.contrast(v)', 'Texture: contrast around mid-gray (1 = unchanged). A texture in place of v sets it per pixel.'],
   saturation: ['.saturation(v)', 'Texture: 0 = grayscale, 1 = unchanged, >1 boosts. A texture in place of v sets it per pixel.'],
@@ -131,7 +131,7 @@ export const METHODS = {
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. chars is a set name ('ascii', 'dense', 'blocks', ...) or any string of your own, dark→bright. Cells keep the image's color until you name one."],
   transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'black' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
-  crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to black — nothing is resampled, the black closes in. Sizes above 1 are pixels of the frame's grid, 0..1 a fraction of the frame; h defaults to w. Sizes and center take fns of t."],
+  crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to transparent black — nothing is resampled, the frame closes in, and in a comp the surround is a cutout. Sizes above 1 are pixels of the frame's grid, 0..1 a fraction of the frame; h defaults to w. Sizes and center take fns of t."],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t, or textures to vary across the frame."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch. amount, angle and center take fns of t, or textures."],
   mask: ['.mask(mask, fn?)', 'Texture: without fn, multiply by the mask\'s luma (cutout). With fn, apply it only where the mask is bright. Mask and fn both accept fn-of-chain.'],
@@ -140,7 +140,8 @@ export const METHODS = {
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount, mid, smooth })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
-  comp: [".comp(layer, { mode, opacity })", 'Texture: composite layer over this chain. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color.'],
+  comp: [".comp(layer, { mode, opacity })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
+  alpha: ['.alpha(v)', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
@@ -372,8 +373,8 @@ const GLOBAL_KEY_DOCS = {
   },
   ramp: {
     type: "'linear' straight across, 'radial' out from the center, 'angular' swept around it. Default 'linear'.",
-    a: 'Color at the low end. Default black.',
-    b: 'Color at the high end. Default white.',
+    a: 'Color at the low end. Default black; null fades from transparent — a radial ramp to null is a vignette that comps over anything.',
+    b: 'Color at the high end. Default white; null fades to transparent.',
     angle: 'Direction of a linear ramp, or where an angular one starts, in radians. Default 0.',
     phase: 'Slides the sweep along itself, in cycles. Default 0. With period or shape named it wraps, so animating it scrolls the bands forever.',
     period: 'How much of the frame one cycle of the sweep spans. Default 1, a single gradient; below that it repeats into bands — 0.5 is two, and with type angular or radial that gives a pinwheel or rings. The useful range is 0..1, so a bare signal drops in.',
@@ -385,7 +386,7 @@ const GLOBAL_KEY_DOCS = {
     soft: 'Width of the fade at the rim, in UV units. Default 0 — a hard edge, antialiased to a pixel rather than left stepped. 0.05 is a visible feather, 0.2 a soft glow. A texture makes the rim crisp in places and vague in others.',
     center: '[x, y] in UV, 0..1 from bottom-left. Default [0.5, 0.5]. A texture takes x from red and y from green.',
     color: 'Color inside the disc. Default white.',
-    bg: 'Color outside it. Default black.',
+    bg: 'Color outside it. Default black; null leaves it transparent, so the disc comps over another chain as a sprite.',
     thickness: 'Width of the band, measured inward from the rim, leaving a hole. Unnamed is a solid disc; an explicit 0 draws nothing. A texture thins and fattens the band around its circumference.',
   },
   ring: {
@@ -394,7 +395,7 @@ const GLOBAL_KEY_DOCS = {
     soft: "Width of the fade, applied to both edges. Default 0 — hard, antialiased to a pixel. A soft big enough to swallow the band is how a ring becomes a glowing hoop. Takes circle()'s texture too.",
     center: '[x, y] in UV, 0..1 from bottom-left. Default [0.5, 0.5]. A texture takes x from red and y from green.',
     color: 'Color of the band. Default white.',
-    bg: 'Color of the hole and everything outside. Default black.',
+    bg: 'Color of the hole and everything outside. Default black; null leaves both transparent, so the base shows through the hole.',
   },
   videofile: {
     speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t.',
@@ -411,8 +412,8 @@ const GLOBAL_KEY_DOCS = {
     speed: 'How fast the field churns. Default 0.3; 0 freezes it into a still.',
     seed: 'Picks a different field of the same character. Reach for this when the shape is wrong but the settings are right.',
     channels: '1 for grayscale, 2-4 for independent fields in R/G/B/A. Default 1. Feed channels: 2 to .displace() so it wobbles both ways instead of along the diagonal.',
-    a: 'Color the low end shades to. Default black.',
-    b: 'Color the high end shades to. Default white.',
+    a: 'Color the low end shades to. Default black; null shades from transparent, so the clouds float over whatever is under the comp.',
+    b: 'Color the high end shades to. Default white; null shades to transparent.',
   },
   voronoi: {
     period: 'How much of the frame one cell spans. Default 1/6 — 0.5 is a few big plates, 0.025 is fine crazing. Same 0..1 range every period key has.',
@@ -421,13 +422,13 @@ const GLOBAL_KEY_DOCS = {
     blend: "How far past its own cell a pixel listens, in cell widths. Default 0 — hard edges. Raising it melts neighbouring cells into each other ('cells'), rounds the wells ('distance') and fattens the seams ('edges'). A texture here makes the pattern crisp in some places and molten in others.",
     seed: 'Picks a different scatter of the same character. Default 0.',
     mode: "'cells' (default) fills each cell flat, 'distance' shades by how far the pixel is from its point — dark at the points, bright at the walls — and 'edges' lights only the seams, where the two nearest points are equally close.",
-    a: 'Color the low end shades to. Default black. In cells mode each cell picks its own point on the a→b ramp, so two different colors give a scatter of tints; .lookup() a grayscale one through a gradient for a wider palette.',
-    b: 'Color the high end shades to. Default white.',
+    a: 'Color the low end shades to. Default black; null is transparent. In cells mode each cell picks its own point on the a→b ramp, so two different colors give a scatter of tints; .lookup() a grayscale one through a gradient for a wider palette.',
+    b: 'Color the high end shades to. Default white; null is transparent.',
   },
   text: {
     size: 'Values above 1 are screen pixels, like CSS; 0..1 is a fraction of frame height. Default 0.15.',
     color: 'Text color. Default white.',
-    bg: 'Background fill. Default black — comp the result with add or screen to drop it.',
+    bg: 'Background fill. Default black; null paints nothing, so the text comps straight over another chain.',
     pos: '[x, y] in UV, 0..1 from bottom-left. Default [0.5, 0.5].',
     font: "Any CSS family name, 'google:Name', or a font URL. Default a monospace stack.",
     weight: 'CSS weight, 100..900. Default 700.',
@@ -467,13 +468,13 @@ const METHOD_KEY_DOCS = {
     seed: 'Picks a different field, for a different shape at the same settings.',
   },
   translate: {
-    wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty. Default 'clamp'.",
+    wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty — transparent, so it comps as a cutout. Default 'clamp'.",
   },
   scale: {
-    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty. Default 'clamp' — invisible on a flat source; 'black' is what turns .scale(0.5) into a rectangle on empty background.",
+    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty — transparent, so it comps as a cutout. Default 'clamp' — invisible on a flat source; 'black' is what turns .scale(0.5) into a rectangle on empty background.",
   },
   rotate: {
-    wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty. Default 'clamp'.",
+    wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'black' leaves it empty — transparent, so it comps as a cutout. Default 'clamp'.",
   },
   mirror: {
     axis: "'x' folds left onto right, 'y' bottom onto top, 'both' does each in turn. Default 'x'.",
@@ -508,7 +509,7 @@ const METHOD_KEY_DOCS = {
     to: 'The span to map onto, as [lo, hi] — the same thing the two positional arguments say, for when naming both ends reads better. Default [min, max].',
   },
   tint: {
-    bg: "What black in the source becomes. Default '#000000', so a white-on-black image keeps its background and only the marks take the color.",
+    bg: "What black in the source becomes. Default '#000000', so a white-on-black image keeps its background and only the marks take the color. null leaves the dark end transparent — a mask becomes a colored cutout.",
   },
   kicks: {
     threshold: 'How far above its own moving average the level must jump to fire. Default 1.5 — lower catches more hits, higher only the hardest.',
@@ -519,7 +520,7 @@ const METHOD_KEY_DOCS = {
     translate: "[x, y] shift in UV, where 1 is a whole frame. Default [0, 0]. A texture here shifts each pixel by its own R and G; { map, amount, mid } scales and biases what it reads, which is all .displace() is.",
     scale: 'Zoom about the center. A number, or [x, y] to stretch. Default 1. A texture here takes x from red and y from green, so a grayscale map zooms uniformly.',
     rotate: 'Rotation about the center, in radians. Default 0. A texture here turns each pixel by its own angle, and since a rotation keeps the radius, everything slides along concentric circles — the map decides how far around, never how far out.',
-    wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'black'. Default 'clamp'.",
+    wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'black' (transparent, so it comps as a cutout). Default 'clamp'.",
   },
   crop: {
     center: '[x, y] the window sits on, in UV, 0..1 from bottom-left. Default [0.5, 0.5]. Takes a fn of t, which slides the window over a picture that stays put — the pan of a locked-off camera.',
@@ -529,7 +530,7 @@ const METHOD_KEY_DOCS = {
     twist: 'Rotates by distance from center, in radians — the middle holds still and the edges spiral. Default 0.',
     zoom: 'Scales about the center. Default 1.',
     center: '[x, y] the warp radiates from, in UV. Default [0.5, 0.5].',
-    wrap: "What fills outside the frame: 'clamp', 'repeat', 'mirror' or 'black'. Default 'black'.",
+    wrap: "What fills outside the frame: 'clamp', 'repeat', 'mirror' or 'black' (transparent, so it comps as a cutout). Default 'black'.",
   },
   chroma: {
     radial: 'true splits along the radius like a real lens — none at the center, most at the corners. Default false, a uniform split in one direction.',
@@ -544,7 +545,7 @@ const METHOD_KEY_DOCS = {
     cols: 'How many characters across the frame. Default 80.',
     rows: 'How many down. Default: whatever keeps each cell the same shape as the glyph in it, so the characters come out unstretched — set it yourself and they stretch to fit.',
     color: 'One ink color for every character — a green here is the terminal look. Default: none, so each cell takes the color of the image under it.',
-    bg: 'What fills a cell where the glyph has no ink. Default black.',
+    bg: 'What fills a cell where the glyph has no ink. Default black; null leaves it transparent, so only the characters land in a comp.',
     font: "Any CSS family name, 'google:Name', or a font URL. Default a monospace stack. A proportional face works, but every glyph is fitted to the widest in the set.",
     weight: 'CSS weight, 100..900. Default 400. Heavier ink brightens the whole image, since every glyph carries more of it.',
   },
@@ -554,7 +555,7 @@ const METHOD_KEY_DOCS = {
     smooth: 'Geometry only: how wide each vertex reads the map, in vertex spacings. Default 1 turns a busy map into relief rather than grit; 0 reads a single point (jagged, sparkling), 2-4 is doughy and rounded. Takes a fn of t.',
   },
   comp: {
-    mode: "Blend mode. Default 'over'. add and screen are the ones that drop a black background; luminosity/color are the non-separable pair that split luma from chroma.",
+    mode: "Blend mode. Default 'over', which lands the layer only where its alpha says so — a transparent-bg generator comps as a sprite. add and screen are the ones that drop an opaque black background; luminosity/color are the non-separable pair that split luma from chroma.",
     opacity: 'How much of the blended result mixes back in, 0..1. Default 1. Takes a fn of t.',
   },
   bloom: {
@@ -641,7 +642,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold invert
-        remap lookup tint displace comp mask blur bloom delay feedback when tile out`,
+        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
 };
