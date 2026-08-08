@@ -84,6 +84,7 @@ export class Engine {
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
     this.videos = new Map();        // camera captures by name, shared across re-runs
+    this.segments = new Map();      // person() masks by camera name, shared across re-runs
     this.media = new Map();         // imported media files (kind:name), shared across re-runs
     this.models = new Map();        // parsed .obj/.fbx geometry, shared across re-runs
     this.pointSets = new Map();     // shape -> sampled surface points, geo.sample()
@@ -369,6 +370,23 @@ export class Engine {
       }
     })();
     return v;
+  }
+
+  // Person mask for the person() texture: the same camera stream video(name)
+  // uses, fed through a lazily loaded segmenter (segment.js — the model and
+  // wasm download on first use). Entries survive re-runs like the streams do.
+  ensureSegment(name) {
+    const key = name ?? '';
+    let s = this.segments.get(key);
+    if (s) return s;
+    s = { texture: null, wanted: 0 };
+    this.segments.set(key, s);
+    const v = this.ensureVideo(name);
+    import('./segment.js').then(
+      ({ startSegment }) => startSegment(s, v),
+      (e) => warn(`person: ${e.message ?? e}`)
+    );
+    return s;
   }
 
   // A camera <video> a WebGL texture can read from. The texture is built from

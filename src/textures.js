@@ -99,6 +99,20 @@ const setVec3 = (target, v, t) => {
   }
 };
 
+// JS twin of the chromakey shader's toOklab, for sizing the key's ramps off
+// its perceptual saturation. Returns the chroma (length of Oklab a, b).
+function oklabChroma(k) {
+  const lin = (v) => Math.pow(Math.max(v, 0), 2.2);
+  const r = lin(k.x), g = lin(k.y), b = lin(k.z);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return Math.hypot(
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+  );
+}
+
 const VERT = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -735,6 +749,93 @@ const SPECS = {
     update(u, p, t) {
       u.uLevel.value = resolve(par(p.level, 0.5), t);
       u.uSoft.value = resolve(par(p.soft, 0), t);
+    },
+  },
+
+  // The keys carve alpha rather than paint a picture: what survives stays
+  // itself and the rest goes transparent. That's the difference from
+  // .threshold(), whose output is a B/W image with full coverage.
+  // Nearness is perceptual — distance in Oklab — and the keying radius is
+  // auto-sized to the key's saturation, with `tolerance` a multiplier on it.
+  // A saturated key (a screen) gets a generous radius measured in chroma
+  // alone, lightness factored out, so its lit and shadowed parts key
+  // together — chroma space is empty out there. A muted key sits in the
+  // crowd around gray, where a screen-sized radius would take most of any
+  // real frame with it: the radius tightens, lightness joins the distance,
+  // and spill fades out (a neutral key has no cast to scrub). update()
+  // resolves the ramps off the key's Oklab chroma (oklabChroma above).
+  chromakey: {
+    extras: { uKey: [0, 1, 0], uTol: 0.12, uSoft: 0.03, uSpill: 0.5, uLumaW: 0 },
+    // Oklab both ways (Björn Ottosson's matrices, public domain). The
+    // pipeline's display-space values are linearized by gamma 2.2 — close
+    // enough to sRGB for a distance metric.
+    pre: `
+      vec3 toOklab(vec3 c) {
+        c = pow(max(c, vec3(0.0)), vec3(2.2));
+        vec3 lms = vec3(
+          0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b,
+          0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b,
+          0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);
+        lms = pow(lms, vec3(1.0 / 3.0));
+        return vec3(
+          0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+          1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+          0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
+      }
+      vec3 fromOklab(vec3 lab) {
+        vec3 lms = vec3(
+          lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
+          lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
+          lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
+        lms = lms * lms * lms;
+        vec3 c = vec3(
+           4.0767416621 * lms.x - 3.3077115913 * lms.y + 0.2309699292 * lms.z,
+          -1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z,
+          -0.0041960863 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z);
+        return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
+      }`,
+    frag: `
+      void main() {
+        vec4 src = texture2D(tex0, vUv);
+        vec3 rgb = src.a > 0.0 ? src.rgb / src.a : src.rgb;
+        vec3 lab = toOklab(rgb);
+        vec3 kl = toOklab(uKey);
+        float d = length(vec3((lab.x - kl.x) * uLumaW, lab.yz - kl.yz));
+        float keep = uSoft > 0.0 ? smoothstep(uTol - uSoft, uTol + uSoft, d) : step(uTol, d);
+        // spill: pull the survivors' chroma off the key's axis, so the green
+        // cast on hair and edges goes gray instead of outliving the key
+        vec2 kn = normalize(kl.yz + 1e-6); // epsilon: a gray key would normalize 0/0
+        lab.yz -= kn * max(0.0, dot(lab.yz, kn)) * uSpill;
+        gl_FragColor = vec4(fromOklab(lab), 1.0) * src.a * keep;
+      }`,
+    update(u, p, t) {
+      setVec3(u.uKey.value, orDflt(p.color, '#00ff00'), t);
+      const sat = oklabChroma(u.uKey.value);
+      const ramp = (lo, hi) => {
+        const x = Math.min(1, Math.max(0, (sat - lo) / (hi - lo)));
+        return x * x * (3 - 2 * x);
+      };
+      const tol = (0.04 + 0.08 * ramp(0.03, 0.14)) * resolve(par(p.tolerance, 1), t);
+      u.uTol.value = tol;
+      u.uSoft.value = tol * resolve(par(p.soft, 0.25), t);
+      u.uSpill.value = resolve(par(p.spill, 0.5), t) * ramp(0.02, 0.08);
+      u.uLumaW.value = 1 - ramp(0.04, 0.12);
+    },
+  },
+
+  lumakey: {
+    extras: { uLevel: 0.5, uSoft: 0.05, uInvert: 0 },
+    frag: `
+      void main() {
+        vec4 src = texture2D(tex0, vUv);
+        float l = src.a > 0.0 ? dot(src.rgb / src.a, LUMA) : 0.0;
+        float keep = uSoft > 0.0 ? smoothstep(uLevel - uSoft, uLevel + uSoft, l) : step(uLevel, l);
+        gl_FragColor = src * (uInvert > 0.5 ? 1.0 - keep : keep);
+      }`,
+    update(u, p, t) {
+      u.uLevel.value = resolve(par(p.level, 0.5), t);
+      u.uSoft.value = resolve(par(p.soft, 0.05), t);
+      u.uInvert.value = resolve(p.invert ?? 0, t) >= 0.5 ? 1 : 0;
     },
   },
 
@@ -1428,6 +1529,10 @@ export class TextureOp {
     return this._n('crop', { w, h, ...o });
   }
   threshold(level = 0.5, o = {}) { return this._n('threshold', { level, ...o }); }
+  // the keys make cutouts, not masks: alpha drops where the color (or the
+  // darkness) matches, and what survives keeps its own color
+  chromaKey(color = '#00ff00', o = {}) { return this._n('chromakey', { color, ...o }); }
+  lumaKey(level = 0.5, o = {}) { return this._n('lumakey', { level, ...o }); }
   invert() { return this._n('invert'); }
   remap(map) {
     const m = this._texture(map, 'remap');
@@ -1730,6 +1835,14 @@ export class TextureOp {
     // camera capture (stream owned by the engine, black until it's live)
     if (this.kind === 'video') {
       return this.engine.ensureVideo(this.params.name).texture ?? blackTex();
+    }
+    // person(): the segmenter's mask, black until the model and stream are
+    // live. The stamp tells the inference loop someone is still reading, so
+    // an edited-out person() stops costing (see segment.js).
+    if (this.kind === 'segment') {
+      const s = this.engine.ensureSegment(this.params.name);
+      s.wanted = performance.now();
+      return s.texture ?? blackTex();
     }
 
     // imported media files (drag-drop / picker); black until loaded, and

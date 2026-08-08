@@ -891,6 +891,8 @@ scene()
   height); any CSS font, `\n` for multiline, content may be a fn of `t`.
   `bg: null` puts the letters on nothing.
 - `video(name?)` — live camera (see **video input**).
+- `person(name?)` — a live person mask cut from that same camera (see
+  **video input**).
 - `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` —
   imported media files (see **media files**).
 
@@ -1117,6 +1119,41 @@ voronoi({ freq: 7, speed: 0.4, a: '#0d1030', b: '#3a7f8f' })
 - On screen, transparency reads as black: buffers store color premultiplied
   ("the image over nothing"), so a lone transparent chain looks exactly like
   its opaque-black twin until something is behind it.
+
+### keying — alpha from the picture itself
+
+Footage arrives opaque; the keys carve the transparency in. Each drops alpha
+where its test matches and leaves the rest exactly as it was — a cutout ready
+to `.comp('over')` or stack on its own `.out()`, where `.threshold()` would
+have painted a black-and-white picture *of* the test instead.
+
+- `.chromaKey(color, { tolerance, soft, spill })` — transparent where the
+  pixel is perceptually near `color` (distance in Oklab), with the keying
+  radius sized to the key itself. A saturated key — a green screen — gets a
+  generous radius that ignores brightness, so the screen's lit and shadowed
+  parts go together and a plain `'#00ff00'` catches a real screen's spread of
+  greens. A muted key lives in the crowd around gray, where a radius like
+  that would take most of the frame with it: the radius tightens and
+  brightness joins the match, so only that color's real neighbors go.
+  `tolerance` scales the radius (default 1 — `2` is twice as loose, `0.5`
+  surgical), `soft` is the fade at the cut as a fraction of it (default
+  0.25). `spill` (default 0.5) scrubs the key color's cast off what
+  survives — the green fringe on hair goes gray instead of outliving the
+  screen — and fades out with the key's saturation, since a neutral key has
+  no cast.
+- `.lumaKey(level, { soft, invert })` — transparent below `level`; `invert`
+  keys out the bright side instead. The difference from `.threshold()` is what
+  survives: the picture's own colors, not white.
+- `person()` — not a filter but a mask source: white where the camera sees
+  somebody (see **video input**), so `.mask(person())` is a key that needs no
+  screen at all.
+
+```js
+// you, cut out of the room and put somewhere better
+noise({ period: 0.5, speed: 0.15, a: '#03102a', b: '#155a8a' })
+  .comp(video().mask(person().blur(3)), 'over')
+  .out()
+```
 
 ## masking & switching
 
@@ -1578,6 +1615,17 @@ video()
   .hue(t => t * 0.03)
   .out()
 ```
+
+**`person(name?)`** is the same camera read as a person mask: white where a
+segmentation model (MediaPipe's selfie segmenter, run locally in the browser)
+sees somebody, black elsewhere, gray at the uncertain edge. It shares
+`video(name)`'s stream and permission — same names, same facing words — and
+the first use also fetches the model and its wasm backend (~12 MB, cached
+after that), so it starts black for a beat longer than the camera does. The
+mask is computed at a small working resolution and smoothed on the way up;
+it's a texture like any other, so `.blur()`, `.threshold()` and `.edge()` all
+shape it, and `.mask(person())` on the video is the background-removal move
+(see **keying**, and the **camera-cutout** example).
 
 ## media files
 

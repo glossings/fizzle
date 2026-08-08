@@ -1216,6 +1216,9 @@ export function makeApi(engine) {
     // case-insensitive), no name = default camera. Permission prompt on
     // first use; the stream survives re-runs.
     video: (name) => new TextureOp(engine, 'video', name != null ? { name: String(name) } : {}),
+    // person mask from the same camera stream video(name) uses; the
+    // segmentation model loads on first use (see segment.js)
+    person: (name) => new TextureOp(engine, 'segment', name != null ? { name: String(name) } : {}),
 
     // Imported media files: drag a file into the window to import it (the
     // drop also types the call for you), or run an empty call for a picker.

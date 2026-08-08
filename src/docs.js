@@ -46,6 +46,7 @@ export const GLOBALS = {
   circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (soft feathers it), or a ring once thickness cuts the middle out. radius, thickness, soft and center take fns of t, or textures.'],
   ring: ['ring({ inner, outer, soft, center, color, bg })', "Texture generator: an annulus addressed by its two edges — circle() for when the hole is the point. inner and outer take fns of t; everything else is circle()'s."],
   video: ['video(name?)', "Texture generator: live camera — permission prompt on first use, black until the stream is live. No name = the default camera (the console lists sources); video('front') / video('back') ask for a facing; any other name matches a camera label by substring."],
+  person: ['person(name?)', "Texture generator: a live person mask — white where the camera sees somebody, black elsewhere, gray at the uncertain edge. Runs a small segmentation model (MediaPipe, ~12 MB fetched on first use) on the same camera stream and permission video(name) uses; black until both are live."],
   videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring. ctrl+r or restartMedia() rewinds."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
@@ -136,6 +137,8 @@ export const METHODS = {
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch. amount, angle and center take fns of t, or textures."],
   mask: ['.mask(mask, fn?)', 'Texture: without fn, multiply by the mask\'s luma (cutout). With fn, apply it only where the mask is bright. Mask and fn both accept fn-of-chain.'],
   threshold: ['.threshold(level, { soft })', 'Texture: luma threshold to a black/white mask. Both keys take a texture: a per-pixel level cuts the image against another image rather than against one number.'],
+  chromaKey: ['.chromaKey(color, { tolerance, soft, spill })', "Texture: key a color out — pixels perceptually near color (Oklab distance) go transparent and the rest keeps its own look, so the result is a cutout rather than .threshold()'s black-and-white. The keying radius is sized to the key itself: generous and blind to brightness for a saturated key, so a screen's lit and shadowed parts go together; tight for a muted one, where every muted color is a near neighbor. tolerance scales that radius — 2 is twice as loose, 0.5 half. color and the keys take fns of t."],
+  lumaKey: ['.lumaKey(level, { soft, invert })', 'Texture: key darkness out — alpha falls to zero below level and the bright part survives as a cutout with its color intact. invert keys out the bright side instead. level and the keys take fns of t.'],
   invert: ['.invert()', 'Texture: invert colors.'],
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
@@ -540,6 +543,15 @@ const METHOD_KEY_DOCS = {
   threshold: {
     soft: 'Width of the ramp either side of the cut. Default 0, a hard black-and-white edge. A texture makes the cut hard in some places and feathered in others.',
   },
+  chromaKey: {
+    tolerance: "Scales the keying radius, which is auto-sized to the key color — wide for a saturated screen color (a real screen's spread of greens goes with the plain '#00ff00' named), tight near gray, where the frame's muted colors crowd. Default 1; 2 doubles the reach, 0.5 halves it. Takes a fn of t.",
+    soft: 'Width of the fade either side of the cut, as a fraction of the radius. Default 0.25; 0 is a hard matte edge.',
+    spill: "How hard the key color's cast is scrubbed from the survivors, 0..1 — the green fringe on hair goes gray instead of outliving the key. Default 0.5, fading out as the key desaturates: a neutral key has no cast. 0 leaves every color untouched.",
+  },
+  lumaKey: {
+    soft: 'Width of the fade either side of the cut. Default 0.05; 0 is a hard matte edge.',
+    invert: 'true keys out the bright side and keeps the dark part. Takes a fn of t, so the key can flip mid-set.',
+  },
   ascii: {
     chars: "The vocabulary, ordered dark→bright — an unsorted set reads as noise. A set name, or any string of your own, which is what an unrecognized one is taken as. Default 'ascii' ( .:-=+*#%@).",
     cols: 'How many characters across the frame. Default 80.',
@@ -630,7 +642,7 @@ const names = (s) => s.trim().split(/\s+/);
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   light: 'ambient directional point spot hemi',
-  texture: 'scene depth input constant ramp circle ring video videofile imagefile imageseq noise voronoi text',
+  texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text',
   signal: 'beat audio audiofile rand sig T mouse',
 };
 
@@ -641,7 +653,7 @@ const methodKinds = {
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
-        posterize pixellate ascii transform warp chroma translate rotate scale crop threshold invert
+        posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
         remap lookup tint alpha displace comp mask blur bloom delay feedback when tile out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,

@@ -57,10 +57,6 @@ uniforms (numbers or fns of `t`).
   banding. `mode`: `'bayer2'|'bayer4'|'bayer8'` (ordered, from a constant
   matrix indexed by `gl_FragCoord`), `'random'` (hash of the pixel). Pairs with
   `.posterize()`; `levels: 2` plus a bayer matrix is the classic look.
-[ ] `.chromaKey({ color, tolerance, softness })` — alpha out where the pixel is
-  within `tolerance` of `color` in hue/chroma, `softness` feathering the edge.
-  `.lumaKey({ level, softness })` — same by brightness. Both differ from
-  `.threshold()` in that they produce a *cutout* to comp with, not a B/W image.
 [ ] `.reorder('bgr')` — permute channels by a 3-or-4 char string of `rgba`.
   Repeats allowed, so `'rrr'` broadcasts red to gray — that's the case
   `.mul([1,0,0])` can't do. No separate r/g/b ops.
