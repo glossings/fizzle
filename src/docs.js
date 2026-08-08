@@ -130,7 +130,7 @@ export const METHODS = {
   posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel. A texture in place of steps sets the count per pixel — scale it first (.mul(8)), since a raw map only ever says 0..1.'],
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. chars is a set name ('ascii', 'dense', 'blocks', ...) or any string of your own, dark→bright. Cells keep the image's color until you name one."],
-  transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
+  transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'transparent'|'clamp'|'repeat'|'mirror' })", "Texture: UV-space transform. What moves in from off-frame is empty by default, so a scaled-down chain comps as a small picture on nothing. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
   crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to transparent black — nothing is resampled, the frame closes in, and in a comp the surround is a cutout. Sizes above 1 are pixels of the frame's grid, 0..1 a fraction of the frame; h defaults to w. Sizes and center take fns of t."],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t, or textures to vary across the frame."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch. amount, angle and center take fns of t, or textures."],
@@ -139,7 +139,7 @@ export const METHODS = {
   invert: ['.invert()', 'Texture: invert colors.'],
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
-  displace: ['.displace(map, { amount, mid, smooth })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
+  displace: ['.displace(map, { amount, mid, smooth, wrap })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
   comp: [".comp(layer, { mode, opacity })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
   alpha: ['.alpha(v)', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
@@ -468,13 +468,13 @@ const METHOD_KEY_DOCS = {
     seed: 'Picks a different field, for a different shape at the same settings.',
   },
   translate: {
-    wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
+    wrap: "What fills the space shifted in from off-frame: 'transparent' leaves it empty — a cutout in a comp, 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects. Default 'transparent'.",
   },
   scale: {
-    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp' — invisible on a flat source; 'transparent' is what turns .scale(0.5) into a small picture on nothing, ready to comp over another chain.",
+    wrap: "What fills the space around a zoomed-out image: 'transparent' leaves it empty, so .scale(0.5) is a small picture on nothing, ready to comp over another chain. 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects. Default 'transparent'.",
   },
   rotate: {
-    wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
+    wrap: "What fills the corners swung in from off-frame: 'transparent' leaves them empty — a cutout in a comp, 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects. Default 'transparent'.",
   },
   mirror: {
     axis: "'x' folds left onto right, 'y' bottom onto top, 'both' does each in turn. Default 'x'.",
@@ -520,7 +520,7 @@ const METHOD_KEY_DOCS = {
     translate: "[x, y] shift in UV, where 1 is a whole frame. Default [0, 0]. A texture here shifts each pixel by its own R and G; { map, amount, mid } scales and biases what it reads, which is all .displace() is.",
     scale: 'Zoom about the center. A number, or [x, y] to stretch. Default 1. A texture here takes x from red and y from green, so a grayscale map zooms uniformly.',
     rotate: 'Rotation about the center, in radians. Default 0. A texture here turns each pixel by its own angle, and since a rotation keeps the radius, everything slides along concentric circles — the map decides how far around, never how far out.',
-    wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'transparent' (a cutout in a comp; 'black' is its old name and still works). Default 'clamp'.",
+    wrap: "What fills the space moved in from off-frame: 'transparent' (a cutout in a comp; 'black' is its old name and still works), 'clamp', 'repeat' or 'mirror'. Default 'transparent'.",
   },
   crop: {
     center: '[x, y] the window sits on, in UV, 0..1 from bottom-left. Default [0.5, 0.5]. Takes a fn of t, which slides the window over a picture that stays put — the pan of a locked-off camera.',
@@ -553,6 +553,7 @@ const METHOD_KEY_DOCS = {
     amount: 'How far it moves: on geometry, world units along the normal (default 0.2); on a texture, UV (default 0.1). Negative pulls the other way, and it takes a fn of t.',
     mid: 'The map value that means no movement. Default 0.5 for mid-gray maps; use 0 for a dark map you only want to push one way.',
     smooth: 'Geometry only: how wide each vertex reads the map, in vertex spacings. Default 1 turns a busy map into relief rather than grit; 0 reads a single point (jagged, sparkling), 2-4 is doughy and rounded. Takes a fn of t.',
+    wrap: "Texture only: what fills a pixel whose lookup lands off-frame. Default 'clamp', unlike the rest of transform — a wobble keeps the frame full instead of eating its own edges in a feedback loop. 'repeat', 'mirror' and 'transparent' are the others.",
   },
   comp: {
     mode: "Blend mode. Default 'over', which lands the layer only where its alpha says so — a transparent-bg generator comps as a sprite. add and screen are the ones that drop an opaque black background; luminosity/color are the non-separable pair that split luma from chroma.",

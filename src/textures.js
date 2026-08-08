@@ -24,7 +24,8 @@ const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 // shader reads that slot from a texture, so the uniform it would have filled
 // isn't in the compiled program. `par` keeps the CPU side on the default
 // instead of trying to make a number out of the marker.
-const par = (v, d) => (v == null || typeof v.tex === 'number' ? d : v);
+const isMap = (v) => typeof v?.tex === 'number';
+const par = (v, d) => (v == null || isMap(v) ? d : v);
 
 // Every periodic generator takes both spellings of the same number: `period` is
 // how much of the frame (or, on geometry, how many world units) one cycle spans,
@@ -605,7 +606,7 @@ const SPECS = {
 
   // also the pass behind .displace(): a texture-driven translate biased by mid
   transform: {
-    extras: { uTranslate: [0, 0], uScale: [1, 1], uRot: 0, uWrap: 0 },
+    extras: { uTranslate: [0, 0], uScale: [1, 1], uRot: 0, uWrap: 3 },
     texParams: { translate: 'uTranslate', scale: 'uScale', rotate: 'uRot' },
     frag: `
       void main() {
@@ -623,7 +624,12 @@ const SPECS = {
       const s = resolve(par(p.scale, 1), t);
       Array.isArray(s) ? u.uScale.value.set(resolve(s[0], t), resolve(s[1], t)) : u.uScale.value.set(s, s);
       u.uRot.value = resolve(par(p.rotate, 0), t);
-      u.uWrap.value = WRAP_MODES[p.wrap ?? 'clamp'] ?? 0;
+      // Moving the whole frame leaves off-frame space behind, and empty is the
+      // composable answer — .scale(0.5) is a small picture on nothing. A map in
+      // the translate slot (.displace()) is the other case: it means "this
+      // picture, wobbled", and a transparent border would eat further into the
+      // frame on every pass of a feedback loop, so that one still clamps.
+      u.uWrap.value = WRAP_MODES[p.wrap ?? (isMap(p.translate) ? 'clamp' : 'transparent')] ?? 3;
     },
   },
 

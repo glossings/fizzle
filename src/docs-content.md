@@ -1010,16 +1010,19 @@ scene()
 
 ## transforms & tiling
 
-- `.transform({ translate: [x, y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })`
+- `.transform({ translate: [x, y], scale, rotate, wrap: 'transparent'|'clamp'|'repeat'|'mirror' })`
   — UV-space transform. Or the shorthands `.translate(x, y)`, `.rotate(v)`,
   `.scale(v)` — each takes `{ wrap }` as a trailing option. Translation is in
-  UV units (1 = a full frame); scale zooms around center.
+  UV units (1 = a full frame); scale zooms around center. Whatever moves in
+  from off-frame is empty by default, so `.scale(0.5)` is a small picture on
+  nothing, ready to comp; `'clamp'` smears the edge pixel instead, `'repeat'`
+  tiles, `'mirror'` reflects. (`.displace()` is the one exception — a map-driven
+  wobble clamps, so a feedback loop doesn't eat its own edges.)
 - `.crop(w, h?, { center })` — keep the middle `w`×`h` and drop the rest to
   transparent black. Nothing is resampled: the picture stays the size it was
   and the emptiness closes in around it, the way `resolution()`'s own
   letterboxing does — black on its own, a cutout in a comp. It's
-  `.mask(constant('white').scale(0.5, { wrap: 'transparent' }))` with the
-  rectangle written in pixels.
+  `.mask(constant('white').scale(0.5))` with the rectangle written in pixels.
   Sizes above 1 count pixels of the frame's own grid — the numbers
   `resolution()` was given, or the canvas as displayed when a sketch didn't set
   one, so neither retina nor `quality()` moves the count. 0..1 is a fraction of
@@ -1097,15 +1100,15 @@ that comps over anything. So picture-in-picture is one `transform` and one
 
 ```js
 voronoi({ freq: 7, speed: 0.4, a: '#0d1030', b: '#3a7f8f' })
-  .comp(noise({ period: 0.5, a: '#200933', b: '#ff9f5f' }).transform({ scale: 0.35, translate: [0.28, 0.24], wrap: 'transparent' }), 'over')
+  .comp(noise({ period: 0.5, a: '#200933', b: '#ff9f5f' }).transform({ scale: 0.35, translate: [0.28, 0.24] }), 'over')
   .comp(text('LIVE', { size: 0.07, pos: [0.88, 0.9], color: '#ff4f4f', bg: null }), 'over')
   .out()
 ```
 
-- `wrap: 'transparent'` is what empties the off-frame region — the default
-  `'clamp'` would smear the small picture's edge pixels across the base.
-  (`'black'` is this mode's old name and still works; `.crop()` empties its
-  surround the same way.)
+- The off-frame region around the small picture is empty because that's what
+  `wrap` defaults to; `wrap: 'clamp'` would smear its edge pixels across the
+  base instead. (`'transparent'` is the mode's name, `'black'` its old one;
+  `.crop()` empties its surround the same way.)
 - Every other blend mode reads alpha too: the layer's alpha gates it per
   pixel, so a `mult` or `overlay` through a transparent-bg shape only lands
   inside the shape.
