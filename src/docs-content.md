@@ -46,7 +46,8 @@ a chain ends in `.out()`.
 |---|---|
 | `ctrl + enter` | run the sketch (resumes playback if paused) |
 | `ctrl + .` | pause / play (the orbit camera stays live) |
-| `ctrl + h` | hide / show the editor |
+| `ctrl + h` | hide / show the editor (the projector's code, while one is open) |
+| `ctrl + m` | hide / show the editor in this window, projector or not |
 | `ctrl + p` | toggle the sidebar (settings & sketches) |
 | `ctrl + hover` | pop docs for the API name under the cursor |
 | `F1` | open / close the projector window |
@@ -111,8 +112,10 @@ opens your phone's own colour picker. For the camera, see `video('front')` /
 **Projector (`F1`):** a second window with nothing in it but the visuals and
 the code — no sidebar, no status line, no scrollbars — meant to be dragged onto
 a projector or second display while you keep working in the main window. It
-mirrors: the code follows your typing and scrolls to your cursor, and the
-picture is the same framebuffer, so there's no second render to pay for. The
+mirrors: the code follows your typing and your scrolling — by line, since that
+pane is a different shape and wraps differently, so the line you have at the top
+is the line the audience has at the top — and the picture is the same
+framebuffer, so there's no second render to pay for. The
 code is laid over the picture and clipped to it, so it can never spill onto a
 letterbox bar or off the edge of a recording. Nothing in it is clickable.
 `F1` puts it away — from your window or from the projector's, where `escape`
@@ -126,7 +129,7 @@ While it's open, `ctrl + h` hides the code **on the projector** rather than in
 your window — you're typing on the laptop, so that's the one copy the keyboard
 can't otherwise reach, and it's what lets you drop the audience to pure visuals
 mid-set without losing your place. With no projector open it hides your own
-editor, as before.
+editor, as before. `ctrl + m` always means your window, either way.
 
 **`resolution(width, height)`** pins the render to an exact size and shape
 instead of the browser window. Your window shows it letterboxed — scaled to

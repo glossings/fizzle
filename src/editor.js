@@ -10,17 +10,22 @@ import { apiCompletions, apiHover } from './complete.js';
 import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
-//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+p sidebar
-//   ctrl+r restart · F1 projector window
+//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
+//   this window's code · ctrl+p sidebar · ctrl+r restart · F1 projector window
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange }) {
-  // With the projector up, ctrl+h is about what the *audience* sees: you're
-  // typing on the laptop, so the projector is the one window whose code you
-  // can't reach any other way. Without one it hides your own editor, as ever.
-  const toggleCode = () => {
-    if (onToggleProjectorCode?.()) return;
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange, onScroll }) {
+  const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
+  };
+
+  // With the projector up, ctrl+h is about what the *audience* sees: you're
+  // typing on the laptop, so the projector is the one window whose code you
+  // can't reach any other way. Without one it hides your own editor, as ever —
+  // and ctrl+m always means this window, projector or no.
+  const toggleCode = () => {
+    if (onToggleProjectorCode?.()) return;
+    toggleLocalCode();
   };
 
   const keys = Prec.highest(
@@ -29,6 +34,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Shift-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
       { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
       { key: 'Ctrl-h', run: () => { toggleCode(); return true; } },
+      { key: 'Ctrl-m', run: () => { toggleLocalCode(); return true; } },
       { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
       { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
       { key: 'F1', run: () => { onToggleProjector?.(); return true; } },
@@ -92,9 +98,47 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }
     else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
     else if (e.key === 'h') { e.preventDefault(); toggleCode(); }
+    else if (e.key === 'm') { e.preventDefault(); toggleLocalCode(); }
     else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
   });
+
+  // Where the view is scrolled to, as the projector can use it: the line at the
+  // top, plus how far into that line the top edge falls. A raw pixel offset is
+  // no use over there — that pane is a different width, so the same line wraps
+  // to a different height — but the fraction carries across, and it's what
+  // keeps the mirrored scroll smooth rather than jumping a line at a time.
+  //
+  // Everything here is client coordinates, deliberately: a pinch puts a
+  // transform on #editor, and a ratio of two transformed lengths is the same
+  // ratio the untransformed pair would give.
+  const scrollAnchor = () => {
+    if (parent.classList.contains('hidden')) return null;
+    const box = parent.getBoundingClientRect();
+    if (!box.height) return null;
+    const pos = view.posAtCoords({ x: box.left + 1, y: box.top + 1 }, false);
+    const line = view.state.doc.lineAt(pos);
+    const from = view.coordsAtPos(line.from);
+    const to = view.coordsAtPos(line.to);
+    const height = from && to ? to.bottom - from.top : 0;
+    const frac = height > 0 ? (box.top - from.top) / height : 0;
+    return { line: line.number, frac: Math.min(Math.max(frac, 0), 1) };
+  };
+
+  // Scrolling isn't a transaction, so it never reaches onChange — read it off
+  // the DOM instead. Capture, because which element actually scrolls differs:
+  // #editor's own overflow on a mouse, .cm-scroller's under a finger. Coalesced
+  // to a frame; scroll fires several times per frame on a trackpad.
+  let scrollQueued = false;
+  parent.addEventListener('scroll', () => {
+    if (scrollQueued) return;
+    scrollQueued = true;
+    requestAnimationFrame(() => {
+      scrollQueued = false;
+      const anchor = scrollAnchor();
+      if (anchor) onScroll?.(anchor);
+    });
+  }, true);
 
   // two fingers zoom the code; no-op unless the screen is one
   const zoom = pinchZoom(parent);
@@ -103,5 +147,5 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
   // just loaded, before anyone has asked to type — there, the first tap on the
   // code is the ask.
   if (!isTouch) view.focus();
-  return { view, toggleCode, resetZoom: () => zoom?.reset() };
+  return { view, toggleCode, scrollAnchor, resetZoom: () => zoom?.reset() };
 }

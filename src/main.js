@@ -156,8 +156,8 @@ async function handleMediaPick() {
 
 // F1: a second window with only the visuals and the code, for the projector
 function toggleProjector() {
-  const state = projector.toggle(view.state);
-  if (state === 'open') flash('📽 projector open — f there for fullscreen, ctrl+h hides its code, not yours');
+  const state = projector.toggle(view.state, editor.scrollAnchor());
+  if (state === 'open') flash('📽 projector open — f there for fullscreen, ctrl+h hides its code, ctrl+m yours');
   else if (state === 'closed') flash('projector closed');
   else {
     status.textContent = 'the browser blocked the projector window — allow pop-ups for this site';
@@ -196,6 +196,7 @@ function liveRun(code) {
 }
 
 let view;
+let editor;
 // `undoable` false keeps the swap out of the editor's own undo stack — after a
 // back/forward, ctrl+z should undo your last edit, not the navigation.
 const setCode = (code, undoable = true) => {
@@ -330,7 +331,7 @@ initDrop();
   const fromUrl = await codeFromHash();
   const initial = fromUrl ?? handoff ?? sidebar.initialCode ?? DEFAULT_SKETCH;
   const editorEl = document.getElementById('editor');
-  const editor = makeEditor(editorEl, initial, {
+  editor = makeEditor(editorEl, initial, {
     onRun: runResume,
     onTogglePause: togglePause,
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
@@ -348,6 +349,7 @@ initDrop();
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
     onChange: (u) => projector.sync(u),
+    onScroll: (anchor) => projector.scrollTo(anchor),
   });
   view = editor.view;
 

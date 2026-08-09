@@ -196,7 +196,27 @@ export function initProjector(canvas, getResolution, onPointer) {
     stopMirror = view = win = codeEl = stageEl = null;
   }
 
-  function open(srcState) {
+  // Scroll is mirrored by line and a fraction of it — see editor.js. Runs on
+  // every frame the main window scrolls, so it writes scrollTop straight rather
+  // than dispatching a transaction: a scrollIntoView effect can only land on a
+  // line boundary, which turns a smooth scroll over there into a step per line,
+  // and it drags a measure pass through this window for every frame of it.
+  function scrollTo(anchor) {
+    if (!isOpen() || !view || !anchor) return;
+    const { doc } = view.state;
+    const line = doc.line(Math.min(anchor.line, doc.lines));
+    const block = view.lineBlockAt(line.from);
+    if (!block) return;
+    // #proj-code holds the overflow, unless the copied styles put it on the
+    // scroller (the touch rules do); whichever actually scrolls is the one
+    // whose top edge the anchor line has to meet.
+    const scroller = codeEl.scrollHeight > codeEl.clientHeight ? codeEl : view.scrollDOM;
+    // block heights are the untransformed ones; documentTop is already on screen
+    const target = view.documentTop + (block.top + anchor.frac * block.height) * view.scaleY;
+    scroller.scrollTop += target - scroller.getBoundingClientRect().top;
+  }
+
+  function open(srcState, anchor) {
     close(); // a window closed from its own title bar may not have unwound yet
     win = window.open(SHELL_URL, 'fizzle-projector', 'popup=yes,width=1280,height=720');
     if (!win) return false;
@@ -210,14 +230,14 @@ export function initProjector(canvas, getResolution, onPointer) {
     const start = Date.now();
     const waitForShell = () => {
       if (target.closed || win !== target) return;
-      if (target.document?.body?.dataset.fizzle === 'projector') return build(srcState);
+      if (target.document?.body?.dataset.fizzle === 'projector') return build(srcState, anchor);
       if (Date.now() - start < 5000) setTimeout(waitForShell, 30);
     };
     waitForShell();
     return true;
   }
 
-  function build(srcState) {
+  function build(srcState, anchor) {
     const doc = win.document;
     copyStyles(doc);
     doc.documentElement.style.setProperty(
@@ -289,16 +309,22 @@ export function initProjector(canvas, getResolution, onPointer) {
     win.addEventListener('pagehide', () => { if (win) close(); });
     fitWindow(win, getResolution?.());
     layoutStage();
+    // Open where the main window is looking, not at the top of the file — a
+    // frame late, so the view has measured its own lines and the anchor lands
+    // on a real height rather than an estimated one.
+    win.requestAnimationFrame(() => scrollTo(anchor));
   }
 
   window.addEventListener('pagehide', close);
 
   return {
     // 'open' | 'closed' | 'blocked'
-    toggle(srcState) {
+    toggle(srcState, anchor) {
       if (isOpen()) return close(), 'closed';
-      return open(srcState) ? 'open' : 'blocked';
+      return open(srcState, anchor) ? 'open' : 'blocked';
     },
+
+    scrollTo,
 
     // ctrl+h from the main window lands here first: with a projector up it's
     // the audience's copy of the code you mean to hide, not your own. False
@@ -309,7 +335,8 @@ export function initProjector(canvas, getResolution, onPointer) {
     },
 
     // Replay the editor's own transactions, so the projected doc stays exactly
-    // in step (and scrolls to follow the cursor). If it ever drifts — the
+    // in step (and scrolls to follow the cursor between the scrollTo calls
+    // the main window's own scrolling sends). If it ever drifts — the
     // change set won't apply to a doc of the wrong length — resync wholesale.
     sync(update) {
       if (!isOpen() || !view) return;

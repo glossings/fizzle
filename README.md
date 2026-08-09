@@ -52,7 +52,8 @@ and doc lines, and `ctrl + hover` on any name pops the same docs.
 
 ## Keys
 
-`ctrl + enter` run · `ctrl + .` pause/play · `ctrl + h` hide/show editor ·
+`ctrl + enter` run · `ctrl + .` pause/play · `ctrl + h` hide/show editor
+(the projector's, while one is open) · `ctrl + m` hide/show this window's ·
 `ctrl + p` sidebar · `ctrl + hover` docs for a command · drag to orbit, scroll
 to zoom.
 
