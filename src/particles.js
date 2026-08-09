@@ -172,9 +172,14 @@ void main() {
   }
 
   if (!wasAlive && age >= 0.0) {
-    // born: fract(uTime...) varies the draw between incarnations of one texel
-    vec4 h1 = hash43(vec3(vUv, fract(uTime * 0.618) + 0.1));
-    vec4 h2 = hash43(vec3(vUv.yx * 7.13, fract(uTime * 0.317) + 0.2));
+    // born. hash43 wants inputs at integer scale — handed uv in 0..1 its first
+    // fract() never wraps, and neither neighbouring texels nor consecutive
+    // frames come out different enough, which draws spawn positions in bands
+    // that sweep as births cycle through the pool. gl_FragCoord is the texel;
+    // the key counts frames, wrapped so it keeps float precision all set.
+    float hk = floor(mod(uTime * 61.0, 8192.0));
+    vec4 h1 = hash43(vec3(gl_FragCoord.xy, hk));
+    vec4 h2 = hash43(vec3(gl_FragCoord.yx + 117.0, hk + 31.0));
     vec3 rdir = randUnit(h2.xy);
     ${surf
       ? `int si = int(min(h1.x, 0.999999) * uSurfN);
@@ -199,7 +204,7 @@ void main() {
       vec4 mc = textureLod(uSpawnTex, suv, 0.0);
       float wgt = dot(mc.rgb, vec3(0.2126, 0.7152, 0.0722)) * mc.a;
       if (wgt >= uThresh && rj <= wgt) { found = 1.0; mapc = mc.rgb; break; }
-      vec4 hj = hash43(vec3(suv * 41.3, h1.w + float(j)));
+      vec4 hj = hash43(vec3(suv * 1024.0, hk + float(j) * 7.0));
       suv = hj.xy;
       rj = hj.z;
     }

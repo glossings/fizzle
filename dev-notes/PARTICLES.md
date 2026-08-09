@@ -182,8 +182,30 @@ lands:
   frame with no `.out()`. The sim (which runs in the updaters, before the
   texture pass) reads last frame's pixels — one frame of latency nobody sees.
 
-The trap worth remembering: the spawn taps **must** use `textureLod(…, 0.0)`,
-never plain `texture()`. Every fragment of the sim pass reads a *random* uv, so
+Two traps, both of which shipped broken once and are worth remembering.
+
+**Hash inputs must be at integer scale.** `hash43` is a Hoskins hash: its first
+step is `fract(p * 0.1031)`, which for `p` in 0..1 never wraps and so mixes
+nothing. Seeded with `vUv` it left a smooth function whose level sets run along
+x+y, and spawn positions came out in *diagonal bands* — 14% density swing
+along the diagonals, chi²/dof of 7.5 against uniform. Neighbouring texels
+landed together 8% of the time (random: 0.8%) and a texel's consecutive frames
+agreed 6.7% of the time, so the pattern was stable in space *and* time, and the
+index-ordered birth cycle dragged it across the frame as a visible sweep.
+Seeding with `gl_FragCoord.xy` and a frame-counting key restores chi²/dof 0.99.
+`constant().particles({ rate: 40000, life: 10 })` is the test: a uniform map
+means every rejection tap succeeds first try, so the raw hash is on screen with
+nothing masking it.
+
+Note what this implies about the birth stagger: births *do* sweep the pool in
+texel-index order (that's the seed's `-index/rate`, and it's what makes the
+pool sustain exactly the asked-for rate). That sweep is invisible only so long
+as spawn position is independent of texel index — so anything correlating the
+two turns the emission schedule into a visible artifact. The rate guarantee and
+the randomness are coupled through the hash.
+
+**Map taps must use `textureLod(…, 0.0)`, never plain `texture()`.** Every
+fragment of the sim pass reads a *random* uv, so
 the derivatives between neighbouring fragments are huge and the hardware picks
 the top of the mip pyramid — the whole image averaged into a texel. The first
 version shipped with `texture()` and rendered a perfectly black screen with no
