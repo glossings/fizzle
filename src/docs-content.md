@@ -804,6 +804,35 @@ as fractions of the lifespan (defaults `0.1`, `0.3`; `.fade(false)` turns both
 off). `.soft(v)` shapes the dot's edge, and `.blend('add')` sums light where
 the swarm piles up — the glow look, and it never needs sorting.
 
+### images into particles
+
+`.particles()` on a texture chain works the same way — the image is the
+emitter. Births land on the bright pixels of the live picture (brighter pixels
+birth more, black none), mapped onto a plane facing the camera, and each
+particle keeps the color of the pixel it was born from unless `.color()` says
+otherwise:
+
+```js
+bg('#05060c')
+
+text('fizzle', { size: 0.3, bg: null })
+  .particles({ rate: 30000, life: [1, 2.5], speed: 0.25, threshold: 0.3 })
+  .turbulence({ amp: 0.5, period: 1.4 })
+  .force(0, 0.4, 0)
+  .size(0.02, 0.004)
+  .blend('add')
+  .out()
+```
+
+Any texture chain qualifies — `person().particles()` dissolves the camera's
+silhouette into a swarm wearing its colors — and the image stays live: a
+video keeps feeding new bright pixels to be born from, while particles
+already flying hold the color of the frame that made them. Two keys are
+texture-only: `size` is the world height of the plane the image maps onto
+(width follows the screen; default 4), and `threshold` how bright a pixel
+must be to give birth (default 0.1). A frame going dark throttles the stream
+rather than scattering births at random.
+
 ### .evolve — across a life
 
 For behavior beyond a two-color fade, `.evolve()` hands you each particle's

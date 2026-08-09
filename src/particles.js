@@ -7,8 +7,10 @@ import { setColor, makeColor, isDynamicColor } from './color.js';
 
 // GPU particles as a chainable op. A geometry is the emitter —
 // sphere().particles({ rate: 20000 }) births particles scattered over the
-// surface, leaving along its normals — and bare particles() emits from a
-// point. Forces chain on (.force/.turbulence/.attract/.drag), looks
+// surface, leaving along its normals — as is a texture: person().particles()
+// births on the bright pixels of the live image, mapped onto a world plane,
+// each particle keeping the color of the pixel it was born from. Bare
+// particles() emits from a point. Forces chain on (.force/.turbulence/.attract/.drag), looks
 // (.size/.color/.opacity/.fade/.blend/.soft), .evolve() for looks and forces
 // that change across a particle's life, .out() to land it in the scene.
 //
@@ -91,8 +93,9 @@ vec3 curlNoise(vec3 p) {
 `;
 
 // Everything starts waiting, staggered by index so the stream ramps in at the
-// asked-for rate instead of detonating the whole pool on frame one.
-const SEED_FRAG = /* glsl */ `
+// asked-for rate instead of detonating the whole pool on frame one. aux is the
+// third state texture a texture emitter carries (birth color).
+const seedFragment = (aux) => /* glsl */ `
 precision highp float;
 uniform vec2 uTexSize;
 uniform float uRate;
@@ -100,6 +103,7 @@ uniform vec2 uLife;
 in vec2 vUv;
 layout(location = 0) out vec4 oPos;
 layout(location = 1) out vec4 oVel;
+${aux ? 'layout(location = 2) out vec4 oAux;' : ''}
 ${HASH_GLSL}
 void main() {
   vec2 cell = floor(vUv * uTexSize);
@@ -107,15 +111,17 @@ void main() {
   vec4 h = hash43(vec3(cell, 7.77));
   oPos = vec4(0.0, 0.0, 0.0, -index / max(uRate, 1e-4) - 1e-4);
   oVel = vec4(0.0, 0.0, 0.0, max(mix(uLife.x, uLife.y, h.x), 1e-3));
+  ${aux ? 'oAux = vec4(0.0);' : ''}
 }
 `;
 
 // surf: spawn on a baked surface point, transformed by the source chain's
-// live matrix; the normal there is the 'out' direction. point: at uEmitPos,
-// where 'out' has nowhere to point and falls back to a random direction.
-// evolve: the .evolve() ramp's force row, an extra acceleration read at the
-// particle's own life fraction.
-function simFragment(surf, dirOut, forceLines, forceDecls, hasTurb, hasDrag, evolve) {
+// live matrix; the normal there is the 'out' direction. tex: spawn on a bright
+// pixel of a live texture, mapped onto a world plane, birth color kept in the
+// aux state texture. point: at uEmitPos, where 'out' has nowhere to point and
+// falls back to a random direction. evolve: the .evolve() ramp's force row, an
+// extra acceleration read at the particle's own life fraction.
+function simFragment(surf, tex, dirOut, forceLines, forceDecls, hasTurb, hasDrag, evolve) {
   return /* glsl */ `
 precision highp float;
 uniform sampler2D uPosTex;
@@ -133,6 +139,10 @@ ${surf ? `uniform sampler2D uSurf;
 uniform float uSurfN;
 uniform mat4 uEmitMat;
 uniform mat3 uEmitNMat;` : ''}
+${tex ? `uniform sampler2D uAuxTex;
+uniform sampler2D uSpawnTex;
+uniform vec2 uPlane;
+uniform float uThresh;` : ''}
 ${evolve ? `uniform sampler2D uRamp;
 uniform float uRampForce;` : ''}
 ${hasDrag ? 'uniform float uDrag;' : ''}
@@ -140,11 +150,13 @@ ${forceDecls.join('\n')}
 in vec2 vUv;
 layout(location = 0) out vec4 oPos;
 layout(location = 1) out vec4 oVel;
+${tex ? 'layout(location = 2) out vec4 oAux;' : ''}
 ${HASH_GLSL}
 ${hasTurb ? CURL_GLSL : ''}
 void main() {
   vec4 P = texture(uPosTex, vUv);
   vec4 V = texture(uVelTex, vUv);
+  ${tex ? 'vec4 aux = texture(uAuxTex, vUv);' : ''}
   vec3 pos = P.xyz;
   vec3 vel = V.xyz;
   float age = P.w;
@@ -172,13 +184,36 @@ void main() {
     float bl = length(base);
     base = bl > 1e-5 ? base / bl : rdir;`
       : `vec3 base = uEmitDir;`}`
-      : `pos = uEmitPos;
+      : tex
+        ? `// hunt for a bright pixel: taps accepted in proportion to their
+    // brightness, so dense areas birth more. All misses = a dark frame —
+    // wait a beat and try again, throttling the stream instead of spraying.
+    vec2 suv = h1.xy;
+    float rj = h1.z;
+    float found = 0.0;
+    vec3 mapc = vec3(1.0);
+    for (int j = 0; j < 8; j++) {
+      // textureLod, not texture: neighbouring fragments here read unrelated
+      // uvs, so derivative-picked mips would sample the whole image averaged
+      // down to a texel — every pixel dim, nothing ever bright enough to birth
+      vec4 mc = textureLod(uSpawnTex, suv, 0.0);
+      float wgt = dot(mc.rgb, vec3(0.2126, 0.7152, 0.0722)) * mc.a;
+      if (wgt >= uThresh && rj <= wgt) { found = 1.0; mapc = mc.rgb; break; }
+      vec4 hj = hash43(vec3(suv * 41.3, h1.w + float(j)));
+      suv = hj.xy;
+      rj = hj.z;
+    }
+    pos = vec3((suv - 0.5) * uPlane, 0.0);
+    vec3 base = uEmitDir;`
+        : `pos = uEmitPos;
     ${dirOut ? `vec3 base = rdir;` : `vec3 base = uEmitDir;`}`}
     vec3 d = mix(base, rdir, clamp(uEmitSpread, 0.0, 1.0));
     float dl = length(d);
     vel = (dl > 1e-4 ? d / dl : rdir) * mix(uSpeed.x, uSpeed.y, h2.z);
     life = max(mix(uLife.x, uLife.y, h2.w), 1e-3);
     age = min(age, uDt);
+    ${tex ? `if (found > 0.5) aux = vec4(mapc, 1.0);
+    else { pos = P.xyz; vel = V.xyz; age = -0.02 - 0.1 * h2.x; }` : ''}
   } else if (wasAlive) {
     vec3 f = vec3(0.0);
     ${forceLines.join('\n    ')}
@@ -193,6 +228,7 @@ void main() {
 
   oPos = vec4(pos, age);
   oVel = vec4(vel, life);
+  ${tex ? 'oAux = aux;' : ''}
 }
 `;
 }
@@ -206,7 +242,7 @@ void main() {
 // on both render paths (direct to canvas, and through scene()'s linear target
 // where both compile out).
 
-const drawVert = (evolve) => /* glsl */ `
+const drawVert = (evolve, mapColor) => /* glsl */ `
 uniform sampler2D uPosTex;
 uniform sampler2D uVelTex;
 uniform float uPixScale;
@@ -214,6 +250,8 @@ uniform vec2 uSizeA;
 uniform vec2 uSizeB;
 ${evolve ? `uniform sampler2D uRamp;
 uniform float uRampSize;` : ''}
+${mapColor ? `uniform sampler2D uAuxTex;
+varying vec3 vColor;` : ''}
 attribute vec2 aRef;
 varying float vFrac;
 varying float vRand;
@@ -225,6 +263,7 @@ float hash12(vec2 p) {
 void main() {
   vec4 P = texture2D(uPosTex, aRef);
   vec4 V = texture2D(uVelTex, aRef);
+  ${mapColor ? 'vColor = texture2D(uAuxTex, aRef).rgb;' : ''}
   if (P.w < 0.0) {
     gl_Position = vec4(2e5, 2e5, 2e5, 1.0);
     gl_PointSize = 1.0;
@@ -243,13 +282,15 @@ void main() {
 }
 `;
 
-const drawFrag = (evolve) => /* glsl */ `
+const drawFrag = (evolve, mapColor) => /* glsl */ `
 uniform vec3 uColorA;
 uniform vec3 uColorB;
 uniform vec2 uOpacity;
 uniform vec2 uFade;
 uniform float uSoft;
 ${evolve ? 'uniform sampler2D uRamp;' : ''}
+${evolve && mapColor ? 'uniform float uRampColor;' : ''}
+${mapColor ? 'varying vec3 vColor;' : ''}
 varying float vFrac;
 varying float vRand;
 void main() {
@@ -262,8 +303,8 @@ void main() {
   if (uFade.y > 0.0) env *= 1.0 - smoothstep(1.0 - uFade.y, 1.0, vFrac);
   ${evolve
     ? `vec4 rc = texture2D(uRamp, vec2(vFrac, 0.1666667));
-  gl_FragColor = vec4(rc.rgb, edge * env * rc.a);`
-    : `gl_FragColor = vec4(mix(uColorA, uColorB, vFrac), edge * env * mix(uOpacity.x, uOpacity.y, vFrac));`}
+  gl_FragColor = vec4(${mapColor ? '(uRampColor > 0.5 ? rc.rgb : vColor)' : 'rc.rgb'}, edge * env * rc.a);`
+    : `gl_FragColor = vec4(${mapColor ? 'vColor' : 'mix(uColorA, uColorB, vFrac)'}, edge * env * mix(uOpacity.x, uOpacity.y, vFrac));`}
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -273,11 +314,11 @@ void main() {
 // plumbing
 
 let quad = null;
-let seedMat = null;
+const seedMats = {};
 
-function stateRT(w, h) {
+function stateRT(w, h, mrt) {
   const rt = new THREE.WebGLRenderTarget(w, h, {
-    count: 2,
+    count: mrt,
     type: THREE.FloatType,
     minFilter: THREE.NearestFilter,
     magFilter: THREE.NearestFilter,
@@ -323,10 +364,11 @@ class EvolveHandle {
     this._opacity = opacity;
     this._size = null;
     this._force = null;
+    this._colorSet = false;
     return this;
   }
   size(v) { this._size = v; return this; }
-  color(c) { setColor(this._color, c, this._t); return this; }
+  color(c) { setColor(this._color, c, this._t); this._colorSet = true; return this; }
   opacity(v) { this._opacity = v; return this; }
   // an extra acceleration at this life point, on top of the chain's forces
   force(x = 0, y = 0, z = 0) {
@@ -341,7 +383,8 @@ class EvolveHandle {
 }
 
 export class ParticleOp {
-  // source: a GeoOp whose surface is the emitter, or null for a point
+  // source: a GeoOp whose surface is the emitter, a TextureOp whose bright
+  // pixels are, or null for a point
   constructor(engine, opts = {}, source = null) {
     if (engine == null) {
       throw new Error('new Particles() is not how a system starts — call particles(), or .particles() on a shape');
@@ -525,8 +568,10 @@ export class ParticleOp {
 
     // --- resolve the emitter ----------------------------------------------
     const src = this.source;
+    // a texture chain quacks renderNode; a geometry chain quacks _points
+    const texEmit = !!src && typeof src.renderNode === 'function';
     let surfPts = null;
-    if (src) {
+    if (src && !texEmit) {
       if (o.pos != null) warn("particles: the emitter is the shape — move it with the source chain's .position()");
       surfPts = src._points?.();
       if (!surfPts) {
@@ -536,13 +581,25 @@ export class ParticleOp {
         warn('particles: the emitter samples the surface before .noise()/.displace() — spawn points sit on the undeformed shape');
       }
     }
+    if (texEmit && o.pos != null) warn('particles: the emitter is the image — move the system with .position()');
     const surf = !!surfPts;
     const emitPos = asVec(o.pos ?? o.position) ?? [0, 0, 0];
-    // on a surface the natural exit is along the normal; from a point, up
-    const dirOut = o.dir === 'out' || (surf && o.dir == null);
-    const emitDir = dirOut ? [0, 1, 0] : (asVec(o.dir) ?? [0, 1, 0]);
+    // on a surface the natural exit is along the normal; from an image, off
+    // the plane toward the camera; from a point, up
+    const dirOut = !texEmit && (o.dir === 'out' || (surf && o.dir == null));
+    const emitDir = texEmit
+      ? (o.dir == null || o.dir === 'out' ? [0, 0, 1] : (asVec(o.dir) ?? [0, 0, 1]))
+      : dirOut ? [0, 1, 0] : (asVec(o.dir) ?? [0, 1, 0]);
     const spread = o.spread ?? 0.25;
     const speed = o.speed ?? 2;
+    // texture emitters: births land on a world plane at the origin — height in
+    // world units, width following the screen; only pixels past the luma
+    // threshold give birth. Unless .color() says otherwise, each particle
+    // keeps the color of the pixel it was born from.
+    const planeSize = o.size ?? 4;
+    const thresh = o.threshold ?? 0.1;
+    const mapColor = texEmit && this._colorA == null;
+    const mrt = texEmit ? 3 : 2;
 
     // --- compile the update pass -------------------------------------------
     const uniforms = {
@@ -573,6 +630,15 @@ export class ParticleOp {
         }
       },
     ];
+    if (texEmit) {
+      Object.assign(uniforms, {
+        uAuxTex: { value: null },
+        uSpawnTex: { value: null },
+        uPlane: { value: new THREE.Vector2(1, 1) },
+        uThresh: { value: resolve(thresh, 0) },
+      });
+      setters.push((u, t) => { u.uThresh.value = resolve(thresh, t); });
+    }
 
     const forceDecls = [];
     const forceLines = [];
@@ -636,19 +702,20 @@ export class ParticleOp {
     const w = Math.ceil(Math.sqrt(count));
     const h = Math.ceil(count / w);
     const state = carried('particles', () => ({}), freeState);
-    if (state.w !== w || state.h !== h) {
+    if (state.w !== w || state.h !== h || state.mrt !== mrt) {
       freeState(state);
       state.w = w;
       state.h = h;
-      state.rtA = stateRT(w, h);
-      state.rtB = stateRT(w, h);
+      state.mrt = mrt;
+      state.rtA = stateRT(w, h, mrt);
+      state.rtB = stateRT(w, h, mrt);
       state.read = state.rtA;
       state.write = state.rtB;
       // seed once, straight into the read target
-      seedMat ??= new THREE.RawShaderMaterial({
+      const seedMat = seedMats[mrt] ??= new THREE.RawShaderMaterial({
         glslVersion: THREE.GLSL3,
         vertexShader: SIM_VERT,
-        fragmentShader: SEED_FRAG,
+        fragmentShader: seedFragment(mrt > 2),
         uniforms: {
           uTexSize: { value: new THREE.Vector2() },
           uRate: { value: 1 },
@@ -703,7 +770,7 @@ export class ParticleOp {
     state.simMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: SIM_VERT,
-      fragmentShader: simFragment(surf, dirOut, forceLines, forceDecls, hasTurb, drags.length > 0, !!evolve),
+      fragmentShader: simFragment(surf, texEmit, dirOut, forceLines, forceDecls, hasTurb, drags.length > 0, !!evolve),
       uniforms,
     });
 
@@ -737,10 +804,12 @@ export class ParticleOp {
     if (evolve) {
       drawUniforms.uRamp = { value: rampTex };
       drawUniforms.uRampSize = { value: 0 };
+      if (mapColor) drawUniforms.uRampColor = { value: 0 };
     }
+    if (mapColor) drawUniforms.uAuxTex = { value: state.read.textures[2] };
     const material = new THREE.ShaderMaterial({
-      vertexShader: drawVert(!!evolve),
-      fragmentShader: drawFrag(!!evolve),
+      vertexShader: drawVert(!!evolve, mapColor),
+      fragmentShader: drawFrag(!!evolve, mapColor),
       uniforms: drawUniforms,
       transparent: true,
       depthWrite: false,
@@ -751,6 +820,17 @@ export class ParticleOp {
     points.frustumCulled = false;
     // the ramp is per-run (clearPatch disposes the material, not its textures)
     material.addEventListener('dispose', () => rampTex?.dispose());
+    if (texEmit) {
+      // the source chain renders through the same registry material maps use,
+      // so the image stays live; the sim samples last frame's pixels, one
+      // frame nobody can see
+      engine.textureMaps.push({
+        node: src,
+        uniform: uniforms.uSpawnTex,
+        isAlive: () => !!points.parent,
+        tex: null,
+      });
+    }
 
     const soft = this._soft;
     const baseColor = new THREE.Color();
@@ -759,6 +839,7 @@ export class ParticleOp {
       const opa = resolve(opA, t), opb = resolve(opB, t);
       let sizeSet = false;
       let forceSet = false;
+      let colorSet = false;
       for (let k = 0; k < RAMP_N; k++) {
         const lf = k / (RAMP_N - 1);
         // start each sample at the chain's own look for that life point
@@ -779,6 +860,7 @@ export class ParticleOp {
           sizeSet = true;
           rampData[(RAMP_N + k) * 4] = resolve(handle._size, t);
         }
+        if (handle._colorSet) colorSet = true;
         if (handle._force) {
           forceSet = true;
           const fbase = (RAMP_N * 2 + k) * 4;
@@ -789,6 +871,7 @@ export class ParticleOp {
       }
       drawUniforms.uRampSize.value = sizeSet ? 1 : 0;
       state.simMat.uniforms.uRampForce.value = forceSet ? 1 : 0;
+      if (drawUniforms.uRampColor) drawUniforms.uRampColor.value = colorSet ? 1 : 0;
       rampTex.needsUpdate = true;
     };
     const updater = (t, dt) => {
@@ -803,9 +886,16 @@ export class ParticleOp {
       // instead of teleporting every particle through its forces
       u.uDt.value = Math.min(Math.max(dt, 0), 0.1);
       for (const set of setters) set(u, t);
+      if (texEmit) {
+        // spawn plane: asked-for world height, width from the screen's aspect
+        engine.renderer.getDrawingBufferSize(drawSize);
+        const ph = Math.max(resolve(planeSize, t), 1e-3);
+        u.uPlane.value.set(ph * (drawSize.x / Math.max(drawSize.y, 1)), ph);
+      }
       if (dt > 0) {
         u.uPosTex.value = state.read.textures[0];
         u.uVelTex.value = state.read.textures[1];
+        if (texEmit) u.uAuxTex.value = state.read.textures[2];
         quad.render(engine.renderer, state.simMat, state.write);
         engine.renderer.setRenderTarget(null);
         const swap = state.read;
@@ -814,6 +904,7 @@ export class ParticleOp {
       }
       drawUniforms.uPosTex.value = state.read.textures[0];
       drawUniforms.uVelTex.value = state.read.textures[1];
+      if (mapColor) drawUniforms.uAuxTex.value = state.read.textures[2];
       // world-size points: px = size * (proj scale * bufferHeight / 2) / depth
       engine.renderer.getDrawingBufferSize(drawSize);
       drawUniforms.uPixScale.value = 0.5 * drawSize.y * engine.camera.projectionMatrix.elements[5];

@@ -55,7 +55,7 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
-  particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface instead. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
+  particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
 
   beat: ['beat(perBar = 4)', 'Tempo-synced phase, counting up: perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) once a bar.\nWhole part = which cycle, fraction = where inside it, the way sig() counts seconds. Shapers take the fraction (.sin() .tri() .sqr(), and .saw() for the plain 0..1 ramp); anything that floors takes the count, so beat(1).select([...]) steps a list on the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input level as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
@@ -91,7 +91,7 @@ export const METHODS = {
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists."],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output — several naked .out()s stack in code order, later over earlier, showing through where a chain is transparent. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
 
-  particles: ['.particles({ max, rate, life, speed, spread, dir })', "Geometry: the shape as a particle emitter — births scattered over its surface, leaving along the normals. The shape needn't be drawn, and its transform applies live: a spinning source spins its births.\nThe surface is sampled undeformed — a .noise() on the source moves the drawn shape, not the spawn points."],
+  particles: ['.particles({ max, rate, life, speed, spread, dir, size, threshold })', "The source as a particle emitter. On a shape: births scattered over its surface, leaving along the normals — the shape needn't be drawn, and its transform applies live. On a texture: births on the bright pixels of the live image, mapped onto a world plane, each particle keeping the color of the pixel it was born from (.color() overrides)."],
   force: ['.force(x, y, z)', 'Particles: a constant acceleration in world units/s² — .force(0, -2, 0) is gravity, .force(1, 0, 0) a crosswind. Components take fns of t; several .force() calls sum.'],
   turbulence: ['.turbulence({ amp, period, freq, speed, seed })', 'Particles: a curl-noise force field — the swirling, smokey drift. Divergence-free, so the swirl stirs the swarm without bunching it into clumps; several calls layer fields at different scales.'],
   attract: ['.attract([x, y, z], { strength, radius })', 'Particles: pull toward a point with inverse-square falloff — negative strength repels. Position components take fns of t, so the point can orbit, or follow mouse().'],
@@ -626,7 +626,9 @@ const METHOD_KEY_DOCS = {
     life: 'Seconds each particle lives. A [min, max] pair varies it per particle, which reads far more natural than one exact age. Default 3.',
     speed: 'Starting speed, units/s. A [min, max] pair varies it per particle. Default 2.',
     spread: 'How far off dir a particle may aim: 0 keeps every one on it, 1 forgets it entirely — a full sphere. Default 0.25.',
-    dir: "Which way particles leave: a vector, or 'out' — along the surface normal from a shape, any direction at all from a point. Default: 'out' from a shape, [0, 1, 0] from a point.",
+    dir: "Which way particles leave: a vector, or 'out' — along the surface normal from a shape, toward the camera from a texture, any direction at all from a point. Default: 'out' from a shape or texture, [0, 1, 0] from a point.",
+    size: 'Texture emitters: world height of the plane the image maps onto — width follows the screen. Default 4.',
+    threshold: 'Texture emitters: how bright a pixel must be to give birth, 0–1. Darker pixels birth fewer particles; below this, none. Default 0.1.',
   },
   turbulence: {
     amp: 'Strength of the swirl, units/s². Default 1. Takes a fn of t — audio here is the classic move.',
@@ -707,7 +709,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile out`,
+        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile particles out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
 };

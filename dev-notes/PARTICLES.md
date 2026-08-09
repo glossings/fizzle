@@ -156,17 +156,48 @@ This is the differentiator:
 every texture the engine already has can drive the sim, because the update
 pass can sample anything.
 
-- **`Texture.prototype.particles`** — the geometry verb on an image:
-  `person().particles({...})`, spawn positions drawn from the texture's bright
-  pixels — a human silhouette dissolving into embers. Implementation: sample
-  the map at a hashed uv on spawn; rejection-sample a few taps and fall back
-  to anywhere, weighting birth position by luma. Positions map to the camera
-  plane at a chosen depth, or onto a world-space rect.
+**Shipped: `Texture.prototype.particles`** — the geometry verb on an image:
+`person().particles({...})`, births on the texture's bright pixels. How it
+lands:
+
+- **Spawn** — rejection sampling in the sim shader: up to 8 hashed-uv taps
+  per birth, a tap accepted with probability `luma × alpha` (so brighter
+  pixels birth more), gated by `threshold` (default 0.1). All misses — a dark
+  frame — re-arms the texel with a short wait instead of spawning, so
+  darkness throttles the stream rather than spraying births at random.
+- **Mapping** — accepted uvs land on a world-space plane at the origin facing
+  +z: `size` (default 4) is its world height, width follows the screen's
+  aspect each frame. `dir` defaults to +z (toward the camera) with the usual
+  `spread`.
+- **Birth color** — the differentiator detail: texture emitters allocate a
+  *third* MRT state texture (the aux target; geometry emitters stay at two)
+  holding the color of the pixel each particle was born from, written at
+  spawn, carried till death. The draw shader uses it unless the chain set
+  `.color()` explicitly; under `.evolve()`, the fn's color wins only if it
+  actually calls `p.color()` (a flag baked with the ramp). Frozen-at-birth
+  rather than live-sampled, so a person stepping away leaves a swarm still
+  wearing them.
+- **Liveness** — the source chain is registered in `engine.textureMaps`, the
+  same registry material-map bindings use, so the texture graph renders every
+  frame with no `.out()`. The sim (which runs in the updaters, before the
+  texture pass) reads last frame's pixels — one frame of latency nobody sees.
+
+The trap worth remembering: the spawn taps **must** use `textureLod(…, 0.0)`,
+never plain `texture()`. Every fragment of the sim pass reads a *random* uv, so
+the derivatives between neighbouring fragments are huge and the hardware picks
+the top of the mip pyramid — the whole image averaged into a texel. The first
+version shipped with `texture()` and rendered a perfectly black screen with no
+error: every tap came back at the image's mean brightness, which for text on a
+transparent background is ~0.001, so nothing was ever bright enough to be
+born. `.displace()` learned the same lesson from the other side (it *wants* a
+footprint-matched level, hence `_needsMips`); anything sampling a map at
+scattered uvs wants level 0 instead.
+
+Still ahead in stage 2:
+
 - **`.force(texture, { amount })`** — a force field read from a map at the
   particle's projected position: optical-flow pushes (once a flow op exists),
   luma gradients, hand-painted fields.
-- **`.color(texture)`** — color each particle from a map where it was born
-  (webcam-colored swarms).
 
 None of this changes the architecture — it adds sampler uniforms and snippets
 to the same compiled shader. The work is in the uv-mapping conventions.

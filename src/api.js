@@ -913,6 +913,14 @@ class GeoOp {
   }
 }
 
+// The same verb on an image: person().particles() births on the bright pixels
+// of the live texture, each particle keeping the color of the pixel it was
+// born from. Defined here rather than in textures.js so particles.js and
+// textures.js don't import each other.
+TextureOp.prototype.particles = function (opts) {
+  return new ParticleOp(this.engine, opts, this);
+};
+
 // shadow: true on a light, or shadow: { ... } to tune it. Every option below
 // is one three.js property; only the defaults are ours, sized for the 10–30
 // unit scenes these sketches work at rather than three's own.
