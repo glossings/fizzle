@@ -25,7 +25,7 @@ const WORK_W = 256;
 const MODELS = { fast: fastModelPath, multi: multiModelPath };
 
 // a part is one or more of the multiclass model's labels, summed; 'person'
-// is everything that isn't background, which also works on the fast model.
+// is the whole person, which each model spells its own way (see run()).
 // It's the default rather than a part you'd ask for, so NAMED_PARTS is what
 // the docs list and what a bad part is measured against.
 const PART_LABELS = {
@@ -121,7 +121,9 @@ function run(loop) {
     loop.seg.segmentForVideo(canvas, lastTs, (result) => {
       const masks = result.confidenceMasks;
       if (!masks?.length) return;
-      // labels index the masks, so 'background' finds itself in either model
+      // labels index the masks, and the two models label nothing alike: the
+      // multiclass one opens with 'background', the fast one's whole labelmap
+      // is a single 'selfie' (see the labels.txt inside each .tflite)
       const conf = new Map();
       const byLabel = (l) => {
         const i = loop.labels.indexOf(l);
@@ -129,12 +131,15 @@ function run(loop) {
         if (!conf.has(i)) conf.set(i, masks[i].getAsFloat32Array());
         return conf.get(i);
       };
+      // so the whole person is 'background' inverted on one and 'selfie' taken
+      // straight on the other — asking either for the other's name gets null
       const bg = byLabel('background');
+      const whole = bg ?? byLabel('selfie');
       for (const [part, slot] of loop.slots) {
         const names = PART_LABELS[part];
-        const a = names ? byLabel(names[0]) : bg;
+        const a = names ? byLabel(names[0]) : whole;
         if (!a) continue;
-        writeSlot(slot, masks[0].width, masks[0].height, a, names ? byLabel(names[1]) : null, !names);
+        writeSlot(slot, masks[0].width, masks[0].height, a, names ? byLabel(names[1]) : null, !names && bg != null);
       }
     });
   };
