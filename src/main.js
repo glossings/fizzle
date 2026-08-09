@@ -335,7 +335,16 @@ initDrop();
     onTogglePause: togglePause,
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
     onToggleSidebar: sidebar.toggle,
-    onRestartMedia: () => { engine.restartMedia(); flash('⏮ media restarted'); },
+    // Allowed to restart the show only because a person asked, rather than an
+    // edit causing it. resetCarried frees state the patch still points at, so
+    // the rebuild belongs to the same action; run rather than runResume, so a
+    // paused screen stays frozen.
+    onRestartMedia: () => {
+      resetCarried();
+      engine.restartMedia();
+      run(view.state.doc.toString());
+      flash('⏮ restarted');
+    },
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
     onChange: (u) => projector.sync(u),

@@ -11,7 +11,7 @@ import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+p sidebar
-//   ctrl+r restart media files · F1 projector window
+//   ctrl+r restart · F1 projector window
 // Returns the view plus toggleCode, which the touch controls press too.
 export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange }) {
   // With the projector up, ctrl+h is about what the *audience* sees: you're

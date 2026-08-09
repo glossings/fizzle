@@ -1819,7 +1819,10 @@ by name like anything else, and an import of the same name shadows them.
 Files keep playing through re-runs (like camera streams), so livecoding
 doesn't restart your clip. To rewind:
 
-- `ctrl+r` — restart all media files, from the keyboard.
+- `ctrl+r` — restart: media files rewind, and everything a sketch has
+  accumulated over time (particle swarms, `.delay()` frames, `.feedback()`
+  trails, `counter()` positions) starts over. The clock keeps running, and a
+  paused sketch stays paused. Editing never does this — only this key.
 - `restartMedia(name?)` — in a sketch; runs on every execute. No name = all,
   a name matches by substring.
 - `restart:` option — a fn of `t` or signal; a rising edge through 0.5
