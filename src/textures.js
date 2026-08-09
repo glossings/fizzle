@@ -436,8 +436,16 @@ const SPECS = {
         float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
         float gy = (tl + 2.0 * tc + tr) - (bl + 2.0 * bc + br);
         if (uMode < 0.5) {
-          gl_FragColor = vec4(vec3(length(vec2(gx, gy)) * uStrength), 1.0);
+          float m = length(vec2(gx, gy)) * uStrength;
+          // coverage is the edge, not the source's: no line, no image. The
+          // source's own alpha can't serve — a text() glyph body is opaque and
+          // edgeless, and carrying it plates letter-shaped holes in whatever
+          // the edges get comped onto. rgb stays unclamped, so strength keeps
+          // its headroom for .threshold().
+          gl_FragColor = vec4(vec3(m), min(m, 1.0));
         } else if (uMode < 1.5) {
+          // slope and normal are data maps read straight by a material slot,
+          // not pictures to comp: opaque, and their flat baseline isn't 0
           gl_FragColor = vec4(clamp(vec2(gx, gy) * uStrength * 0.5 + 0.5, 0.0, 1.0), 0.5, 1.0);
         } else {
           vec3 nrm = normalize(vec3(-gx * uStrength, -gy * uStrength, 1.0));
@@ -895,7 +903,10 @@ const SPECS = {
       void main() {
         vec4 Bt = texture2D(tex0, vUv);      // base (this chain)
         vec4 Lt = texture2D(tex1, vUv);      // layer (composited on top)
-        vec3 B = Bt.rgb, L = Lt.rgb;
+        // the blends take straight color: premultiplied rgb reads a half-covered
+        // white as mid gray, and la gates the result again below — coverage
+        // counted twice, which quietly squares any partial-alpha layer
+        vec3 B = Bt.rgb, L = Lt.rgb / max(Lt.a, 1e-4);
         vec3 r;
         float m = uMode;
         if (m < 0.5)       r = L;
@@ -920,12 +931,12 @@ const SPECS = {
         else               r = setLum(L, dot(B, LUMA));   // color: layer's color, base's brightness
         // The layer's alpha gates the blend per pixel; on opaque inputs la is
         // uOpacity and everything below collapses to the pre-alpha behavior.
-        // 'over' is the true premultiplied source-over; the other modes read
-        // premultiplied rgb straight, which is exact where the layer is opaque
-        // or absent and merely a touch soft along partial-alpha edges.
+        // 'over' is the true premultiplied source-over, so it takes the layer
+        // premultiplied; the rest blend straight and are gated back to
+        // coverage here.
         float la = clamp(Lt.a, 0.0, 1.0) * uOpacity;
         vec3 rgb = m < 0.5
-          ? L * uOpacity + B * (1.0 - la)
+          ? Lt.rgb * uOpacity + B * (1.0 - la)
           : mix(B, clamp(r, 0.0, 1.0), la);
         gl_FragColor = vec4(rgb, Bt.a + la - Bt.a * la);
       }`,

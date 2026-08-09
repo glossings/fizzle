@@ -93,7 +93,7 @@ export const METHODS = {
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
   radial: ['.radial(s => ...)', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam."],
   polar: ['.polar({ inverse })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
-  edge: ['.edge({ strength, spread })', 'Texture: Sobel edge magnitude (grayscale).'],
+  edge: ['.edge({ strength, spread })', 'Texture: Sobel edge magnitude (grayscale). Lines on nothing — the gaps are transparent, so edges comp without plating what they sit on.'],
   slope: ['.slope({ strength, spread })', 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
   normalMap: ['.normalMap({ strength, spread })', 'Texture: tangent-space normal map from luma height.'],
   levels: ['.levels({ contrast, saturation, gamma, hue })', 'Texture: combined tonal adjust. Every key takes a fn of t, or a texture for a value that varies across the frame.'],
