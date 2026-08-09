@@ -1629,9 +1629,9 @@ after that), so it starts black for a beat longer than the camera does. The
 mask is computed at a small working resolution and smoothed on the way up;
 it's a texture like any other, so `.blur()` feathers it, `.threshold()`
 re-cuts it, `.edge()` outlines it, and `.mask(person())` on the video is the
-background-removal move (see **keying**, and the **camera-cutout** example).
+background-removal move (see **keying**).
 Matte finishing is deliberately left to those chain ops rather than params of
-its own; the one baked-in knob is `smooth` (0..1, default 0.4) — how much of
+its own; the one baked-in knob is `smooth` (0..0.95, default 0.4) — how much of
 the previous frame's mask each new one keeps, steadying the model's flicker
 at the cost of a trailing edge on fast movement, which is the single
 trade-off no downstream op can revisit.

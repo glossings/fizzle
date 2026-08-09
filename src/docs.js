@@ -46,7 +46,7 @@ export const GLOBALS = {
   circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (soft feathers it), or a ring once thickness cuts the middle out. radius, thickness, soft and center take fns of t, or textures.'],
   ring: ['ring({ inner, outer, soft, center, color, bg })', "Texture generator: an annulus addressed by its two edges — circle() for when the hole is the point. inner and outer take fns of t; everything else is circle()'s."],
   video: ['video(name?)', "Texture generator: live camera — permission prompt on first use, black until the stream is live. No name = the default camera (the console lists sources); video('front') / video('back') ask for a facing; any other name matches a camera label by substring."],
-  person: ['person(name?, { part, smooth })', "Texture generator: a person mask from the live camera — white where a person is, black elsewhere. name picks a camera exactly like video()'s: no name = the default camera, 'front'/'back' = a facing, anything else matches a camera label by substring. part masks one region instead: 'hair', 'face', 'body', 'skin', 'clothes' or 'other'. First use fetches the model (~12 MB, +16 MB with a part) and prompts for camera permission; black until ready."],
+  person: ["person(name?, { part: 'hair'|'face'|'body'|'skin'|'clothes'|'other', smooth })", "Texture generator: a person mask from the live camera — white where a person is, black elsewhere. name picks a camera exactly like video()'s: no name = the default camera, 'front'/'back' = a facing, anything else matches a camera label by substring. part masks one region instead: 'hair', 'face', 'body', 'skin', 'clothes' or 'other'. First use fetches the model (~12 MB, +16 MB with a part) and prompts for camera permission; black until ready."],
   videofile: ["videofile(name?, { speed, loop, mute, restart, phase, jump })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring. ctrl+r or restartMedia() rewinds; phase scrubs it by hand, jump throws it around while it plays."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
@@ -403,7 +403,7 @@ const GLOBAL_KEY_DOCS = {
   },
   person: {
     part: "One region instead of the whole person: 'hair', 'face', 'body', 'skin' (face + body), 'clothes' or 'other' (accessories). Uses a larger model, fetched on first use.",
-    smooth: 'How much of the previous frame each new mask keeps, 0..1 — steadies flicker at the cost of a trailing edge. Default 0.4; 0 is the model raw. Takes a fn of t.',
+    smooth: 'How much of the previous frame each new mask keeps, 0..0.95 — steadies flicker at the cost of a trailing edge. Default 0.4; 0 is the model raw. Takes a fn of t.',
   },
   videofile: {
     speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t. Rates past 16 clamp; negative freezes, since no browser plays a video backwards.',

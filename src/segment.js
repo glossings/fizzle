@@ -25,7 +25,9 @@ const WORK_W = 256;
 const MODELS = { fast: fastModelPath, multi: multiModelPath };
 
 // a part is one or more of the multiclass model's labels, summed; 'person'
-// is everything that isn't background, which also works on the fast model
+// is everything that isn't background, which also works on the fast model.
+// It's the default rather than a part you'd ask for, so NAMED_PARTS is what
+// the docs list and what a bad part is measured against.
 const PART_LABELS = {
   person: null,
   hair: ['hair'],
@@ -35,6 +37,8 @@ const PART_LABELS = {
   clothes: ['clothes'],
   other: ['others'],
 };
+
+const NAMED_PARTS = Object.keys(PART_LABELS).filter((p) => p !== 'person');
 
 // segmenters by model, shared across cameras; VIDEO mode wants timestamps
 // that only go up, so every loop draws from one counter
@@ -69,11 +73,13 @@ function segmenter(model) {
 const loops = new Map();
 
 export function startSegment(slot, videoSlot, part, camName) {
-  if (part != null && !(part in PART_LABELS)) {
-    warn(`person: no part "${part}" — the parts are ${Object.keys(PART_LABELS).join(', ')}. Using the whole person`);
-    part = 'person';
-  }
-  const model = part == null ? 'fast' : 'multi';
+  // A bad part warns and keeps its own name: renaming it to 'person' would
+  // make two typos in one sketch share a slot key, the second evicting the
+  // first. PART_LABELS misses either way, which is run()'s whole-person path.
+  if (part != null && !(part in PART_LABELS))
+    warn(`person: no part "${part}" — the parts are ${NAMED_PARTS.join(', ')}. Using the whole person`);
+  // only parts that name labels need the 16 MB model; the rest read background
+  const model = PART_LABELS[part] ? 'multi' : 'fast';
   const key = `${model}|${camName}`;
   let loop = loops.get(key);
   if (!loop) {
@@ -85,7 +91,7 @@ export function startSegment(slot, videoSlot, part, camName) {
     );
     run(loop);
   }
-  loop.slots.set(part ?? 'person', slot);
+  loop.slots.set(part ?? '', slot);
 }
 
 function run(loop) {
