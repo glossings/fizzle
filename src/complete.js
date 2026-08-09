@@ -81,6 +81,17 @@ function chainKind(state, node, depth = 0) {
 // one of those.
 function kindOfName(state, node) {
   const name = textOf(state, node);
+
+  // select() is whichever kind it was handed, so read the arguments: a texture
+  // source among them makes a texture, anything else a signal. (A chain that
+  // reached it through a variable reads as a signal — the common spellings
+  // name the source inline.)
+  if (name === 'select') {
+    const args = node.nextSibling ? textOf(state, node.nextSibling) : '';
+    const names = args.match(/[A-Za-z_$][\w$]*/g) ?? [];
+    return names.some((w) => GLOBAL_KIND[w] === 'texture') ? 'texture' : 'signal';
+  }
+
   if (GLOBAL_KIND[name]) return GLOBAL_KIND[name];
 
   // .instance(20, x => x.…) — x is whatever the method hands its callback

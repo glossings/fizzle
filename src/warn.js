@@ -26,6 +26,16 @@ export function warn(msg) {
   window.dispatchEvent(new CustomEvent('fizzle-warning', { detail: msg }));
 }
 
+// Console only, same once-per-patch dedupe. For things a call couldn't honour
+// exactly but did something reasonable about anyway — a speed clamped to what
+// the browser will play is worth being able to look up, not worth a line in
+// the status bar every time a random lands out of range.
+export function note(msg) {
+  if (said.has(msg)) return;
+  said.add(msg);
+  console.warn(`fizzle: ${msg}`);
+}
+
 export const resetWarnings = () => said.clear();
 
 // A new run: anything that went quiet during the last one has been fixed (or

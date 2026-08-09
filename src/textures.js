@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
-import { warn } from './warn.js';
+import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
@@ -1109,6 +1109,46 @@ function blackTex() {
   return BLACK_TEX;
 }
 
+// Where a 0..1 phase lands in a clip: wrapped while it loops, clamped when it
+// doesn't, and never the exact duration — seeking there ends playback. null
+// until the metadata arrives and the duration is known.
+function phaseTime(ph, el) {
+  const dur = el.duration;
+  if (!(dur > 0) || !isFinite(dur)) return null;
+  const w = el.loop ? ph - Math.floor(ph) : Math.min(Math.max(ph, 0), 1);
+  return Math.min(w * dur, dur - 1e-3);
+}
+
+// Browsers only play a media element over a narrow range of rates — Chrome
+// throws outside 0.0625..16 rather than clamping, and thrown from a render
+// that would take the whole frame down with it. So the clamp happens here, the
+// assignment is guarded for browsers with a range of their own, and it's said
+// in the console only: a random speed landing out of range is not status-bar
+// news. (0 is not a rate but a freeze, and every browser takes it. Backwards
+// is not a rate either — no browser plays a media element in reverse.)
+//
+// Neither message quotes the offending number, unlike most warnings: the whole
+// point is a speed that lands out of range on its own, and a value in the text
+// would defeat the dedupe and print a line per frame.
+const RATE_MIN = 0.0625;
+const RATE_MAX = 16;
+
+export function setRate(el, rate, what) {
+  let r = rate;
+  if (r < 0) {
+    note(`${what}: speed can't go backwards — a media element only plays forwards. Freezing instead.`);
+    r = 0;
+  } else if (r !== 0) {
+    r = Math.min(Math.max(r, RATE_MIN), RATE_MAX);
+    if (r !== rate) note(`${what}: speed clamped to ${RATE_MIN}..${RATE_MAX}, the range the browser plays.`);
+  }
+  try {
+    el.playbackRate = r;
+  } catch {
+    /* a narrower range than we know about; the last rate it took stands */
+  }
+}
+
 function makeRT(w, h) {
   return new THREE.WebGLRenderTarget(w, h, {
     type: THREE.HalfFloatType,
@@ -1827,9 +1867,19 @@ export class TextureOp {
     }
 
     if (this.kind === 'switch') {
-      // both, not just the taken branch — the other allocates when cond flips
+      // all of them, not just the taken branch — the others allocate on a flip
       if (this._needsMips) for (const n of this.inputs) n._needsMips = true;
-      return this.inputs[resolve(this.params.cond, ctx.t) >= 0.5 ? 1 : 0].renderNode(ctx);
+      // cond picks between two (.when), index picks among any number (select)
+      const { cond, index } = this.params;
+      let i;
+      if (cond != null) i = resolve(cond, ctx.t) >= 0.5 ? 1 : 0;
+      else {
+        const n = this.inputs.length;
+        i = Math.floor(resolve(index, ctx.t)) % n;
+        if (!Number.isFinite(i)) i = 0;
+        else if (i < 0) i += n;
+      }
+      return this.inputs[i].renderNode(ctx);
     }
 
     // camera capture (stream owned by the engine, black until it's live)
@@ -1856,7 +1906,6 @@ export class TextureOp {
       const m = this.engine.ensureMedia('video', p.name);
       const el = m.el;
       if (el) {
-        if (p.speed != null) el.playbackRate = Math.max(0, resolve(p.speed, ctx.t));
         if (p.loop != null) el.loop = resolve(p.loop, ctx.t) >= 0.5;
         if (p.mute != null) el.muted = !!p.mute;
         // restart: fn of t (or signal); a rising edge through 0.5 rewinds
@@ -1865,6 +1914,36 @@ export class TextureOp {
           const v = resolve(p.restart, ctx.t);
           if (v >= 0.5 && (this._restartPrev ?? Infinity) < 0.5) el.currentTime = 0;
           this._restartPrev = v;
+        }
+        // phase says where in the clip to sit, jump says when to go there.
+        // Alone, phase scrubs continuously, which means stopping playback so
+        // the signal can hold a frame still — and a stopped element is silent.
+        // A jump trigger instead seeks and lets the clip run on from where it
+        // lands, so with mute: false the sound jumps around with the picture.
+        // The flag lives on the media record, not the node, so dropping phase
+        // from the call and re-running hands the clip back to playback.
+        const scrubbing = p.jump == null && p.phase != null;
+        if (m.scrubbing && !scrubbing) {
+          m.scrubbing = false;
+          if (!this.engine.paused) el.play().catch(() => {});
+        }
+        if (scrubbing) {
+          if (!el.paused) el.pause();
+          m.scrubbing = true;
+          const to = phaseTime(resolve(p.phase, ctx.t) || 0, el);
+          // only a moved target seeks, so a held phase decodes its frame once
+          if (to != null && Math.abs(to - (this._seekTo ?? -1)) > 1e-4) el.currentTime = this._seekTo = to;
+        } else {
+          if (p.speed != null) setRate(el, resolve(p.speed, ctx.t) || 0, `videofile "${p.name}"`);
+          // a rising edge through 0.5, like restart — but landing on phase
+          if (p.jump != null) {
+            const v = resolve(p.jump, ctx.t);
+            if (v >= 0.5 && (this._jumpPrev ?? Infinity) < 0.5) {
+              const to = phaseTime(resolve(p.phase ?? 0, ctx.t) || 0, el);
+              if (to != null) el.currentTime = to;
+            }
+            this._jumpPrev = v;
+          }
         }
       }
       return m.texture ?? blackTex();

@@ -169,7 +169,7 @@ export function snippetFor(files) {
       `sphere({ radius: 1.4, res: 128 })\n  .material({ pbr: ${q(mat.handle)}, repeat: 2 })\n  .out()`
     );
   }
-  if (loose.length > 1) parts.push(`imageseq([${loose.map(q).join(', ')}], beat(1).counter())`);
+  if (loose.length > 1) parts.push(`imageseq([${loose.map(q).join(', ')}], beat(4))`);
   else if (loose.length === 1) parts.push(`imagefile(${q(loose[0])})`);
   for (const f of files) {
     const kind = classifyFile(f);

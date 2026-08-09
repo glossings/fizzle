@@ -190,6 +190,12 @@ export function valueNoise(x) {
 let bpm = () => 120;
 export const setBpmSource = (fn) => { bpm = fn; };
 
+// Tempo position counted in note values: perBar cycles per bar of four beats,
+// so 4 is quarter notes and 16 sixteenths. Whole part = which cycle, fraction
+// = where in it. Shared by beat() and .beat().
+const BEATS_PER_BAR = 4;
+export const barPhase = (t, perBar) => (t * bpm() * perBar) / (60 * BEATS_PER_BAR);
+
 // A signal is a callable fn of t with chainable processing. Stateful ops
 // (smooth/counter/beat) advance on new t values and cache per t, so one node
 // shared by several parameters steps exactly once per frame.
@@ -265,14 +271,14 @@ export function sig(fn, ae = null) {
   f.tri = () => mk((t) => 1 - Math.abs(2 * frac(f(t)) - 1));
   f.saw = () => mk((t) => frac(f(t)));
   f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
-  // tempo-synced sample-and-hold: freeze a new value of this signal at the
-  // start of every `div` beats — rand().beat(4) resamples once per bar
-  f.beat = (div = 1) => {
+  // tempo-synced sample-and-hold: freeze a new value of this signal perBar
+  // times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar
+  f.beat = (perBar = 4) => {
     const s = carried('beat', () => ({ cycle: null, held: 0, lastT: null }));
     return mk((t) => {
       if (t === s.lastT) return s.held;
       s.lastT = t;
-      const c = Math.floor((t * bpm()) / 60 / resolve(div, t));
+      const c = Math.floor(barPhase(t, resolve(perBar, t)));
       if (c !== s.cycle) { s.cycle = c; s.held = f(t); }
       return s.held;
     });

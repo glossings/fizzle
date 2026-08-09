@@ -5,11 +5,11 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
-import { TextureOp, reciprocal, autoBuffer } from './textures.js';
+import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
-import { sig, valueNoise, setBpmSource } from './audio.js';
+import { sig, valueNoise, barPhase, setBpmSource } from './audio.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -1243,7 +1243,7 @@ export function makeApi(engine) {
       return new TextureOp(engine, 'imagefile', { name: name != null ? String(name) : null });
     },
     // several images with an index picking the current one — any fn of t or
-    // signal (floored, wrapped): imageseq([...], beat(1).counter()) steps on
+    // signal (floored, wrapped): imageseq([...], beat(4)) steps on
     // the beat, .hold(audio().kicks()).counter() on kicks. Default: 1/sec.
     imageseq(names, index) {
       if (names == null || !names.length) {
@@ -1281,7 +1281,7 @@ export function makeApi(engine) {
       engine.updaters.push((t) => {
         if (o.volume != null) m.ae.setVolume(resolve(o.volume, t));
         if (!m.el) return;
-        if (o.speed != null) m.el.playbackRate = Math.max(0, resolve(o.speed, t));
+        if (o.speed != null) setRate(m.el, resolve(o.speed, t) || 0, `audiofile "${name}"`);
         if (o.loop != null) m.el.loop = resolve(o.loop, t) >= 0.5;
         if (o.restart != null) {
           const v = resolve(o.restart, t);
@@ -1293,19 +1293,55 @@ export function makeApi(engine) {
     },
     // rewind imported media files (all, or by name substring) — also on ctrl+r
     restartMedia: (name) => engine.restartMedia(name),
-    // tempo-synced phase ramp: 0..1 over `div` beats (tempo set in the
-    // sidebar). Shape it — beat(2).sin() is a two-beat LFO, beat(0.25).sqr()
-    // gates on sixteenths, beat(4).counter().select([...]) walks a list per bar
-    beat(div = 1) {
-      return sig((t) => {
-        const phase = (t * engine.bpm) / 60 / resolve(div, t);
-        return phase - Math.floor(phase);
-      });
+    // tempo-synced phase, counting up: `perBar` cycles per bar of four beats
+    // at the sidebar's tempo, so the number is the note value — beat(4) is
+    // quarter notes, beat(16) sixteenths. Whole part = which cycle we're in,
+    // fraction = where inside it, exactly as sig() counts seconds. So the
+    // shapers take the fraction (beat(2).sin() is a two-beat LFO, beat(16).sqr()
+    // gates on sixteenths, beat(4).saw() is the 0..1 ramp) and anything that
+    // floors takes the count (beat(1).select([...]) walks a list a step per bar).
+    beat(perBar = 4) {
+      return sig((t) => barPhase(t, resolve(perBar, t)));
+    },
+    // pick from a list by index — .select() standing on its own, and the only
+    // form that works for texture chains: hand it values and it gives back a
+    // signal, hand it chains and it gives back a texture showing one of them,
+    // switched the way .when() does (all built once, only the chosen one
+    // rendering). The index is any fn of t or signal, floored and wrapped, so
+    // the timing is whatever drives it — beat(1) walks the list a step per
+    // bar, rand().mul(3).beat() lands somewhere new each beat.
+    // Default: one item per second, like imageseq().
+    select(items, index = (t) => t) {
+      if (!Array.isArray(items)) items = [items];
+      const textures = items.filter((v) => v instanceof TextureOp);
+      if (textures.length && textures.length !== items.length) {
+        warn('select: textures mixed with other values — only the textures are in the list');
+        items = textures;
+      }
+      if (items.some((v) => v instanceof GeoOp)) {
+        warn('select: a shape is built once, not per frame — select between its parameters instead');
+      }
+      if (!items.length) {
+        warn('select: nothing to select from — using 0');
+        return sig(() => 0);
+      }
+      const n = items.length;
+      const at = (t) => {
+        const i = Math.floor(resolve(index, t));
+        return Number.isFinite(i) ? ((i % n) + n) % n : 0;
+      };
+      if (textures.length) {
+        // a fixed index can never change — take that branch now, as .when() does
+        return typeof index === 'function'
+          ? new TextureOp(engine, 'switch', { index }, items)
+          : items[at(0)];
+      }
+      return sig((t) => resolve(items[at(t)], t));
     },
     // smooth random signal (deterministic value noise of t, 0..1) — the
     // signal-space cousin of the noise() texture. freq in Hz-ish wiggles/sec;
     // different seeds give independent signals. Pairs with .beat()/.hold():
-    // rand().beat(4) freezes a new random value each bar,
+    // rand().beat(1) freezes a new random value each bar,
     // rand().hold(audio().kicks()) one on every kick.
     // rand({ freq, seed }) and positional rand(freq, seed) both work.
     rand(freq = 1, seed = 0) {

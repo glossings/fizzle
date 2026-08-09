@@ -47,7 +47,7 @@ export const GLOBALS = {
   ring: ['ring({ inner, outer, soft, center, color, bg })', "Texture generator: an annulus addressed by its two edges — circle() for when the hole is the point. inner and outer take fns of t; everything else is circle()'s."],
   video: ['video(name?)', "Texture generator: live camera — permission prompt on first use, black until the stream is live. No name = the default camera (the console lists sources); video('front') / video('back') ask for a facing; any other name matches a camera label by substring."],
   person: ['person(name?, { part, smooth })', "Texture generator: a person mask from the live camera — white where a person is, black elsewhere. name picks a camera exactly like video()'s: no name = the default camera, 'front'/'back' = a facing, anything else matches a camera label by substring. part masks one region instead: 'hair', 'face', 'body', 'skin', 'clothes' or 'other'. First use fetches the model (~12 MB, +16 MB with a part) and prompts for camera permission; black until ready."],
-  videofile: ["videofile(name?, { speed, loop, mute, restart })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring. ctrl+r or restartMedia() rewinds."],
+  videofile: ["videofile(name?, { speed, loop, mute, restart, phase, jump })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring. ctrl+r or restartMedia() rewinds; phase scrubs it by hand, jump throws it around while it plays."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker). An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
@@ -55,11 +55,12 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
-  beat: ['beat(div = 1)', 'Tempo-synced phase ramp 0..1 over div beats (tempo in the sidebar).'],
+  beat: ['beat(perBar = 4)', 'Tempo-synced phase, counting up: perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) once a bar.\nWhole part = which cycle, fraction = where inside it, the way sig() counts seconds. Shapers take the fraction (.sin() .tri() .sqr(), and .saw() for the plain 0..1 ramp); anything that floors takes the count, so beat(1).select([...]) steps a list on the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input level as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and returning its level as a signal like audio(). Empty call = picker; drag a file in to import; ctrl+r or restartMedia() rewinds.'],
   restartMedia: ['restartMedia(name?)', 'Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute; ctrl+r does the same from the keyboard.'],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1. Positional rand(freq, seed) also works.'],
+  select: ['select([a, b, c], index?)', "Pick from a list by index (floored, wrapped) — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nThe index is any signal, so it carries the timing: beat(1) steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second."],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
   T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
   mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up. Default axis is x; mouse('down') is a 1/0 gate while a button is held."],
@@ -117,7 +118,7 @@ export const METHODS = {
   tri: ['.tri()', 'Signal: triangle shape of the value-as-phase (0..1 out).'],
   saw: ['.saw()', 'Signal: fractional part of the value — a ramp per cycle.'],
   sqr: ['.sqr(width = 0.5)', 'Signal: 1 while the phase is below width, else 0 — square LFO / rhythmic gate.'],
-  beat: ['.beat(div = 1)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal at the start of every div beats (tempo in the sidebar).'],
+  beat: ['.beat(perBar = 4)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal perBar times a bar, on the same grid as beat().'],
   hold: ['.hold(trigger, threshold = 0.5)', 'Signal: sample-and-hold driven by another signal — freezes the current value each time trigger crosses up through threshold.'],
   round: ['.round()', 'Signal: round to the nearest integer.'],
   floor: ['.floor()', 'Signal: round down to an integer.'],
@@ -405,10 +406,12 @@ const GLOBAL_KEY_DOCS = {
     smooth: 'How much of the previous frame each new mask keeps, 0..1 — steadies flicker at the cost of a trailing edge. Default 0.4; 0 is the model raw. Takes a fn of t.',
   },
   videofile: {
-    speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t.',
+    speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t. Rates past 16 clamp; negative freezes, since no browser plays a video backwards.',
     loop: 'Start over at the end. Default true.',
     mute: 'Default true. false lets the file\'s own audio play out loud.',
-    restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(8).sqr(0.05) retriggers every 8 beats.',
+    restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(1).sqr(0.05) retriggers every bar.',
+    phase: 'Where in the clip to sit: 0 the start, 1 the end. Setting it stops playback and hands the position to the signal, so phase: rand().beat(4) jumps around each beat. Wraps while looping, and is silent on its own — add jump to keep the sound.',
+    jump: 'Seeks to phase whenever this crosses 0.5 upward, then plays on from there. Unlike phase alone it leaves the clip running, so mute: false stays audible: { mute: false, phase: rand(), jump: beat(4).sqr(0.05) } re-cues picture and sound every beat.',
   },
   noise: {
     period: "How much of the frame one blob of noise spans. Default 0.25, four across — 0.5 is big soft shapes, 0.03 is fine grain. The useful range lives in 0..1 like ramp's, so a bare signal drops in: period: audio() churns the grain with the level.",
@@ -452,7 +455,7 @@ const GLOBAL_KEY_DOCS = {
   },
   audiofile: {
     volume: '0..1 playback level. Only how loud it plays — the signal it returns is unaffected.',
-    speed: 'Playback rate: 1 normal, 0.5 half. Takes a fn of t.',
+    speed: 'Playback rate: 1 normal, 0.5 half. Takes a fn of t. Rates past 16 clamp; negative freezes.',
     loop: 'Start over at the end. Default true.',
     restart: 'Rewinds whenever this crosses 0.5 upward.',
     chan: 'Analyse one channel by index instead of the mix.',
@@ -647,7 +650,7 @@ const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   light: 'ambient directional point spot hemi',
   texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text',
-  signal: 'beat audio audiofile rand sig T mouse',
+  signal: 'beat audio audiofile rand select sig T mouse',
 };
 
 const methodKinds = {

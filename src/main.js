@@ -272,7 +272,7 @@ async function filesFromDrop(dataTransfer) {
 
 // Drag & drop media import: dropped video/image/audio/model/HDRI files are
 // stored in the browser (IndexedDB) and a ready-made call — videofile('clip.mp4'),
-// model('ship.obj').out(), imageseq([...], beat(1).counter()) for several
+// model('ship.obj').out(), imageseq([...], beat(4)) for several
 // images — lands at the cursor. A folder of PBR maps becomes a textured shape.
 // Capture phase, so CodeMirror doesn't paste the file as text.
 function initDrop() {
