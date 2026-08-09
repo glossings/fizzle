@@ -12,25 +12,27 @@ the full app in a new tab. Try it:
 
 ```js autorun
 bg('#05060a')
-ambient({ intensity: 0.25 })
+ambient({ intensity: 0.15 })
 directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
 torusKnot({ radius: 1.1, tube: 0.32, res: 96 })
   .rotation(t => t * 0.4, t => t * 0.23, 0)
-  .noise({ amp: 0.18, freq: 2.2, octaves: 4, speed: 0.5 })
+  .noise({ amp: 0.07, freq: 2.2, octaves: 4, speed: 0.5 })
   .material({ color: '#4fd1c5', roughness: 0.25, metalness: 0.6 })
   .out()
 
 scene()
-  .comp(input().transform({ scale: 1.012, rotate: 0.004 }), 'over', 0.68)
-  .bloom({ threshold: 0.55, strength: 0.9 })
+  .comp(
+    input()
+      .transform({ scale: 1.2, rotate: 0.05 })
+      .hue(0.05)
+      .mul(0.9),
+    'add',
+    0.7
+  )
+  .bloom({ threshold: 0.65, strength: 0.5 })
   .out()
 ```
-
-That one sketch touches most of the system: a geometry chain ends in `.out()`
-to join the scene, then a texture chain picks that render up, feeds it back on
-itself for trails, blooms it, and makes itself the display output with its own
-`.out()`.
 
 ## quick start
 
@@ -214,53 +216,6 @@ forms that carry transparency: `null` (nothing at all), `[r, g, b, a]`, and
 `'#rrggbbaa'` hex. See **compositing** for what an image with holes in it can
 do. 3D colors stay opaque; a material's transparency is its `opacity`.
 
-## errors don't stop the video
-
-This is a livecoding environment, so a mistake never blanks the screen:
-
-- **A run that throws keeps the previous sketch playing.** The error shows in
-  the status bar with *(previous sketch still playing)*, and the visuals carry
-  on until the next run that works. Half-typed code is a normal state to be in.
-- **Anything a call can't honour is a warning, not a stop** — a `.material()`
-  property that doesn't exist, `.position()` on an `ambient()` light, `.noise()` on
-  an instance handle. The status bar says what was ignored and the frame goes
-  out anyway.
-- **A throw inside a per-frame fn doesn't kill the loop.** It's reported once
-  (not sixty times a second) and rendering continues; fixing it and re-running
-  clears the message.
-
-Warnings are amber, errors red, and warnings also go to the browser console
-prefixed `fizzle:`. A warning is only put on screen once: if it's still true
-on the next run you've already read it, and being nagged through a set is
-worse than useless. It speaks up again when it stops and comes back — or when
-the numbers it quotes change, which is what an edit to the call it's about
-does.
-
-## state that survives a re-run
-
-The other half of the same rule: editing the code must not restart the show.
-`ctrl + enter` tears the patch down and builds a new one, but the things that
-took time to accumulate are handed over rather than reset —
-
-- **sketch time.** `t` doesn't go back to 0, so nothing driven by it jumps.
-- **feedback buffers.** `input()`, every `input('name')` bus and every
-  `.feedback()` loop keep their contents, so trails survive the edit that
-  changed them.
-- **`.delay()` history**, for the same reason: a rebuilt delay adopts the
-  frames the old one had collected.
-- **stateful signals** — `.smooth()`'s level, `.counter()`'s position,
-  `.kicks()`'s adaptive baseline, `.beat()`/`.hold()`'s held value. Tweaking
-  `.smooth(0.2)` to `.smooth(0.3)` moves the time constant without dropping
-  the level back to zero, and a counter walking a palette doesn't jump back to
-  the first color every time you touch the sketch.
-
-What identifies a call across the rebuild is its kind and the order it's built
-in: the third `.smooth()` keeps being the third `.smooth()`. Arguments
-deliberately don't count, because changing them live is the point. Inserting a
-*new* stateful call above others shifts what they inherit — a blip on that one
-run, which is the trade for never resetting on any other. Loading a different
-sketch clears the lot.
-
 ## geometry
 
 Geometry ops start a chain; `.out()` builds the mesh and adds it to the scene.
@@ -406,44 +361,6 @@ Like `.noise()`, it can only move vertices the shape already has — `res` is
 where the detail comes from, not the map's resolution. A `sphere()` at the
 default `res: 64` has nothing like enough vertices to show a photo.
 
-**Every vertex is a pin.** In the desk toy you press your hand into, each pin
-reports the average height over its own little circle — that's why an
-impression comes out smooth and readable however fine the thing pressed into it
-was. `.displace()` reads the map the same way: a vertex averages the patch of
-the picture that belongs to it, out to one vertex spacing, and the slope it
-lights itself with is measured over that same patch. So a map far busier than
-the mesh comes out as relief rather than as grit, and the shading never shows
-detail the shape doesn't have.
-
-Under the hood that average is a mip pyramid — the same machinery that keeps a
-distant texture from shimmering, aimed at the mesh instead of the screen. Any
-map handed to `.displace()` gets one automatically, and each vertex reads the
-level that matches its own spacing. This is also the antialiasing: detail
-finer than the mesh fades out instead of aliasing into it, and a moving map
-displaces smoothly instead of sizzling frame to frame.
-
-`smooth` is the width of that footprint, in vertex spacings:
-
-| `smooth` | what you get |
-|---|---|
-| `0` | a point sample — every vertex on its own unrelated texel, sparkling and jagged |
-| `1` (default) | the pin: exactly its own share of the picture |
-| `2`–`4` | wider than it is — soft, doughy, rounded-off relief |
-
-Both directions are looks, not mistakes: `smooth: 0` on a fine map is a good
-crackle, and the average stays real however wide you go, so `smooth` can climb
-until the relief is only the map's broadest shapes. (`.blur()` on the map still
-works, and previews what the footprint will see — it just isn't needed anymore
-for displacement to look like a surface.)
-
-**Seams don't tear.** A uv layout usually splits somewhere the surface doesn't
-— the meridian and poles of a sphere, every edge of a box, mirrored islands on
-an imported model. Vertices that share a position but not a uv read the map at
-one agreed spot, so they move together and the shape stays closed under any
-map. A map that doesn't tile still visibly *jumps* across a sphere's seam —
-the mismatch lands as a steep quad beside it rather than an open crack — so a
-tiling map is still what makes a seam disappear entirely.
-
 **Several `.displace()` calls stack**, and `.noise()` joins the same sum — the
 heights add and the gradients add, so lighting follows the total rather than
 whichever came last. The useful shape of that is one wide map for the form and
@@ -455,26 +372,6 @@ sphere({ radius: 1.4, res: 260 })
   .displace(voronoi({ freq: 14, mode: 'edges' }), { amount: 0.06, smooth: 0.6 })
   .out()
 ```
-
-**Pick a map that's a height, not an edge.** Displacement wants a low-frequency
-signal — brightness that means *how far out*. `.edge()` and `.normalMap()` are
-the two that look like they should work and don't: `.edge()` is a high-pass,
-so it gives you a flat field with thin spikes on it wherever the picture
-changes, and `.normalMap()` encodes a *direction* in RGB, so reading its
-brightness as a height puts ridges where the picture has slopes rather than
-where it's bright. For a face pressed into pins, the map is plain luminance:
-`video()`, `.blur()` if the source is grainy, `.contrast()` to say how hard
-bright maps to far.
-
-Two things it can't do. `.sample()`/`.normal()` see the shape *before* the
-displacement — the map is only ever read on the GPU, and reading a render
-target back per point would stall the pipeline — so a layout source wants
-`.noise()`, which has a CPU twin. And the geometry needs uv coordinates to look
-the map up at: every built-in shape has them, an imported `model()` may not,
-and it says so if it doesn't.
-
-This is a different thing from `.material({ displacementMap })`, which is
-three's own and leaves normals alone: same movement, flat lighting.
 
 ### .instance — many copies, one mesh
 
