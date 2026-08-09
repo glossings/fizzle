@@ -38,7 +38,7 @@ const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
 
 // one filtered method list per chain kind, built once
 const methodsByKind = {};
-for (const kind of ['geo', 'light', 'texture', 'signal', 'inst']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst']) {
   methodsByKind[kind] = methodOptions.filter((o) => METHOD_KINDS[o.label]?.has(kind));
 }
 
@@ -66,8 +66,15 @@ function chainKind(state, node, depth = 0) {
   if (!node || depth > 40) return null;
   switch (node.name) {
     case 'CallExpression':
-    case 'MemberExpression':
       return chainKind(state, node.firstChild, depth + 1);
+    case 'MemberExpression': {
+      // .particles() changes what the chain is mid-spine: whatever it was
+      // called on, what comes back is a particle system — the walk stops here
+      // instead of running on down to the shape that started it
+      const prop = node.lastChild;
+      if (prop?.name === 'PropertyName' && textOf(state, prop) === 'particles') return 'particle';
+      return chainKind(state, node.firstChild, depth + 1);
+    }
     case 'ParenthesizedExpression':
       return chainKind(state, node.firstChild?.nextSibling, depth + 1);
     case 'VariableName':
@@ -103,12 +110,17 @@ function kindOfName(state, node) {
     if (kind) return kind;
   }
 
-  // const s = scene() — the last such binding before this point wins
+  // const s = scene() — the last such binding before this point wins. The
+  // whole initializer line is read, since a .particles() anywhere in it makes
+  // the variable a particle system rather than whatever started the chain.
   const before = state.doc.sliceString(0, node.from);
-  const re = new RegExp(`(?:const|let|var)\\s+${name.replace(/\$/g, '\\$')}\\s*=\\s*([A-Za-z_$][\\w$]*)`, 'g');
+  const re = new RegExp(`(?:const|let|var)\\s+${name.replace(/\$/g, '\\$')}\\s*=\\s*([^\\n]*)`, 'g');
   let init = null, m;
   while ((m = re.exec(before))) init = m[1];
-  return init ? GLOBAL_KIND[init] ?? null : null;
+  if (!init) return null;
+  if (/\.particles\s*\(/.test(init)) return 'particle';
+  const first = init.match(/[A-Za-z_$][\w$]*/);
+  return first ? GLOBAL_KIND[first[0]] ?? null : null;
 }
 
 function paramNames(state, fn) {

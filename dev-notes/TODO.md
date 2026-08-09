@@ -19,6 +19,7 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 ## General
 
 [ ] Check user-friendliness of the code
+[ ] Make filenames (e.g. of HDRIs) more portable. Maybe "polyhaven:<name>" so we can look it up by name if the file is shared
 
 ## New texture generators
 

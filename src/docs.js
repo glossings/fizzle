@@ -55,6 +55,8 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
+  particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface instead. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
+
   beat: ['beat(perBar = 4)', 'Tempo-synced phase, counting up: perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) once a bar.\nWhole part = which cycle, fraction = where inside it, the way sig() counts seconds. Shapers take the fraction (.sin() .tri() .sqr(), and .saw() for the plain 0..1 ramp); anything that floors takes the count, so beat(1).select([...]) steps a list on the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input level as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and returning its level as a signal like audio(). Empty call = picker; drag a file in to import; ctrl+r or restartMedia() rewinds.'],
@@ -84,10 +86,22 @@ export const METHODS = {
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
   normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there.'],
   material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. Empty .material() opens the Poly Haven browser. Every value takes a fn of t; every map slot takes an imported image by name, or a live texture chain."],
-  color: ['.color(c)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal."],
+  color: ['.color(c) | .color(birth, death)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.\nOn particles a second color fades each particle from birth to death."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists."],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output — several naked .out()s stack in code order, later over earlier, showing through where a chain is transparent. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
+
+  particles: ['.particles({ max, rate, life, speed, spread, dir })', "Geometry: the shape as a particle emitter — births scattered over its surface, leaving along the normals. The shape needn't be drawn, and its transform applies live: a spinning source spins its births.\nThe surface is sampled undeformed — a .noise() on the source moves the drawn shape, not the spawn points."],
+  force: ['.force(x, y, z)', 'Particles: a constant acceleration in world units/s² — .force(0, -2, 0) is gravity, .force(1, 0, 0) a crosswind. Components take fns of t; several .force() calls sum.'],
+  turbulence: ['.turbulence({ amp, period, freq, speed, seed })', 'Particles: a curl-noise force field — the swirling, smokey drift. Divergence-free, so the swirl stirs the swarm without bunching it into clumps; several calls layer fields at different scales.'],
+  attract: ['.attract([x, y, z], { strength, radius })', 'Particles: pull toward a point with inverse-square falloff — negative strength repels. Position components take fns of t, so the point can orbit, or follow mouse().'],
+  drag: ['.drag(v = 1)', 'Particles: exponential velocity damping — higher settles the swarm sooner. Takes a fn of t.'],
+  size: ['.size(a, b?)', 'Particles: point size in world units, shrinking with distance — one value, or birth → death. Where a number goes, a [min, max] pair scatters it per particle. Default 0.05.'],
+  opacity: ['.opacity(a, b?)', 'Particles: transparency 0..1 — one value, or birth → death. On top of the .fade() ramps; takes fns of t.'],
+  fade: ['.fade(in, out) | .fade(false)', "Particles: fade each particle in when it's born and out before it dies, so they don't blink into existence. The numbers are how long each fade takes, as fractions of the lifespan — defaults 0.1 and 0.3. false turns both off."],
+  blend: [".blend('over' | 'add')", "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up, and overlap never needs sorting."],
+  soft: ['.soft(v)', 'Particles: edge softness of each dot, 0 (hard disc) to 1 (pure falloff). Default 0.5. Takes a fn of t.'],
+  evolve: ['.evolve((p, life, t) => p.size(...).color(...).force(...))', "Particles: looks and forces across each particle's life. life runs 0 (birth) to 1 (death); whatever the fn sets on p (.size/.color/.opacity/.force) applies at that point, starting from the chain's own settings.\nSampled across life each frame rather than run per particle — so it sees life and t, never one particle's position."],
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other. A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
@@ -321,6 +335,15 @@ const GLOBAL_KEY_DOCS = {
   model: {
     center: "Sit the geometry's bounding box on the origin. Default true; false keeps the file's own placement.",
     fit: "Scale the longest axis to this many world units. Default 2, so anything lands usable. fit: 0 keeps the file's units, whatever they turn out to be.",
+  },
+  particles: {
+    max: "Ceiling on the pool: how many particles may exist at once. Only needed to cap memory — set rate and life and the pool sizes itself. Default 10,000 when no rate is given; the hard ceiling is ~1M.",
+    rate: 'Particles born per second. Default: whatever cycles the pool once per life. This is the density dial — rate × life is how many are alive at once.',
+    life: 'Seconds each particle lives. A [min, max] pair varies it per particle, which reads far more natural than one exact age. Default 3.',
+    speed: 'Starting speed, units/s. A [min, max] pair varies it per particle. Default 2.',
+    spread: 'How far off dir a particle may aim: 0 keeps every one on it, 1 forgets it entirely — a full sphere. Default 0.25.',
+    dir: "Which way particles leave: a vector, or 'out' for any direction at all. Default [0, 1, 0], up. (From a shape's .particles(), 'out' means along the surface normal, and is the default.)",
+    pos: 'Where the point emitter sits, [x, y, z]. Components take fns of t — a moving emitter draws trails through the air. Default the origin.',
   },
   ambient: {
     color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
@@ -597,6 +620,25 @@ const METHOD_KEY_DOCS = {
     far: 'Furthest it can see. Anything beyond casts nothing, and a far much larger than the scene stripes flat surfaces with acne.',
     area: 'Directional only: half-width of the shadowed box around the pos→target axis. Too big spreads the texels thin, too small cuts the shadow off mid-floor.',
   },
+  particles: {
+    max: "Ceiling on the pool: how many particles may exist at once. Only needed to cap memory — set rate and life and the pool sizes itself. Default 10,000 when no rate is given; the hard ceiling is ~1M.",
+    rate: 'Particles born per second. Default: whatever cycles the pool once per life. This is the density dial — rate × life is how many are alive at once.',
+    life: 'Seconds each particle lives. A [min, max] pair varies it per particle, which reads far more natural than one exact age. Default 3.',
+    speed: 'Starting speed, units/s. A [min, max] pair varies it per particle. Default 2.',
+    spread: 'How far off dir a particle may aim: 0 keeps every one on it, 1 forgets it entirely — a full sphere. Default 0.25.',
+    dir: "Which way particles leave: a vector, or 'out' — along the surface normal from a shape, any direction at all from a point. Default: 'out' from a shape, [0, 1, 0] from a point.",
+  },
+  turbulence: {
+    amp: 'Strength of the swirl, units/s². Default 1. Takes a fn of t — audio here is the classic move.',
+    period: 'World units from one swirl to the next — bigger is broader weather. Default 2.',
+    freq: 'Spatial frequency, 1/period — the other spelling, matching noise(). Default 0.5.',
+    speed: 'How fast the field itself drifts, so the weather changes. Default 0.5.',
+    seed: 'Different seeds give independent fields. Default 0.',
+  },
+  attract: {
+    strength: 'Pull in units/s² at distance 1, falling with the square of distance. Negative pushes away. Default 3.',
+    radius: 'Softening floor: inside it the pull stops growing, so a close pass slingshots instead of exploding. Default 0.5.',
+  },
 };
 
 for (const [docs, config] of [[GLOBAL_KEY_DOCS, GLOBAL_CONFIG], [METHOD_KEY_DOCS, METHOD_CONFIG]]) {
@@ -648,13 +690,17 @@ const names = (s) => s.trim().split(/\s+/);
 
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
+  particle: 'particles',
   light: 'ambient directional point spot hemi',
   texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text',
   signal: 'beat audio audiofile rand select sig T mouse',
 };
 
 const methodKinds = {
-  geo: 'position rotation scale align shadow noise displace instance material color sample normal out',
+  geo: 'position rotation scale align shadow noise displace instance material color sample normal particles out',
+  particle: 'force turbulence attract drag evolve size color opacity fade blend soft position rotation scale out',
+  // the handle .evolve() gives its fn — what a life point can set
+  evolve: 'size color opacity force',
   light: 'position target out',
   inst: 'position rotation scale align color material',
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
@@ -680,6 +726,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 // .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
 export const CALLBACK_KIND = {
   instance: 'inst',
+  evolve: 'evolve',
   tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture',
   displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',
 };

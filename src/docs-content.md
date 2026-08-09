@@ -751,6 +751,100 @@ by `/api/gfont` — the dev server serves it under `npm run dev`, the hosted sit
 serves it as a function. A plain static build has neither, so `font:` there is
 limited to installed fonts and font URLs.)
 
+## particles
+
+A shape can dissolve into particles: `.particles()` on any geometry chain
+births them scattered over its surface (the same fixed points `.sample()`
+reads), leaving along the normals. Everything — birth, flight, death — lives
+on the GPU, so tens of thousands cost what one mesh does. Forces chain on,
+each one a term in how the swarm flies:
+
+```js
+bg('#05060c')
+
+sphere({ radius: 1.6 })
+  .particles({ rate: 15000, life: [1.5, 3], speed: [0.3, 0.9], spread: 0.3 })
+  .turbulence({ amp: 1.8, period: 2.2, speed: 0.4 })
+  .drag(0.3)
+  .color('#7ee8ff', '#2b3f8f')
+  .blend('add')
+  .out()
+
+scene().bloom({ threshold: 0.4, strength: 0.9 }).out()
+```
+
+`particles({ rate, life, speed, spread, dir, pos, max })` is the same system
+from a point — a fountain rather than a dissolving surface. Either way the
+pool sizes itself: `rate × life` is how many are alive at once, `max` only
+caps it. `speed` and `life` take `[min, max]` pairs to vary per particle;
+`dir` is a vector or `'out'` (the surface normal — the default from a shape),
+`spread` how far off it a particle may aim. The source shape needn't be in
+the scene, and its transform applies live — a source spinning via
+`.rotation(0, t => t, 0)` spins its births with it.
+
+The forces stack in any combination, and every parameter takes a fn of `t` or
+a signal, so audio can drive the wind:
+
+- `.force(x, y, z)` — constant acceleration: `.force(0, -2, 0)` is gravity,
+  `.force(1, 0, 0)` a crosswind.
+- `.turbulence({ amp, period, speed, seed })` — a curl-noise field, the
+  swirling smoke-like drift. Divergence-free, so it stirs without clumping;
+  layer two at different periods for weather inside weather.
+- `.attract([x, y, z], { strength, radius })` — inverse-square pull, negative
+  to repel. Aim it at `mouse()` and the swarm follows the pointer.
+- `.drag(v)` — velocity damping, the difference between embers and snow.
+
+The looks all read one way: **one value, or two meaning birth → death**.
+`.size(a, b)` in world units, `.color(a, b)`, `.opacity(a, b)` — and wherever
+a number goes, a `[min, max]` pair scatters it per particle instead, so
+`.size(0.01, [0.03, 0.08])` is born small and dies at a size of its own.
+`.fade(in, out)` fades each particle in when it's born and out before it dies,
+so they don't blink into existence — the numbers are how long each fade takes,
+as fractions of the lifespan (defaults `0.1`, `0.3`; `.fade(false)` turns both
+off). `.soft(v)` shapes the dot's edge, and `.blend('add')` sums light where
+the swarm piles up — the glow look, and it never needs sorting.
+
+### .evolve — across a life
+
+For behavior beyond a two-color fade, `.evolve()` hands you each particle's
+life as a function: `life` runs 0 at birth to 1 at death, and whatever the fn
+sets applies at that point — the looks, and even an extra force, so a particle
+can rise young and sink old.
+
+```js
+sphere({ radius: 2 })
+  .particles({ rate: 8000, life: [2, 4], speed: 0.6 })
+  .evolve((p, life) => p
+    .size(0.08 * Math.sin(life * Math.PI))
+    .color([1, 1 - life, 0.2])
+    .force(0, 2 - life * 5, 0))
+  .blend('add')
+  .out()
+```
+
+Each look starts from the chain's own (`.size()`/`.color()`/`.opacity()`), so
+set only what should change. It reads as per-particle code but isn't run per
+particle: the fn is sampled across life a hundred-odd times a frame and baked
+into a ramp the GPU reads, so it costs the same at ten particles or a million
+— which also means it can only depend on `life` (and `t`, the third argument),
+not on any one particle's position.
+
+`.position/.rotation/.scale` move the whole drawn system like any shape, and
+`.out('name')` sends it to a [geometry layer](#geometry-layers) for texture
+treatment.
+
+The swarm's state lives outside the patch, like a `.delay()`'s history: re-run
+the sketch and the particles keep flying under the edited forces rather than
+restarting. Changing the pool size (`rate`, `life`, `max`) is the exception —
+it resizes the state and starts over.
+
+Particles draw as camera-facing dots that scale with distance, lit by nothing —
+color them yourself. They test against scene depth, so geometry occludes them,
+but they don't write it: no shadows, no fog, and `depth()` doesn't see them.
+The spawn surface is sampled undeformed — a `.noise()` on the source moves the
+drawn shape, not the births. The ceiling is ~1M particles; phones are happiest
+under ~100k alive.
+
 ## lights, camera, scene
 
 ```js

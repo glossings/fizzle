@@ -6,6 +6,7 @@ import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.j
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
+import { ParticleOp } from './particles.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
@@ -432,6 +433,15 @@ class GeoOp {
     if (c) displacedNormal(set.point(i), n, c, n);
     if (this._displaces.length) this._warnDisplacedSource();
     return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
+  }
+
+  // The shape as a particle emitter: births scattered over the surface (the
+  // same fixed points .sample() reads), leaving along the normals unless dir
+  // says otherwise. Like a layout source, the shape needn't be in the scene —
+  // and its transform still applies live, so a spinning source spins its
+  // births. See particles.js.
+  particles(opts) {
+    return new ParticleOp(this.engine, opts, this);
   }
 
   // .noise() has a CPU twin, so sampled points follow it. .displace() can't:
@@ -1039,6 +1049,13 @@ export function makeApi(engine) {
     capsule: geo('capsule'),
     icosa: geo('icosa'),
     text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
+
+    // A GPU particle system emitting from a point — see particles.js, and
+    // GeoOp.particles() for the form that emits from a shape's surface.
+    // The pool sizes itself from rate × life (capped by max); forces chain on
+    // (.force/.turbulence/.attract/.drag), then looks (.size/.color/.opacity/
+    // .fade/.blend/.soft, .over() for looks that evolve across a life).
+    particles: (opts) => new ParticleOp(engine, opts),
 
     // An imported .obj/.fbx as a geometry op — chain .position/.rotation/.scale/
     // .noise/.instance/.material/.out() exactly like sphere() or box().
