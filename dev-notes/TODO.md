@@ -219,6 +219,46 @@ Chain methods go next to `.smooth()` at
 
 ---
 
+## More asset providers
+
+Poly Haven is the only source the browser searches, and it's about 1500 assets.
+Note first, so it doesn't get re-asked: **there is no non-CC0 corner of Poly
+Haven to unlock.** The whole site is CC0, the API carries no license field, and
+[loadIndex](../src/polyhaven.js#L72) applies no filter — a "search non-CC0 too"
+toggle would return the same results. More assets means a second provider.
+
+[ ] **ambientCG** — ~2000 CC0 materials, so no license UI either. Two things
+  make it more than a second `loadIndex`, both checked against the live API:
+
+  - **The index has no CORS.** `ambientcg.com/api/v2/full_json?type=Material`
+    answers 200 but sends no `access-control-allow-origin`, with or without an
+    `Origin` header. Nor does `ambientcg.com/get?file=…`, which 302s to a
+    Backblaze host. The CDN it lands on
+    (`acg-download.struffelproductions.com`) *does* reflect the origin, so the
+    bytes are reachable from a browser — it's the index and the redirect hop
+    that aren't. Needs a proxy, which Poly Haven let us skip entirely.
+  - **Downloads are zips, not maps.** One archive per resolution holding every
+    channel: `Ground108_2K-JPG.zip` is 32 MB, the 4K is 114 MB. Against
+    [pickMaps](../src/polyhaven.js#L89), which pulls the five files a material
+    actually uses. So this wants an unzip in the browser (fflate is ~10 KB) and
+    the transfers are several times larger for the same result.
+
+  Both are tractable; neither is the drop-in the CC0 overlap suggests. The
+  naming maps cleanly at least — ambientCG's `_Color`/`_NormalGL`/`_Roughness`
+  are our `diff`/`nor_gl`/`rough`, so [WANTED](../src/polyhaven.js#L27) and
+  everything downstream of it stays as it is.
+
+[ ] **Sketchfab** — the only reason to reach past CC0, and the one place a
+  use-at-your-own-risk toggle would mean something. Big model library, genuinely
+  mixed licensing: mostly CC-BY (attribution required), some CC0, some
+  royalty-free-but-not-redistributable. Verify before building — an API token is
+  needed for downloads, which breaks the "open the browser, click a thing"
+  shape; download URLs are short-lived, which is fine since we store the bytes;
+  and the attribution obligation lands on whoever shares the sketch, which
+  nothing in our media store currently has anywhere to record. That last one is
+  the actual design question, not the API work: a `polyhaven:`-style tag says
+  where a file came from, but not who must be credited for it.
+
 ## Someday: external control
 
 MIDI and OSC input as signals — a `midi(cc)` / `osc('/path')` alongside

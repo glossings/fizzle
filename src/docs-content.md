@@ -856,8 +856,9 @@ scene()
 
 - `.transform({ translate: [x, y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })`
   — UV-space transform. Or the shorthands `.translate(x, y)`, `.rotate(v)`,
-  `.scale(v)` — each takes `{ wrap }` as a trailing option. Translation is in
-  UV units (1 = a full frame); scale zooms around center.
+  `.scale(x, y?)` — each takes `{ wrap }` as a trailing option. Translation is
+  in UV units (1 = a full frame); scale zooms around center, one number
+  uniform, `.scale(1, 4)` stretching y alone.
 - `.crop(w, h?, { center })` — keep the middle `w`×`h` and drop the rest to
   transparent black. Nothing is resampled; the picture stays put and the
   emptiness closes in around it. Sizes above 1 count pixels of the frame's grid

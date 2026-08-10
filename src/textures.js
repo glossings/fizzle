@@ -1599,7 +1599,13 @@ export class TextureOp {
     return this._n('transform', { translate: map ? x : [x, y], ...o });
   }
   rotate(v = 0, o = {}) { return this._n('transform', { rotate: v, ...o }); }
-  scale(v = 1, o = {}) { return this._n('transform', { scale: v, ...o }); }
+  // .scale(2) zooms both axes, .scale(1, 4) stretches y on its own
+  scale(x = 1, y, o = {}) {
+    // options object in the y slot: .scale(2, { wrap: 'repeat' })
+    if (typeof y === 'object' && y !== null && asMap(y) == null) { o = y; y = undefined; }
+    const map = asMap(x) != null;
+    return this._n('transform', { scale: map || y === undefined ? x : [x, y], ...o });
+  }
   // .crop(400, 300) — keep the middle 400×300 pixels, black around it. A size
   // <= 1 is a fraction of the frame instead, and one size alone squares it.
   crop(w = 1, h, o = {}) {
