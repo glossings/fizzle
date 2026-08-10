@@ -1182,11 +1182,12 @@ export function makeApi(engine) {
     // that one on a display of the same shape fills it edge to edge. Without
     // a call the render fills the browser window, as it always has.
     // resolution(1920, 1080), resolution({ width, height }), or one number for
-    // a square. Sidebar quality still scales the pixels underneath.
+    // a square. Sidebar quality still scales the pixels underneath, and the
+    // sidebar's fixed resolution, when on, outranks this entirely.
     resolution(width, height) {
       if (width !== null && typeof width === 'object') ({ width, height } = width);
       const px = (n) => Math.max(1, Math.round(n));
-      engine.resolution = width == null ? null : [px(width), px(height ?? width)];
+      engine.sketchRes = width == null ? null : [px(width), px(height ?? width)];
     },
     // positional fog(color, near, far) predates the config form; a THREE.Color
     // in the first slot is still a color, not a config

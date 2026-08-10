@@ -71,7 +71,8 @@ export class Engine {
     this.paused = false;
     this.frames = 0;      // total frames rendered, for the fps readout
     this.quality = 1;
-    this.resolution = null; // [w, h] from resolution(); null = fill the window
+    this.sketchRes = null;  // [w, h] from resolution(); null = fill the window
+    this.resOverride = null; // the sidebar's fixed size, which outranks the sketch
     this._resKey = '';      // what resize() last applied, so a re-run is a no-op
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
@@ -145,6 +146,19 @@ export class Engine {
     const unit = (v) => Math.min(1, Math.max(-1, v * 2 - 1));
     this.pointer.x = unit((clientX - rect.left) / rect.width);
     this.pointer.y = -unit((clientY - rect.top) / rect.height); // page y is down, ours is up
+  }
+
+  // The size everything downstream renders at: the sidebar's fixed resolution
+  // if one is set, otherwise whatever the sketch asked for.
+  get resolution() {
+    return this.resOverride ?? this.sketchRes;
+  }
+
+  // Set from the sidebar, so switching target sizes doesn't mean editing every
+  // sketch. null hands the choice back to resolution().
+  setResolutionOverride(res) {
+    this.resOverride = res;
+    this.syncResolution();
   }
 
   resize() {
@@ -783,7 +797,7 @@ export class Engine {
     this.cameraTouched = false;
     this.controls.enabled = this.orbitAllowed;
     // dropping the resolution() call goes back to filling the window
-    this.resolution = null;
+    this.sketchRes = null;
     // a picker request belongs to the run that made it: the code has moved on,
     // and a request left over from a run whose empty call has since been filled
     // in would pop the picker straight back open

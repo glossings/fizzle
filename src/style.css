@@ -332,6 +332,10 @@ html, body {
   font: inherit;
   width: 110px;
 }
+/* two boxes in the space one usually gets, greyed while the checkbox is off */
+.sb-res span { display: flex; align-items: center; gap: 4px; }
+#sidebar .sb-res input[type='number'] { width: 52px; }
+.sb-res.sb-off { opacity: 0.4; }
 #sb-docs {
   display: block;
   margin: 10px 0 2px;

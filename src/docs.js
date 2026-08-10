@@ -35,7 +35,7 @@ export const GLOBALS = {
 
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
-  resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again."],
+  resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again. The sidebar's fixed resolution overrides this."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
   scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],

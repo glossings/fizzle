@@ -71,7 +71,8 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     // It also opens at 0.75×, which on a 3× display is still more pixels than
     // a laptop renders and is the difference between the heavier examples
     // playing and stuttering. Both are only defaults; the sidebar owns them.
-    { quality: isTouch ? 0.75 : 1, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120 },
+    { quality: isTouch ? 0.75 : 1, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120,
+      resFixed: false, resWidth: 1920, resHeight: 1080 },
     JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
   );
   const persist = () => localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
@@ -88,6 +89,11 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
           <option value="0.75">med (0.75×)</option>
           <option value="1">high (1×)</option>
         </select>
+      </label>
+      <label><input id="sb-res-on" type="checkbox"> fixed resolution</label>
+      <label class="sb-res">size
+        <span><input id="sb-res-w" type="number" min="1" max="7680" step="1"> ×
+        <input id="sb-res-h" type="number" min="1" max="7680" step="1"></span>
       </label>
       <label>font size <input id="sb-font" type="number" min="9" max="40" step="1"></label>
       <label>audio in <select id="sb-audio"></select></label>
@@ -143,15 +149,25 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   // here rather than at the setter so a size saved before this rule, or one
   // typed into the box, is brought up to it too.
   const MIN_FONT = isTouch ? 16 : 9;
+  const dim = (n, fallback) => Math.min(7680, Math.max(1, Math.round(Number(n) || fallback)));
   const applySettings = () => {
     settings.fontSize = Math.min(40, Math.max(MIN_FONT, settings.fontSize || 15));
+    settings.resWidth = dim(settings.resWidth, 1920);
+    settings.resHeight = dim(settings.resHeight, 1080);
     engine.setQuality(settings.quality);
     engine.bpm = settings.bpm;
+    // a fixed size here beats the sketch's own resolution(), so one setting
+    // retargets every sketch
+    engine.setResolutionOverride(settings.resFixed ? [settings.resWidth, settings.resHeight] : null);
     document.documentElement.style.setProperty('--editor-font', `${settings.fontSize}px`);
     $('#sb-quality').value = String(settings.quality);
     $('#sb-font').value = settings.fontSize;
     $('#sb-live').checked = settings.liveColor;
     $('#sb-tempo').value = settings.bpm;
+    $('#sb-res-on').checked = settings.resFixed;
+    $('#sb-res-w').value = settings.resWidth;
+    $('#sb-res-h').value = settings.resHeight;
+    el.querySelector('.sb-res').classList.toggle('sb-off', !settings.resFixed);
   };
   const setFontSize = (px) => {
     settings.fontSize = Math.round(px);
@@ -160,6 +176,16 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   };
   $('#sb-quality').addEventListener('change', (e) => { settings.quality = Number(e.target.value); applySettings(); persist(); });
   $('#sb-font').addEventListener('change', (e) => setFontSize(Number(e.target.value) || 15));
+  $('#sb-res-on').addEventListener('change', (e) => { settings.resFixed = e.target.checked; applySettings(); persist(); });
+  for (const [id, key, fallback] of [['#sb-res-w', 'resWidth', 1920], ['#sb-res-h', 'resHeight', 1080]]) {
+    $(id).addEventListener('change', (e) => {
+      settings[key] = dim(e.target.value, fallback);
+      // typing a size is also how you ask for it
+      settings.resFixed = true;
+      applySettings();
+      persist();
+    });
+  }
   $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
   $('#sb-tempo').addEventListener('change', (e) => { settings.bpm = Math.max(1, Number(e.target.value) || 120); applySettings(); persist(); });
   applySettings();
