@@ -608,8 +608,33 @@ A dot has no facing, so there's no shading across it — what shows is each
 light's color, distance and shadow. `.lit(0.5)` mixes flat color back in, and
 the amount takes a fn of `t`. Casting is off by default (it's a depth render
 per shadow light); the solid core of each sprite blocks light, so a dense
-swarm lands on the floor as one drifting mass. Both work on texture emitters
-too, lighting the birth colors the image left on the swarm.
+swarm lands on the floor as one drifting mass — and, since lit dots read the
+same shadow maps, on itself: ridges shade valleys. Both work on texture
+emitters too, lighting the birth colors the image left on the swarm.
+
+`.noise()` on the source shape carries through to the births, which is the
+classic grainy-terrain move — a plane the sketch never draws, dissolved into
+dots pinned to its creases, a low casting light raking them:
+
+```js
+directional({ color: '#ffc9a0', intensity: 3, shadow: { soft: 2, bias: 0.0004, area: 14 } })
+  .position(9, 2.2, 3).out()
+ambient({ color: '#30364d', intensity: 0.25 }).out()
+
+plane({ width: 18, height: 18 })
+  .rotation(-Math.PI / 2, 0, 0)
+  .noise({ amp: 0.9, period: 3.5, speed: 0.12 })
+  .particles({ rate: 100000, life: [1, 2.5], speed: 0.02 })
+  .size([0.015, 0.045])
+  .color('#d8d2c8')
+  .lit()
+  .shadow()
+  .out()
+```
+
+Each birth lands where the surface is at that moment, so short lives track a
+drifting field and long ones remember where it was. The small `bias` keeps
+near-coplanar dots from speckling each other with shadow acne.
 
 ### .evolve — across a life
 
@@ -641,12 +666,12 @@ depend on `life` and `t`, not on one particle's position.
 The swarm keeps flying across a re-run rather than restarting; changing the
 pool size (`rate`, `life`, `max`) is the exception.
 
-Particles draw as camera-facing dots that scale with distance and are lit by
-nothing, so color them yourself. They test against scene depth, so geometry
-occludes them, but they don't write it: no shadows, no fog, and `depth()`
-doesn't see them. The spawn surface is sampled undeformed, so a `.noise()` on
-the source moves the drawn shape and not the births. The ceiling is ~1M;
-phones are happiest under ~100k alive.
+Particles draw as camera-facing dots that scale with distance — flat-colored
+unless `.lit()` says otherwise, casting nothing unless `.shadow()` does. They
+test against scene depth, so geometry occludes them, but they don't write it:
+no fog, and `depth()` doesn't see them. `.noise()` on the source shape carries
+through to the births; `.displace()` maps don't. The ceiling is ~1M; phones
+are happiest under ~100k alive.
 
 ## lights, camera, scene
 

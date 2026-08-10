@@ -55,10 +55,17 @@ its own mesh updater uses), so a moving or spinning emitter carries its births
 with it without rebaking. `dir: 'out'` means the baked normal — the default
 from a shape.
 
-Known gaps, on purpose: the bake reads the surface undeformed (a `.noise()` on
-the source moves the drawn shape, not the births — warned), and a model still
-parsing at `.out()` falls back to a point until the next run. Both are
-one-re-run problems in practice.
+The bake reads the surface undeformed, but a `.noise()` on the source carries
+through anyway: the sim's spawn branch includes the same fbm field
+(`noiseParamsGlsl`/`noiseFieldGlsl` from noise.js — instantiated with the
+`uEmit` uniform prefix because the sim's own `uSpeed` is a vec2; identical
+formula and clock, snoise shared with `.turbulence()`'s curl) and displaces
+each birth along the baked normal in local space — so births land where the mesh's
+vertices are *at that moment*, and short lives track a drifting field. This is
+what makes the noised-plane-of-dots terrain work. `.displace()` maps still
+don't reach the emitter (that would mean binding arbitrary texture chains into
+the sim — warned instead), and a model still parsing at `.out()` falls back to
+a point until the next run.
 
 This also sets up stage 2's naming for free: `Texture.prototype.particles` is
 the same verb on an image — emit from a texture's bright pixels.
@@ -147,7 +154,8 @@ or going through `scene()`.
   quantity but multiple passes per frame; `'add'` is the default aesthetic
   anyway.
 - **Fog** on particles: still open. Lighting and shadows shipped later as
-  `.lit()`/`.shadow()` — see below.
+  `.lit()`/`.shadow()` — see below. Ambient occlusion: none anywhere, by
+  choice — SSAO.md has the state of that and the depth() stand-in.
 
 ## Lighting and shadows (shipped)
 

@@ -74,27 +74,34 @@ float snoise(vec3 v) {
 }
 `;
 
-export const NOISE_GLSL = SNOISE_GLSL + /* glsl */ `
-uniform float uTime;
-uniform float uAmp;
-uniform float uFreq;
-uniform float uOctaves;
-uniform float uLacunarity;
-uniform float uGain;
-uniform float uSpeed;
-uniform float uSeed;
+// The dials and the field as functions of a uniform-name prefix: the particle
+// sim borrows both to put births on the noised surface (particles.js), and its
+// shader already owns some of these names — its uSpeed is a vec2 — so it
+// instantiates with 'uEmit' while the mesh path keeps 'u' and its snippet
+// byte-identical. uTime and snoise stay unprefixed: one declaration each,
+// supplied by whichever shader hosts the field.
+export const noiseParamsGlsl = (u) => /* glsl */ `
+uniform float ${u}Amp;
+uniform float ${u}Freq;
+uniform float ${u}Octaves;
+uniform float ${u}Lacunarity;
+uniform float ${u}Gain;
+uniform float ${u}Speed;
+uniform float ${u}Seed;
+`;
 
+export const noiseFieldGlsl = (u) => /* glsl */ `
 float fbm(vec3 p) {
   float sum = 0.0;
   float amp = 1.0;
   float freq = 1.0;
   float norm = 0.0;
   for (int i = 0; i < 8; i++) {
-    if (float(i) >= uOctaves) break;
+    if (float(i) >= ${u}Octaves) break;
     sum += amp * snoise(p * freq);
     norm += amp;
-    freq *= uLacunarity;
-    amp *= uGain;
+    freq *= ${u}Lacunarity;
+    amp *= ${u}Gain;
   }
   return norm > 0.0 ? sum / norm : 0.0;
 }
@@ -114,10 +121,12 @@ const vec3 DOMAIN_OFFSET = vec3(0.0, 3.7, 8.3);
 const vec3 TIME_DIR = vec3(1.0, 0.83, 0.61);
 
 vec3 displacePoint(vec3 p, vec3 n, vec3 seed) {
-  float d = fbm((p + seed) * uFreq + uTime * uSpeed * TIME_DIR + DOMAIN_OFFSET + uSeed * 19.19);
-  return p + n * d * uAmp;
+  float d = fbm((p + seed) * ${u}Freq + uTime * ${u}Speed * TIME_DIR + DOMAIN_OFFSET + ${u}Seed * 19.19);
+  return p + n * d * ${u}Amp;
 }
 `;
+
+export const NOISE_GLSL = SNOISE_GLSL + 'uniform float uTime;\n' + noiseParamsGlsl('u') + noiseFieldGlsl('u');
 
 // The texture half. dispDu/dispDv are dP/du and dP/dv, written onto the
 // geometry by addUvBasis below — the map is a height field over uv, and turning

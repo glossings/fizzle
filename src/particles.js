@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SNOISE_GLSL } from './noise.js';
+import { SNOISE_GLSL, noiseParamsGlsl, noiseFieldGlsl } from './noise.js';
 import { Quad, reciprocal } from './textures.js';
 import { carried } from './carry.js';
 import { warn } from './warn.js';
@@ -75,7 +75,9 @@ vec3 randUnit(vec2 r) {
 
 // Curl of a vec3 noise field by central differences: divergence-free, so the
 // swirl never bunches particles into clumps the way raw noise velocity does.
-const CURL_GLSL = SNOISE_GLSL + /* glsl */ `
+// (snoise itself is emitted once by simFragment — .turbulence() and a noised
+// emitter may both want it in the same shader.)
+const CURL_GLSL = /* glsl */ `
 vec3 noise3(vec3 p) {
   return vec3(snoise(p), snoise(p + vec3(31.7, 12.3, 74.2)), snoise(p + vec3(9.2, 44.9, 27.1)));
 }
@@ -121,8 +123,10 @@ void main() {
 // pixel of a live texture, mapped onto a world plane, birth color kept in the
 // aux state texture. point: at uEmitPos, where 'out' has nowhere to point and
 // falls back to a random direction. evolve: the .evolve() ramp's force row, an
-// extra acceleration read at the particle's own life fraction.
-function simFragment(surf, tex, dirOut, forceLines, forceDecls, hasTurb, hasDrag, evolve) {
+// extra acceleration read at the particle's own life fraction. emitNoise: the
+// source chain's .noise() — births displaced by the same field the mesh's
+// vertices ride, so the swarm sits on the noised surface, not the smooth one.
+function simFragment(surf, tex, dirOut, forceLines, forceDecls, hasTurb, hasDrag, evolve, emitNoise) {
   return /* glsl */ `
 precision highp float;
 uniform sampler2D uPosTex;
@@ -153,7 +157,9 @@ layout(location = 0) out vec4 oPos;
 layout(location = 1) out vec4 oVel;
 ${tex ? 'layout(location = 2) out vec4 oAux;' : ''}
 ${HASH_GLSL}
+${hasTurb || emitNoise ? SNOISE_GLSL : ''}
 ${hasTurb ? CURL_GLSL : ''}
+${emitNoise ? noiseParamsGlsl('uEmit') + noiseFieldGlsl('uEmit') : ''}
 void main() {
   vec4 P = texture(uPosTex, vUv);
   vec4 V = texture(uVelTex, vUv);
@@ -184,7 +190,12 @@ void main() {
     vec3 rdir = randUnit(h2.xy);
     ${surf
       ? `int si = int(min(h1.x, 0.999999) * uSurfN);
-    pos = (uEmitMat * vec4(texelFetch(uSurf, ivec2(si, 0), 0).xyz, 1.0)).xyz;
+    vec3 sp = texelFetch(uSurf, ivec2(si, 0), 0).xyz;${emitNoise ? `
+    // local space, before the emitter's matrix — where the mesh displaces too
+    vec3 sn = texelFetch(uSurf, ivec2(si, 1), 0).xyz;
+    float snl = length(sn);
+    if (snl > 1e-5) sp = displacePoint(sp, sn / snl, vec3(0.0));` : ''}
+    pos = (uEmitMat * vec4(sp, 1.0)).xyz;
     ${dirOut
       ? `vec3 base = uEmitNMat * texelFetch(uSurf, ivec2(si, 1), 0).xyz;
     float bl = length(base);
@@ -774,12 +785,16 @@ export class ParticleOp {
       if (!surfPts) {
         warn("particles: the source has nothing to sample yet (a model still parsing?) — emitting from a point until the next run");
       }
-      if (src._noise || src._displaces?.length) {
-        warn('particles: the emitter samples the surface before .noise()/.displace() — spawn points sit on the undeformed shape');
+      if (src._displaces?.length) {
+        warn("particles: .displace() maps don't reach the emitter — spawn points sit on the un-displaced shape (.noise() does carry through)");
       }
     }
     if (texEmit && o.pos != null) warn('particles: the emitter is the image — move the system with .position()');
     const surf = !!surfPts;
+    // births ride the same noise field as the source's vertices — a particle
+    // lands where the surface is at its birth, so short lives track a moving
+    // field and long ones remember where it was
+    const emitNoise = (surf && src._noise) || null;
     const emitPos = asVec(o.pos ?? o.position) ?? [0, 0, 0];
     // on a surface the natural exit is along the normal; from an image, off
     // the plane toward the camera; from a point, up
@@ -960,6 +975,25 @@ export class ParticleOp {
           u.uEmitNMat.value.identity();
         }
       });
+      if (emitNoise) {
+        // 'uEmit'-prefixed: the sim's own uSpeed is a vec2, so the field's
+        // dials can't take the mesh path's bare names here
+        Object.assign(uniforms, {
+          uEmitAmp: { value: 0 }, uEmitFreq: { value: 0 }, uEmitOctaves: { value: 0 },
+          uEmitLacunarity: { value: 0 }, uEmitGain: { value: 0 },
+          uEmitSpeed: { value: 0 }, uEmitSeed: { value: 0 },
+        });
+        // same resolution as the mesh's own updater (api.js), same clock
+        setters.push((u, t) => {
+          u.uEmitAmp.value = resolve(emitNoise.amp, t);
+          u.uEmitFreq.value = resolve(emitNoise.freq, t);
+          u.uEmitOctaves.value = Math.min(8, Math.max(1, resolve(emitNoise.octaves, t)));
+          u.uEmitLacunarity.value = resolve(emitNoise.lacunarity, t);
+          u.uEmitGain.value = resolve(emitNoise.gain, t);
+          u.uEmitSpeed.value = resolve(emitNoise.speed, t);
+          u.uEmitSeed.value = resolve(emitNoise.seed, t);
+        });
+      }
     }
 
     // the compiled chain changes per run; the swarm it steps does not
@@ -967,7 +1001,7 @@ export class ParticleOp {
     state.simMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: SIM_VERT,
-      fragmentShader: simFragment(surf, texEmit, dirOut, forceLines, forceDecls, hasTurb, drags.length > 0, !!evolve),
+      fragmentShader: simFragment(surf, texEmit, dirOut, forceLines, forceDecls, hasTurb, drags.length > 0, !!evolve, !!emitNoise),
       uniforms,
     });
 
