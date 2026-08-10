@@ -11,8 +11,9 @@ import { setColor, makeColor, isDynamicColor } from './color.js';
 // births on the bright pixels of the live image, mapped onto a world plane,
 // each particle keeping the color of the pixel it was born from. Bare
 // particles() emits from a point. Forces chain on (.force/.turbulence/.attract/.drag), looks
-// (.size/.color/.opacity/.fade/.blend/.soft), .evolve() for looks and forces
-// that change across a particle's life, .out() to land it in the scene.
+// (.size/.color/.opacity/.fade/.blend/.soft), .lit()/.shadow() to join the
+// scene's lighting, .evolve() for looks and forces that change across a
+// particle's life, .out() to land it in the scene.
 //
 // The whole simulation lives in two float textures — one texel per particle,
 // position+age in one, velocity+lifespan in the other — updated by a fragment
@@ -246,8 +247,18 @@ void main() {
 // tonemapping/colorspace chunks keep the dots matching the rest of the scene
 // on both render paths (direct to canvas, and through scene()'s linear target
 // where both compile out).
+//
+// With .lit(), the material compiles with lights: true and three's own light
+// and shadow chunks: each dot multiplies its color by the light arriving at
+// its position. A dot has no facing, so there's no N·L — what shows is each
+// light's color, falloff, cone and shadow, which is the usual read of
+// lit particles. RECIPROCAL_PI matches how a mesh's diffuse term scales the
+// same irradiance, so a lit swarm sits tonally with lit geometry.
 
-const drawVert = (evolve, mapColor) => /* glsl */ `
+const drawVert = (evolve, mapColor, lit) => /* glsl */ `
+${lit ? `#include <common>
+#include <shadowmap_pars_vertex>
+varying vec3 vViewPosition;` : ''}
 uniform sampler2D uPosTex;
 uniform sampler2D uVelTex;
 uniform float uPixScale;
@@ -280,6 +291,9 @@ void main() {
   vRand = hash12(aRef * 913.7);
   vec4 mv = modelViewMatrix * vec4(P.xyz, 1.0);
   gl_Position = projectionMatrix * mv;
+  ${lit ? `vViewPosition = -mv.xyz;
+  vec4 worldPosition = modelMatrix * vec4(P.xyz, 1.0);
+  #include <shadowmap_vertex>` : ''}
   // each end scatters by the same per-particle draw, then birth lerps to death
   float size = mix(mix(uSizeA.x, uSizeA.y, vRand), mix(uSizeB.x, uSizeB.y, vRand), vFrac);
   ${evolve ? `if (uRampSize > 0.5) size = texture2D(uRamp, vec2(vFrac, 0.5)).r;` : ''}
@@ -287,7 +301,85 @@ void main() {
 }
 `;
 
-const drawFrag = (evolve, mapColor) => /* glsl */ `
+// The light loops mirror three's lights_fragment_begin — same structs, same
+// unroll pragmas, same shadowed-lights-sorted-first index bookkeeping — minus
+// every term that needs a surface normal.
+const LIT_GLSL = /* glsl */ `
+  vec3 geometryPosition = - vViewPosition;
+  vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );
+  IncidentLight directLight;
+
+  #if NUM_HEMI_LIGHTS > 0
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
+      irradiance += mix( hemisphereLights[ i ].groundColor, hemisphereLights[ i ].skyColor, 0.5 );
+    }
+    #pragma unroll_loop_end
+  #endif
+
+  #if NUM_DIR_LIGHTS > 0
+    DirectionalLight directionalLight;
+    #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+    DirectionalLightShadow directionalLightShadow;
+    #endif
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
+      directionalLight = directionalLights[ i ];
+      getDirectionalLightInfo( directionalLight, directLight );
+      #if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
+      directionalLightShadow = directionalLightShadows[ i ];
+      directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+      #endif
+      irradiance += directLight.color;
+    }
+    #pragma unroll_loop_end
+  #endif
+
+  #if NUM_POINT_LIGHTS > 0
+    PointLight pointLight;
+    #if defined( USE_SHADOWMAP ) && NUM_POINT_LIGHT_SHADOWS > 0
+    PointLightShadow pointLightShadow;
+    #endif
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
+      pointLight = pointLights[ i ];
+      getPointLightInfo( pointLight, geometryPosition, directLight );
+      #if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_POINT_LIGHT_SHADOWS ) && ( defined( SHADOWMAP_TYPE_PCF ) || defined( SHADOWMAP_TYPE_BASIC ) )
+      pointLightShadow = pointLightShadows[ i ];
+      directLight.color *= ( directLight.visible && receiveShadow ) ? getPointShadow( pointShadowMap[ i ], pointLightShadow.shadowMapSize, pointLightShadow.shadowIntensity, pointLightShadow.shadowBias, pointLightShadow.shadowRadius, vPointShadowCoord[ i ], pointLightShadow.shadowCameraNear, pointLightShadow.shadowCameraFar ) : 1.0;
+      #endif
+      irradiance += directLight.color;
+    }
+    #pragma unroll_loop_end
+  #endif
+
+  #if NUM_SPOT_LIGHTS > 0
+    SpotLight spotLight;
+    #if defined( USE_SHADOWMAP ) && NUM_SPOT_LIGHT_SHADOWS > 0
+    SpotLightShadow spotLightShadow;
+    #endif
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_SPOT_LIGHTS; i ++ ) {
+      spotLight = spotLights[ i ];
+      getSpotLightInfo( spotLight, geometryPosition, directLight );
+      #if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_SPOT_LIGHT_SHADOWS )
+      spotLightShadow = spotLightShadows[ i ];
+      directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( spotShadowMap[ i ], spotLightShadow.shadowMapSize, spotLightShadow.shadowIntensity, spotLightShadow.shadowBias, spotLightShadow.shadowRadius, vSpotLightCoord[ i ] ) : 1.0;
+      #endif
+      irradiance += directLight.color;
+    }
+    #pragma unroll_loop_end
+  #endif
+
+  col *= mix( vec3( 1.0 ), irradiance * RECIPROCAL_PI, uLit );
+`;
+
+const drawFrag = (evolve, mapColor, lit) => /* glsl */ `
+${lit ? `#include <common>
+#include <lights_pars_begin>
+#include <shadowmap_pars_fragment>
+uniform float uLit;
+varying vec3 vViewPosition;` : ''}
 uniform vec3 uColorA;
 uniform vec3 uColorB;
 uniform vec2 uOpacity;
@@ -308,10 +400,90 @@ void main() {
   if (uFade.y > 0.0) env *= 1.0 - smoothstep(1.0 - uFade.y, 1.0, vFrac);
   ${evolve
     ? `vec4 rc = texture2D(uRamp, vec2(vFrac, 0.1666667));
-  gl_FragColor = vec4(${mapColor ? '(uRampColor > 0.5 ? rc.rgb : vColor)' : 'rc.rgb'}, edge * env * rc.a);`
-    : `gl_FragColor = vec4(${mapColor ? 'vColor' : 'mix(uColorA, uColorB, vFrac)'}, edge * env * mix(uOpacity.x, uOpacity.y, vFrac));`}
+  vec3 col = ${mapColor ? '(uRampColor > 0.5 ? rc.rgb : vColor)' : 'rc.rgb'};
+  float alpha = edge * env * rc.a;`
+    : `vec3 col = ${mapColor ? 'vColor' : 'mix(uColorA, uColorB, vFrac)'};
+  float alpha = edge * env * mix(uOpacity.x, uOpacity.y, vFrac);`}
+  ${lit ? LIT_GLSL : ''}
+  gl_FragColor = vec4(col, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
+}
+`;
+
+// ---------------------------------------------------------------------------
+// shadow-cast shaders — what .shadow() hands the shadow pass in place of the
+// mesh depth material three would guess (which reads the all-zero position
+// attribute and piles every dot at the origin). Same state fetch, the light's
+// own matrices from the pass, and the sprite's edge/fade deciding which dots
+// are solid enough to block light. Hardware depth does the actual occlusion;
+// the color written out is only read by the unfiltered point-light path,
+// which wants world distance to the light instead.
+
+const castVert = (evolve) => /* glsl */ `
+uniform sampler2D uPosTex;
+uniform sampler2D uVelTex;
+uniform vec2 uSizeA;
+uniform vec2 uSizeB;
+uniform float uShadowPix;
+${evolve ? `uniform sampler2D uRamp;
+uniform float uRampSize;` : ''}
+attribute vec2 aRef;
+varying float vFrac;
+varying float vRand;
+varying vec3 vWorldPosition;
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+void main() {
+  vec4 P = texture2D(uPosTex, aRef);
+  vec4 V = texture2D(uVelTex, aRef);
+  if (P.w < 0.0) {
+    gl_Position = vec4(2e5, 2e5, 2e5, 1.0);
+    gl_PointSize = 1.0;
+    vFrac = 0.0;
+    vRand = 0.0;
+    vWorldPosition = vec3(0.0);
+    return;
+  }
+  vFrac = clamp(P.w / max(V.w, 1e-4), 0.0, 1.0);
+  vRand = hash12(aRef * 913.7);
+  vWorldPosition = (modelMatrix * vec4(P.xyz, 1.0)).xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(P.xyz, 1.0);
+  float size = mix(mix(uSizeA.x, uSizeA.y, vRand), mix(uSizeB.x, uSizeB.y, vRand), vFrac);
+  ${evolve ? `if (uRampSize > 0.5) size = texture2D(uRamp, vec2(vFrac, 0.5)).r;` : ''}
+  // pixels of the shadow map, not the screen: projectionMatrix[1][1] covers
+  // the ortho (directional) and perspective (spot, cube face) cameras alike,
+  // with gl_Position.w carrying the perspective divide
+  gl_PointSize = clamp(size * projectionMatrix[1][1] * 0.5 * uShadowPix / max(gl_Position.w, 1e-3), 0.0, 512.0);
+}
+`;
+
+const castFrag = (evolve, dist) => /* glsl */ `
+uniform vec2 uOpacity;
+uniform vec2 uFade;
+uniform float uSoft;
+${evolve ? 'uniform sampler2D uRamp;' : ''}
+${dist ? `uniform vec3 referencePosition;
+uniform float nearDistance;
+uniform float farDistance;
+varying vec3 vWorldPosition;` : ''}
+varying float vFrac;
+varying float vRand;
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  float r = length(d) * 2.0;
+  float edge = 1.0 - smoothstep(max(1.0 - uSoft, 0.0), 1.0, r);
+  float env = 1.0;
+  if (uFade.x > 0.0) env *= smoothstep(0.0, uFade.x, vFrac);
+  if (uFade.y > 0.0) env *= 1.0 - smoothstep(1.0 - uFade.y, 1.0, vFrac);
+  float alpha = edge * env * ${evolve ? 'texture2D(uRamp, vec2(vFrac, 0.1666667)).a' : 'mix(uOpacity.x, uOpacity.y, vFrac)'};
+  if (alpha < 0.35) discard;
+  ${dist
+    ? `gl_FragColor = vec4(clamp((length(vWorldPosition - referencePosition) - nearDistance) / (farDistance - nearDistance), 0.0, 1.0), 0.0, 0.0, 1.0);`
+    : 'gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);'}
 }
 `;
 
@@ -410,6 +582,8 @@ export class ParticleOp {
     this._fade = { in: 0.1, out: 0.3 };
     this._soft = 0.5;
     this._blend = 'over';
+    this._lit = null;       // null = unlit; a number/fn of t is the lit mix
+    this._cast = false;
     this._pos = [0, 0, 0];
     this._rot = [0, 0, 0];
     this._scale = [1, 1, 1];
@@ -488,6 +662,24 @@ export class ParticleOp {
   }
   soft(v = 0.5) { this._soft = v; return this; }
 
+  // .lit(amount) — dots colored by the scene's lights and darkened inside
+  // their shadows. amount 0..1 mixes flat color → fully lit; a fn of t works.
+  lit(v = 1) {
+    this._lit = v === false ? null : v === true ? 1 : v;
+    return this;
+  }
+
+  // .shadow() — the swarm casts. Off by default: unlike a mesh it isn't free,
+  // it's a depth pass per shadow light per frame. Receiving is .lit()'s side.
+  shadow(v = true) {
+    if (v !== null && typeof v === 'object') {
+      if (v.receive !== undefined) warn('particles: dots take shadows through .lit() — .shadow() is about casting them');
+      v = v.cast ?? true;
+    }
+    this._cast = !!v;
+    return this;
+  }
+
   // .fade(in, out) — fade each particle in at birth and out before death, so
   // it doesn't blink into existence. The numbers are how long each fade
   // takes, as fractions of the lifespan; false turns both off.
@@ -529,7 +721,7 @@ export class ParticleOp {
     if (o && o.color !== undefined) this.color(o.color);
     const rest = o ? Object.keys(o).filter((k) => k !== 'color') : [];
     if (rest.length) {
-      warn(`particles: no .material() here — .color()/.size()/.opacity()/.blend() are the looks (${rest.join('/')} ignored)`);
+      warn(`particles: no .material() here — .color()/.size()/.opacity()/.blend() are the looks, .lit() takes the scene's light (${rest.join('/')} ignored)`);
     }
     return this;
   }
@@ -812,17 +1004,69 @@ export class ParticleOp {
       if (mapColor) drawUniforms.uRampColor = { value: 0 };
     }
     if (mapColor) drawUniforms.uAuxTex = { value: state.read.textures[2] };
+    // lights: true makes three fill the cloned light/shadow uniforms from the
+    // scene each frame and recompile when the light count changes
+    const litV = this._lit;
+    if (litV != null) {
+      Object.assign(drawUniforms, THREE.UniformsUtils.clone(THREE.UniformsLib.lights), {
+        uLit: { value: resolve(litV, 0) },
+      });
+    }
     const material = new THREE.ShaderMaterial({
-      vertexShader: drawVert(!!evolve, mapColor),
-      fragmentShader: drawFrag(!!evolve, mapColor),
+      vertexShader: drawVert(!!evolve, mapColor, litV != null),
+      fragmentShader: drawFrag(!!evolve, mapColor, litV != null),
       uniforms: drawUniforms,
       transparent: true,
       depthWrite: false,
       blending: BLENDS[this._blend],
+      lights: litV != null,
     });
     const points = new THREE.Points(geometry, material);
     // the vertex shader places everything; three can't know the bounds
     points.frustumCulled = false;
+    // the gate on the shadow-map define and the receiveShadow uniform — on a
+    // Points it costs nothing until some light casts
+    if (litV != null) points.receiveShadow = true;
+
+    let castUniforms = null;
+    if (this._cast) {
+      points.castShadow = true;
+      castUniforms = {
+        uPosTex: drawUniforms.uPosTex,
+        uVelTex: drawUniforms.uVelTex,
+        uSizeA: drawUniforms.uSizeA,
+        uSizeB: drawUniforms.uSizeB,
+        uOpacity: drawUniforms.uOpacity,
+        uFade: drawUniforms.uFade,
+        uSoft: drawUniforms.uSoft,
+        uShadowPix: { value: 1024 },
+      };
+      if (evolve) {
+        castUniforms.uRamp = drawUniforms.uRamp;
+        castUniforms.uRampSize = drawUniforms.uRampSize;
+      }
+      points.customDepthMaterial = new THREE.ShaderMaterial({
+        vertexShader: castVert(!!evolve),
+        fragmentShader: castFrag(!!evolve, false),
+        uniforms: castUniforms,
+      });
+      const distMat = new THREE.ShaderMaterial({
+        vertexShader: castVert(!!evolve),
+        fragmentShader: castFrag(!!evolve, true),
+        uniforms: {
+          ...castUniforms,
+          opacity: { value: 1 },
+          referencePosition: { value: new THREE.Vector3() },
+          nearDistance: { value: 1 },
+          farDistance: { value: 1000 },
+        },
+      });
+      // a lie three is told on purpose: the shadow pass and the uniform
+      // refresh both check this flag to hand a distance material the point
+      // light's position and range — the only route a custom material has
+      distMat.isMeshDistanceMaterial = true;
+      points.customDistanceMaterial = distMat;
+    }
     // the ramp is per-run (clearPatch disposes the material, not its textures)
     material.addEventListener('dispose', () => rampTex?.dispose());
     if (texEmit) {
@@ -840,6 +1084,16 @@ export class ParticleOp {
     const soft = this._soft;
     const baseColor = new THREE.Color();
     const drawSize = new THREE.Vector2();
+    // shadow point size wants the map's height, and the pass doesn't say whose
+    // map it's rendering — the largest casting light's is the least wrong
+    let shadowPix = 0;
+    const measurePix = (o) => {
+      if (o.isLight && o.castShadow && o.shadow) shadowPix = Math.max(shadowPix, o.shadow.mapSize.y);
+    };
+    // checked on the first real frame, when the whole patch is in the scene
+    let litChecked = litV == null;
+    let anyLight = false;
+    const findLight = (o) => { anyLight ||= o.isLight; };
     const bakeRamp = (t) => {
       const opa = resolve(opA, t), opb = resolve(opB, t);
       let sizeSet = false;
@@ -917,6 +1171,17 @@ export class ParticleOp {
       drawUniforms.uSizeB.value.set(...resolveRange(sizeB, t));
       drawUniforms.uOpacity.value.set(resolve(opA, t), resolve(opB, t));
       drawUniforms.uSoft.value = resolve(soft, t);
+      if (litV != null) drawUniforms.uLit.value = resolve(litV, t);
+      if (!litChecked && dt > 0) {
+        litChecked = true;
+        engine.scene.traverse(findLight);
+        if (!anyLight) warn("particles: .lit() finds no lights in the scene, so the dots render black — add directional()/point()/spot()/ambient(); hdri() lighting doesn't reach particles");
+      }
+      if (castUniforms) {
+        shadowPix = 0;
+        engine.scene.traverse(measurePix);
+        castUniforms.uShadowPix.value = shadowPix || 1024;
+      }
       points.position.set(...resolve3(this._pos, t));
       points.rotation.set(...resolve3(this._rot, t));
       points.scale.set(...resolve3(this._scale, t));

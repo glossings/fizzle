@@ -146,9 +146,43 @@ or going through `scene()`.
 - **Sorting** for correct `'over'` transparency: a GPU bitonic sort is a known
   quantity but multiple passes per frame; `'add'` is the default aesthetic
   anyway.
-- **Shadows / lighting / fog** on particles: they're unlit sprites. Lighting
-  them (normal from gl_PointCoord, scene lights in the draw shader) is a
-  contained stage-3 item if wanted.
+- **Fog** on particles: still open. Lighting and shadows shipped later as
+  `.lit()`/`.shadow()` — see below.
+
+## Lighting and shadows (shipped)
+
+`.lit(amount)` compiles the draw material with `lights: true` and reuses
+three's own chunks (`lights_pars_begin`, `shadowmap_pars_vertex/fragment`):
+per-fragment accumulation of ambient + hemi (sky/ground averaged) +
+directional/point/spot with falloff, cone and shadow-map taps — but **no N·L
+anywhere**, because a dot has no facing; what shows is each light's color,
+distance and shadow, which is the usual read of lit particles.
+`RECIPROCAL_PI` scales the irradiance the way a mesh's lambert term would, so
+a lit swarm sits tonally with lit geometry under the same rig. The light loops
+are copied from `lights_fragment_begin` (same structs, same unroll pragmas,
+same shadowed-lights-first index bookkeeping) minus the normal-dependent
+terms — if a three upgrade breaks particle lighting, diff against that chunk
+first.
+
+`.shadow()` (cast, opt-in — it's a depth render per shadow light) hangs
+`customDepthMaterial`/`customDistanceMaterial` on the Points: same state-fetch
+vertex shader, point size in *shadow-map* pixels
+(`projectionMatrix[1][1]` covers ortho and perspective shadow cameras alike),
+fragment discarding where the sprite's edge × fade × opacity drops under
+0.35. r185 shadow maps are hardware-depth textures, so the depth path only
+needs correct `gl_Position`; the color written matters only to the unfiltered
+point-light path, which wants world distance to the light. Two hacks worth
+remembering:
+
+- The distance material sets `isMeshDistanceMaterial = true` on a
+  ShaderMaterial **on purpose**: it's the only route by which the shadow pass
+  and uniform refresh hand a custom material the point light's position and
+  range (`referencePosition`/`nearDistance`/`farDistance`, plus an `opacity`
+  uniform so `refreshUniformsCommon` has something to write).
+- The shadow pass never says whose map it's rendering, so the point-size
+  uniform `uShadowPix` is set each frame to the largest casting light's map
+  height — approximate when lights differ, which only fattens or thins dot
+  shadows slightly.
 
 ## Stage 2 — the video coupling (the differentiator)
 

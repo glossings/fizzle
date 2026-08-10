@@ -1,5 +1,5 @@
 import { MATERIAL_GROUPS, MATERIAL_DOCS } from './materials.js';
-import { BLEND_MODE_NAMES, ASCII_SET_NAMES } from './textures.js';
+import { BLEND_MODE_NAMES, ASCII_SET_NAMES, WRAP_MODE_NAMES } from './textures.js';
 
 // One docs table drives both autocomplete and ctrl+hover tooltips.
 // [0] signature — shown next to the completion, and as the tooltip header
@@ -88,7 +88,7 @@ export const METHODS = {
   material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. Empty .material() opens the Poly Haven browser. Every value takes a fn of t; every map slot takes an imported image by name, or a live texture chain."],
   color: ['.color(c) | .color(birth, death)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.\nOn particles a second color fades each particle from birth to death."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
-  shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists."],
+  shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists.\nParticles: .shadow() makes the swarm cast — off by default, since it's a depth pass per shadow light. Receiving is .lit()'s side."],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output — several naked .out()s stack in code order, later over earlier, showing through where a chain is transparent. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
 
   particles: ['.particles({ max, rate, life, speed, spread, dir, size, threshold })', "The source as a particle emitter. On a shape: births scattered over its surface, leaving along the normals — the shape needn't be drawn, and its transform applies live. On a texture: births on the bright pixels of the live image, mapped onto a world plane, each particle keeping the color of the pixel it was born from (.color() overrides)."],
@@ -101,6 +101,7 @@ export const METHODS = {
   fade: ['.fade(in, out) | .fade(false)', "Particles: fade each particle in when it's born and out before it dies, so they don't blink into existence. The numbers are how long each fade takes, as fractions of the lifespan — defaults 0.1 and 0.3. false turns both off."],
   blend: [".blend('over' | 'add')", "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up, and overlap never needs sorting."],
   soft: ['.soft(v)', 'Particles: edge softness of each dot, 0 (hard disc) to 1 (pure falloff). Default 0.5. Takes a fn of t.'],
+  lit: ['.lit(amount = 1)', "Particles: take the scene's light — each dot tinted by the color, falloff and cone of the lights, and darkened inside their shadows. A dot has no facing, so what shows is color, distance and shadow. amount 0..1 mixes flat color → fully lit; takes a fn of t."],
   evolve: ['.evolve((p, life, t) => p.size(...).color(...).force(...))', "Particles: looks and forces across each particle's life. life runs 0 (birth) to 1 (death); whatever the fn sets on p (.size/.color/.opacity/.force) applies at that point, starting from the chain's own settings.\nSampled across life each frame rather than run per particle — so it sees life and t, never one particle's position."],
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other. A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
@@ -284,6 +285,13 @@ METHOD_CONFIG.feedback.get('mode').values = BLEND_MODE_NAMES;
 // .feedback()'s mode name, which stands in for the options in either slot
 METHOD_ARGS.comp = [null, BLEND_MODE_NAMES];
 METHOD_ARGS.feedback = [null, BLEND_MODE_NAMES, BLEND_MODE_NAMES];
+
+// These signatures spell `{ wrap }` bare — the value list lives in each key's
+// doc line, where completion can't parse it — so it's wired from the table
+// textures.js resolves it with. (.transform names the values inline already.)
+for (const call of ['scale', 'rotate', 'translate', 'warp']) {
+  METHOD_CONFIG[call].get('wrap').values = WRAP_MODE_NAMES;
+}
 
 // .ascii({ chars }) takes either a named set or a literal vocabulary, so the
 // names are a starting point rather than the whole domain — offered from the
@@ -743,7 +751,7 @@ const globalKinds = {
 
 const methodKinds = {
   geo: 'position rotation scale align shadow noise displace instance material color sample normal particles out',
-  particle: 'force turbulence attract drag evolve size color opacity fade blend soft position rotation scale out',
+  particle: 'force turbulence attract drag evolve size color opacity fade blend soft lit shadow position rotation scale out',
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
   light: 'position target out',

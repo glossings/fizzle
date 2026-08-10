@@ -576,6 +576,41 @@ hold the frame that made them. Two texture-only keys: `size` is the world
 height of the plane the image maps onto (default 4), and `threshold` how bright
 a pixel must be to give birth (default 0.1).
 
+### light and shadow
+
+Dots are flat-colored by default. `.lit()` hands them to the scene's lights
+instead — each dot takes the color, falloff and cone of the light arriving
+where it flies, and darkens inside shadows. `.shadow()` makes the swarm cast
+its own.
+
+```js
+bg('#04050a')
+
+spot({ color: '#66bbff', intensity: 140, angle: 0.6, penumbra: 0.5, shadow: true })
+  .position(t => Math.sin(t * 0.3) * 5, 7, 4).out()
+spot({ color: '#ff7744', intensity: 110, angle: 0.55, penumbra: 0.5, shadow: true })
+  .position(-5, 6, -2).out()
+
+plane({ width: 40, height: 40 }).rotation(-Math.PI / 2, 0, 0)
+  .position(0, -2.5, 0).material({ color: '#3a3f4a' }).out()
+
+torusKnot({ radius: 1.3 })
+  .particles({ rate: 25000, life: [2.5, 5], speed: 0.2 })
+  .turbulence({ amp: 0.5, period: 2 })
+  .drag(0.6)
+  .color('#e9e9f2')
+  .lit()
+  .shadow()
+  .out()
+```
+
+A dot has no facing, so there's no shading across it — what shows is each
+light's color, distance and shadow. `.lit(0.5)` mixes flat color back in, and
+the amount takes a fn of `t`. Casting is off by default (it's a depth render
+per shadow light); the solid core of each sprite blocks light, so a dense
+swarm lands on the floor as one drifting mass. Both work on texture emitters
+too, lighting the birth colors the image left on the swarm.
+
 ### .evolve — across a life
 
 `.evolve()` hands you each particle's life as a function: `life` runs 0 at

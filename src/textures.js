@@ -960,6 +960,9 @@ const SPECS = {
 // existing sketches (displayed on nothing it *is* black; in a comp it's a cutout)
 const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, transparent: 3, black: 3, polar: 4 };
 
+// what docs and completion offer — black is an alias, polar internal plumbing
+export const WRAP_MODE_NAMES = ['clamp', 'repeat', 'mirror', 'transparent'];
+
 // First spelling of each mode is the canonical one — that's the set docs and
 // completion offer (BLEND_MODE_NAMES); the rest are aliases.
 const BLEND_MODES = {
