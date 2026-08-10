@@ -42,6 +42,8 @@ function stageVideo(el) {
   return el;
 }
 
+const DEFAULT_BG = 0x0a0a0f;
+
 export class Engine {
   constructor(canvas) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -55,6 +57,9 @@ export class Engine {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0a0f);
+    // the same color as a value, for the texture stack to plate under a
+    // transparent .out() — scene.background only reaches the 3D pass
+    this.bg = DEFAULT_BG;
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 500);
     this.camera.position.set(0, 2, 8);
@@ -755,6 +760,9 @@ export class Engine {
     resetWarnings();
     this.scene.fog = null;
     this.scene.background = new THREE.Color(0x0a0a0f);
+    // the same color as a value, for the texture stack to plate under a
+    // transparent .out() — scene.background only reaches the 3D pass
+    this.bg = DEFAULT_BG;
     // the HDRI itself stays cached; only the scene's use of it is patch state,
     // so a sketch that drops its hdri() call goes back to plain lighting
     this.scene.environment = null;

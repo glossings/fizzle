@@ -883,7 +883,7 @@ const SPECS = {
   },
 
   comp: {
-    extras: { uMode: 0, uOpacity: 1 },
+    extras: { uMode: 0, uOpacity: 1, uSwap: 0 },
     // the non-separable blends (luminosity / color) can't work channel by
     // channel: they move a whole color to a target luminance, then pull it
     // back into gamut along the gray axis so the hue survives the trip. This
@@ -906,7 +906,11 @@ const SPECS = {
         // the blends take straight color: premultiplied rgb reads a half-covered
         // white as mid gray, and la gates the result again below — coverage
         // counted twice, which quietly squares any partial-alpha layer
-        vec3 B = Bt.rgb, L = Lt.rgb / max(Lt.a, 1e-4);
+        vec3 Bs = Bt.rgb, Ls = Lt.rgb / max(Lt.a, 1e-4);
+        // uSwap exchanges the two inputs to the blend function only: the layer
+        // is still what alpha and opacity gate, so a swapped feedback still
+        // decays last frame rather than this one.
+        vec3 B = mix(Bs, Ls, uSwap), L = mix(Ls, Bs, uSwap);
         vec3 r;
         float m = uMode;
         if (m < 0.5)       r = L;
@@ -933,15 +937,20 @@ const SPECS = {
         // uOpacity and everything below collapses to the pre-alpha behavior.
         // 'over' is the true premultiplied source-over, so it takes the layer
         // premultiplied; the rest blend straight and are gated back to
-        // coverage here.
+        // coverage here. Swapped, source-over becomes destination-over — the
+        // layer goes under, showing only where the base leaves room.
         float la = clamp(Lt.a, 0.0, 1.0) * uOpacity;
-        vec3 rgb = m < 0.5
-          ? Lt.rgb * uOpacity + B * (1.0 - la)
-          : mix(B, clamp(r, 0.0, 1.0), la);
+        vec3 lp = Lt.rgb * uOpacity;
+        vec3 over = mix(lp + Bt.rgb * (1.0 - la), Bt.rgb + lp * (1.0 - Bt.a), uSwap);
+        vec3 rgb = m < 0.5 ? over : mix(Bt.rgb, clamp(r, 0.0, 1.0), la);
         gl_FragColor = vec4(rgb, Bt.a + la - Bt.a * la);
       }`,
     update(u, p, t) {
-      u.uMode.value = BLEND_MODES[p.mode ?? 'over'] ?? 0;
+      const asked = p.mode ?? 'over';
+      const mode = SWAPPED_MODES[asked] ?? asked;
+      if (BLEND_MODES[mode] == null) warn(`comp: no blend mode '${asked}' — ${BLEND_MODE_NAMES.join(' ')}; using over`);
+      u.uMode.value = BLEND_MODES[mode] ?? 0;
+      u.uSwap.value = (p.swap || asked in SWAPPED_MODES) ? 1 : 0;
       u.uOpacity.value = resolve(p.opacity ?? 1, t);
     },
   },
@@ -973,9 +982,16 @@ const BLEND_MODES = {
   color: 16,
 };
 
-export const BLEND_MODE_NAMES = Object.keys(BLEND_MODES).filter(
-  (name, i, all) => all.findIndex((n) => BLEND_MODES[n] === BLEND_MODES[name]) === i
-);
+// Mode names that are another mode with `swap` already on. 'under' is the one
+// input order worth naming — everything else is spelled `{ mode, swap: true }`.
+const SWAPPED_MODES = { under: 'over' };
+
+export const BLEND_MODE_NAMES = [
+  ...Object.keys(BLEND_MODES).filter(
+    (name, i, all) => all.findIndex((n) => BLEND_MODES[n] === BLEND_MODES[name]) === i
+  ),
+  ...Object.keys(SWAPPED_MODES),
+];
 
 // ---------------------------------------------------------------------------
 // pass plumbing
@@ -1209,7 +1225,7 @@ function delayFit(frames, scale, w, h) {
 }
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
-let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER;
+let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE;
 function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
   // premultiplied source-over, for stacking several naked .out()s
@@ -1220,6 +1236,18 @@ function ensurePassMaterials() {
         vec4 b = texture2D(tex1, vUv);   // over
         float ba = clamp(b.a, 0.0, 1.0);
         gl_FragColor = vec4(b.rgb + a.rgb * (1.0 - ba), ba + a.a * (1.0 - ba));
+      }`,
+  });
+  // the same thing with bg() underneath instead of another chain — the last
+  // step to the canvas, so whatever the stack left transparent lands on the
+  // background rather than on the clear color
+  MAT_PLATE ??= makeMaterial({
+    extras: { uBg: [0, 0, 0, 1] },
+    frag: `
+      void main() {
+        vec4 c = texture2D(tex0, vUv);
+        float ca = clamp(c.a, 0.0, 1.0);
+        gl_FragColor = vec4(c.rgb + uBg.rgb * (1.0 - ca), ca + uBg.a * (1.0 - ca));
       }`,
   });
   // three only tone-maps + sRGB-encodes when rendering to the canvas, so the
@@ -1609,11 +1637,13 @@ export class TextureOp {
     const negated = typeof amount === 'function' ? (t) => -amount(t) : -amount;
     return this._n('transform', { ...rest, translate: { map: m, amount: negated, mid } });
   }
-  // options object in the mode slot: .comp(layer, { mode, opacity })
-  comp(layer, mode = 'over', opacity = 1) {
-    if (typeof mode === 'object' && mode !== null) ({ mode = 'over', opacity = 1 } = mode);
+  // options object in the mode slot: .comp(layer, { mode, opacity, swap })
+  comp(layer, mode = 'over', opacity = 1, swap = false) {
+    if (typeof mode === 'object' && mode !== null) {
+      ({ mode = 'over', opacity = 1, swap = false } = mode);
+    }
     const l = this._texture(layer, 'comp');
-    return l ? this._n('comp', { mode, opacity }, [l]) : this;
+    return l ? this._n('comp', { mode, opacity, swap }, [l]) : this;
   }
   // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
   // apply fn only where the mask is bright: dry→wet blend by mask luma.
@@ -1656,8 +1686,14 @@ export class TextureOp {
   // name: each call site claims its own (see autoBuffer), so a helper built on
   // this can be used twice in a sketch without the two loops colliding.
   feedback(amount = 0.9, fn, o = {}) {
-    // options object in the fn slot: .feedback(0.9, { mode: 'screen' })
-    if (fn !== null && typeof fn === 'object' && !(fn instanceof TextureOp)) { o = fn; fn = undefined; }
+    // The treatment fn is skippable, and a bare mode name stands in for the
+    // options: .feedback(0.9, 'under'), .feedback(0.9, p => …, 'under'),
+    // .feedback(0.9, { mode: 'screen' }) all reach the same place.
+    if (typeof fn === 'string' || (fn !== null && typeof fn === 'object' && !(fn instanceof TextureOp))) {
+      o = fn;
+      fn = undefined;
+    }
+    o = typeof o === 'string' ? { mode: o } : o ?? {};
     const name = autoBuffer(this.engine);
     let prev = new TextureOp(this.engine, 'in', { name });
     if (fn != null) {
@@ -1665,7 +1701,7 @@ export class TextureOp {
       if (treated instanceof TextureOp) prev = treated;
       else warn('feedback: the second argument treats last frame — a fn of it returning a chain, like p => p.rotate(0.02). Last frame comes back untreated.');
     }
-    return this.comp(prev, { mode: o.mode ?? 'add', opacity: amount }).out(name);
+    return this.comp(prev, { mode: o.mode ?? 'add', opacity: amount, swap: o.swap }).out(name);
   }
 
   // .when(cond, fn) — per-frame switch: while cond(t) >= 0.5 the chain
@@ -2344,8 +2380,10 @@ export function renderTextures(engine) {
         flip = !flip;
       }
     }
-    runPass(ctx, MAT_COPY, outTex, null, null);
-    // snapshot for next frame's input(); frozen while paused so trails hold
+    runPass(ctx, MAT_PLATE, outTex, null, null, (u) => setColor4(u.uBg.value, engine.bg, ctx.t));
+    // snapshot for next frame's input(); frozen while paused so trails hold.
+    // Unplated on purpose — the background is a display step, and folding it in
+    // here would hand every feedback loop an opaque last frame to work with.
     if (!engine.paused && outTex !== st.feedbackRT.texture) {
       runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
     }

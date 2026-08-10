@@ -24,6 +24,7 @@ import { MAP_SLOTS, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { mediaList } from './media.js';
 import {
   GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
+  GLOBAL_ARGS, METHOD_ARGS,
   GLOBAL_KIND, METHOD_KINDS, CALLBACK_KIND, docDom, keyEntry,
 } from './docs.js';
 
@@ -231,7 +232,9 @@ export function apiCompletions(context) {
   const { state, pos } = context;
   const node = syntaxTree(state).resolveInner(pos, -1);
 
-  if (node.name === 'String') return stringCompletions(context, node);
+  // a slot whose values are known answers straight away; only the file lists
+  // behind mediaList() are worth waiting on
+  if (node.name === 'String') return stringValues(state, node, pos) ?? mediaCompletions(context, node);
 
   // before the config check, so a chain started inside a value
   // (`{ map: video().` ) still completes as a chain
@@ -288,54 +291,80 @@ function valueCompletions(context, spec) {
   return { from: word ? word.from : context.pos, options, validFor: /^\w*$/ };
 }
 
-// Inside quotes: the imported files this slot can use, or the key's literals.
-async function stringCompletions(context, node) {
+// The span between the quotes. An unterminated string runs to the end of the
+// line, and its closing quote is missing rather than at `to` — so replacing
+// this range swaps the whole value out either way, and filtering matches on
+// exactly what's been typed rather than on the quote too.
+function stringBody(state, pos, node) {
+  const raw = textOf(state, node);
+  const closed = raw.length > 1 && /['"]$/.test(raw);
+  return { from: node.from + 1, to: Math.max(pos, node.to - (closed ? 1 : 0)) };
+}
+
+// Literal values, wherever the cursor is: they're the whole domain of the slot,
+// so they replace what's between the quotes and survive typing into it (only a
+// quote ends the value, which is what validFor says).
+const valueResult = (state, pos, node, values) => ({
+  ...stringBody(state, pos, node),
+  options: values.map((label) => ({ label, type: 'enum' })),
+  validFor: /^[^'"]*$/,
+});
+
+// which argument slot a node sits in; punctuation tokens are `(`, `,`, `)` and
+// named grammar nodes start with a letter, so only the arguments are counted
+function argIndex(argList, node) {
+  let i = 0;
+  for (let n = argList.firstChild; n; n = n.nextSibling) {
+    if (!/^\w/.test(n.name)) continue;
+    if (n.from === node.from && n.to === node.to) return i;
+    i++;
+  }
+  return -1;
+}
+
+// Inside quotes, the values the slot names — as a config value (`wrap: '…'`)
+// or as an argument of the call itself (`mouse('…')`). Both spellings read the
+// same signature, so neither goes quiet just because the other was used.
+function stringValues(state, node, pos) {
+  const parent = node.parent;
+  if (parent?.name === 'Property') {
+    const spec = configContext(state, node, pos)?.keys.get(propertyKey(state, parent));
+    return spec?.values ? valueResult(state, pos, node, spec.values) : null;
+  }
+  if (parent?.name === 'ArgList') {
+    const callee = calleeName(state, parent.parent);
+    const slots = callee && (callee.method ? METHOD_ARGS : GLOBAL_ARGS)[callee.name];
+    const values = slots?.[argIndex(parent, node)];
+    return values ? valueResult(state, pos, node, values) : null;
+  }
+  return null;
+}
+
+// Inside quotes: the imported files this slot can use.
+async function mediaCompletions(context, node) {
   const { state } = context;
   // imageseq(['a.png', 'b.png']) — the array is the argument, the string is in it
-  const parent = node.parent?.name === 'ArrayExpression' ? node.parent.parent : node.parent;
-  const inArray = parent !== node.parent;
+  const inArray = node.parent?.name === 'ArrayExpression';
+  const slot = inArray ? node.parent : node;
+  const parent = slot.parent;
   let kind = null;
 
   if (parent?.name === 'ArgList') {
     const callee = calleeName(state, parent.parent);
     // only the first argument names a file
-    if (callee && !callee.method && (inArray || node.from === firstArgStart(parent))) {
+    if (callee && !callee.method && argIndex(parent, slot) === 0) {
       kind = MEDIA_ARG[callee.name] ?? null;
     }
   } else if (parent?.name === 'Property') {
     const key = propertyKey(state, parent);
     if (key === 'pbr') kind = 'pbr';
     else if (TEXTURE_KEYS.has(key)) kind = 'image';
-    else {
-      const spec = configContext(state, node, context.pos)?.keys.get(key);
-      if (spec?.values) {
-        return {
-          from: node.from + 1,
-          options: spec.values.map((label) => ({ label, type: 'enum' })),
-          validFor: /^[\w-]*$/,
-        };
-      }
-    }
   }
   if (!kind) return null;
   const options = await mediaOptions(kind);
   if (!options.length) return null;
   // the quotes are already typed — replace what's between them
-  const raw = textOf(state, node);
-  return {
-    from: node.from + 1,
-    to: Math.max(context.pos, node.to - (raw.length > 1 && /['"]$/.test(raw) ? 1 : 0)),
-    options,
-    validFor: /^[^'"]*$/,
-  };
-}
-
-// named grammar nodes start with a letter; punctuation tokens are `(`, `,`, …
-function firstArgStart(argList) {
-  for (let n = argList.firstChild; n; n = n.nextSibling) {
-    if (/^\w/.test(n.name)) return n.from;
-  }
-  return -1;
+  return { ...stringBody(state, context.pos, node), options, validFor: /^[^'"]*$/ };
 }
 
 // --- ctrl+hover docs -------------------------------------------------------

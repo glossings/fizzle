@@ -34,7 +34,7 @@ export const GLOBALS = {
   hdri: ['hdri(name?, { background, intensity, blur, rotation, backgroundRotation, backgroundIntensity })', "Image-based lighting from an imported .hdr/.exr: lights every material and shows behind the scene — metal has nothing to reflect without one. Empty hdri() opens the Poly Haven browser; drag a file in to import. Every option but background takes a fn of t."],
 
   camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
-  bg: ['bg(color)', 'Scene background color. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame.'],
+  bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
   resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
@@ -158,12 +158,12 @@ export const METHODS = {
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount, mid, smooth })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
-  comp: [".comp(layer, { mode, opacity })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
+  comp: [".comp(layer, { mode, opacity, swap })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
   alpha: ['.alpha(v)', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
-  feedback: ['.feedback(amount, prev => chain, { mode })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). Contents survive a re-run."],
+  feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). Default mode is 'add'; 'under' leaves the trail behind whatever is drawn this frame. A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.'],
 };
 
@@ -204,6 +204,10 @@ function braceGroups(detail) {
   return groups;
 }
 
+// 'linear'|'radial' -> the literal values a key or argument slot accepts
+const literalValues = (s) =>
+  /^'[^']*'(\s*\|\s*'[^']*')*$/.test(s) ? splitTop(s, '|').map((v) => v.replace(/'/g, '')) : null;
+
 function parseConfig(detail) {
   const keys = new Map();
   for (const group of braceGroups(detail)) {
@@ -212,14 +216,30 @@ function parseConfig(detail) {
       const key = (colon < 0 ? part : part.slice(0, colon)).trim();
       if (!/^\w+$/.test(key) || keys.has(key)) continue;
       const hint = colon < 0 ? '' : part.slice(colon + 1).trim();
-      // 'linear'|'radial' -> the literal values this key accepts
-      const values = /^'[^']*'(\s*\|\s*'[^']*')*$/.test(hint)
-        ? splitTop(hint, '|').map((v) => v.replace(/'/g, ''))
-        : null;
-      keys.set(key, { key, hint, values });
+      keys.set(key, { key, hint, values: literalValues(hint) });
     }
   }
   return keys.size ? keys : null;
+}
+
+// The same trick one level out: a signature that spells its argument's values
+// in the slot itself — mouse('x'|'y'|'down') — is offering them to completion
+// too. Returns values per argument index, or null when no slot names any.
+//
+// Two alternatives at least: a lone quoted argument is an example of what goes
+// there (text('hi', …)), not the list of what may.
+function parseArgs(detail) {
+  const open = detail.indexOf('(');
+  if (open < 0) return null;
+  let depth = 0, close = open;
+  for (; close < detail.length; close++) {
+    if (detail[close] === '(') depth++;
+    else if (detail[close] === ')' && !--depth) break;
+  }
+  const slots = splitTop(detail.slice(open + 1, close), ',')
+    .map((s) => literalValues(s))
+    .map((v) => (v && v.length > 1 ? v : null));
+  return slots.some(Boolean) ? slots : null;
 }
 
 const configTable = (table) => {
@@ -234,6 +254,18 @@ const configTable = (table) => {
 export const GLOBAL_CONFIG = configTable(GLOBALS);
 export const METHOD_CONFIG = configTable(METHODS);
 
+const argTable = (table) => {
+  const out = {};
+  for (const [name, [detail]] of Object.entries(table)) {
+    const slots = parseArgs(detail);
+    if (slots) out[name] = slots;
+  }
+  return out;
+};
+
+export const GLOBAL_ARGS = argTable(GLOBALS);
+export const METHOD_ARGS = argTable(METHODS);
+
 // .material() is the exception: its signature names the sixteen keys worth
 // showing in a tooltip header, but the material understands 45. materials.js
 // owns that list (it's what rejects a typo), so take it from there instead.
@@ -243,9 +275,15 @@ METHOD_CONFIG.material = new Map(
   )
 );
 
-// Same escape hatch for .comp({ mode }): seventeen blend modes don't fit in a
-// signature, and textures.js owns the list that resolves them.
+// Same escape hatch for .comp({ mode }): eighteen blend modes don't fit in a
+// signature, and textures.js owns the list that resolves them. .feedback()
+// hands its mode straight to a comp, so it offers the same set.
 METHOD_CONFIG.comp.get('mode').values = BLEND_MODE_NAMES;
+METHOD_CONFIG.feedback.get('mode').values = BLEND_MODE_NAMES;
+// and the positional spellings of the same slot: .comp(layer, 'add'), and
+// .feedback()'s mode name, which stands in for the options in either slot
+METHOD_ARGS.comp = [null, BLEND_MODE_NAMES];
+METHOD_ARGS.feedback = [null, BLEND_MODE_NAMES, BLEND_MODE_NAMES];
 
 // .ascii({ chars }) takes either a named set or a literal vocabulary, so the
 // names are a starting point rather than the whole domain — offered from the
@@ -597,8 +635,9 @@ const METHOD_KEY_DOCS = {
     smooth: 'Geometry only: how wide each vertex reads the map, in vertex spacings. Default 1 turns a busy map into relief rather than grit; 0 reads a single point (jagged, sparkling), 2-4 is doughy and rounded. Takes a fn of t.',
   },
   comp: {
-    mode: "Blend mode. Default 'over', which lands the layer only where its alpha says so — a transparent-bg generator comps as a sprite. add and screen are the ones that drop an opaque black background; luminosity/color are the non-separable pair that split luma from chroma.",
+    mode: "Blend mode. Default 'over', which lands the layer only where its alpha says so — a transparent-bg generator comps as a sprite. 'under' puts it behind instead. add and screen are the ones that drop an opaque black background; luminosity/color are the non-separable pair that split luma from chroma.",
     opacity: 'How much of the blended result mixes back in, 0..1. Default 1. Takes a fn of t.',
+    swap: "Feed the two images to the mode in the other order. Default false. Turns sub into layer-minus-chain, divide and burn likewise, and 'over' into 'under'.",
   },
   bloom: {
     threshold: 'How bright a pixel must be before it glows. Default 0.7. Drop it to bloom the whole image.',
@@ -607,6 +646,10 @@ const METHOD_KEY_DOCS = {
   },
   delay: {
     scale: 'Fraction of the frame size the history is stored at — a ceiling: a delay too long to hold shrinks further rather than shortening. Default 1. Halving it quarters the memory per stored frame.',
+  },
+  feedback: {
+    mode: "How last frame comes back in. Default 'add', which piles light up; 'over' stacks it in front, 'under' leaves it behind this frame's drawing.",
+    swap: "Feed last frame and this one to the mode in the other order. Default false.",
   },
   shadow: {
     cast: 'This mesh casts shadows. On by default — { cast: false } for a ceiling that has to let light through, or a lamp that should not block itself.',

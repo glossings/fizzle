@@ -644,7 +644,9 @@ plane({ width: 24, height: 24, res: 128 })
   leaves orbit controls live. If **any** argument is a fn of time the sketch
   drives the camera and orbiting is off; drop the call and the next run hands
   back the view you last orbited to.
-- `bg(color)` and `fog({ color, near, far })` set the scene backdrop.
+- `bg(color)` and `fog({ color, near, far })` set the scene backdrop. `bg()` sits
+  under the texture stack too, so a chain with transparency in it shows the
+  background through the gaps rather than black.
 
 ### shadows
 
@@ -885,11 +887,31 @@ circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
 `.comp(layer, { mode, opacity })` composites `layer` over the chain (positional
 `.comp(layer, mode, opacity)` works too, and is the shorter one to type mid-set).
 Modes:
-`over` `add` `sub` `mult` `divide` `screen` `overlay` `hardLight` `softLight`
-`darken` `lighten` `difference` `exclusion` `dodge` `burn` `luminosity`
-`color`.
+`over` `under` `add` `sub` `mult` `divide` `screen` `overlay` `hardLight`
+`softLight` `darken` `lighten` `difference` `exclusion` `dodge` `burn`
+`luminosity` `color`.
 
-The last two move whole colors rather than channels: `luminosity` keeps the
+`under` is `over` upside down — the layer goes **behind** the chain, showing
+only where the chain is transparent. A background slid in under what's already
+drawn:
+
+```js
+text('fizzle', { size: 0.3, bg: null })
+  .comp(noise({ freq: 2, channels: 3, speed: 0.2 }), 'under')
+  .out()   // noise fills the page, the letters stay on top
+```
+
+`swap: true` does the same to any other mode — it feeds the two images to the
+blend in the other order, which is what turns `sub` into layer-minus-chain, and
+the same for `divide`, `dodge` and `burn`:
+
+```js
+noise({ freq: 4, speed: 0.2 })
+  .comp(ramp({ type: 'radial' }), { mode: 'sub', swap: true })
+  .out()   // ramp − noise, not noise − ramp
+```
+
+`luminosity` and `color` move whole colors rather than channels: `luminosity` keeps the
 **base's** color and takes the **layer's** brightness, `color` does the reverse.
 
 ```js
@@ -941,7 +963,8 @@ voronoi({ freq: 7, speed: 0.4, a: '#0d1030', b: '#3a7f8f' })
   pixel by its luma. `.tint(color, { bg: null })` turns any mask into a
   colored cutout.
 - Several naked `.out()`s stack in code order, later over earlier.
-- On screen, transparency reads as black until something is behind it.
+- What's behind the bottom of that stack is `bg()`, so transparency reads as
+  the background color; `bg(null)` puts it back to black.
 
 ### keying — alpha from the picture itself
 
@@ -1183,9 +1206,29 @@ circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
 
 The amount is how much of last frame returns: 1 never lets go, and a fn of `t`
 opens and closes the loop live. The fn treats last frame on its way round —
-scaled up it smears outward, rotated it spirals. `{ mode: 'screen' }` blends the
-two some way other than `add`. Each call site gets its own buffer, so a helper
-built on `.feedback()` can be used twice without the loops colliding.
+scaled up it smears outward, rotated it spirals. Each call site gets its own
+buffer, so a helper built on `.feedback()` can be used twice without the loops
+colliding.
+
+The mode is how last frame comes back — `add` by default. A bare mode name
+stands in for the options, in whichever slot is free:
+
+```js
+.feedback(0.9, 'screen')                       // no treatment
+.feedback(0.9, p => p.rotate(0.01), 'screen')  // with one
+.feedback(0.9, { mode: 'screen', swap: true }) // the long form
+```
+
+`{ mode: 'under' }` is the one worth knowing: the trail is laid down *behind*
+what the chain draws this frame, so the source stays crisp on top of its own
+smear instead of blowing out where the two pile up.
+
+```js
+circle({ radius: 0.08, soft: 0.02, color: '#ff5f9e', bg: null })
+  .translate(t => Math.sin(t * 1.7) * 0.4, t => Math.cos(t * 1.1) * 0.4)
+  .feedback(0.96, p => p.transform({ scale: 1.01 }), { mode: 'under' })
+  .out()
+```
 
 ### custom methods
 

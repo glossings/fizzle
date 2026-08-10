@@ -1169,6 +1169,11 @@ export function makeApi(engine) {
     bg(color) {
       const c = makeColor(color);
       engine.scene.background = c;
+      // and behind the texture stack, so a chain with transparency in it shows
+      // the background rather than the black the canvas happens to be cleared
+      // to. Kept as the value, not the Color: the texture side resolves a fn
+      // of t itself, on the frame it draws.
+      engine.bg = color;
       if (isDynamicColor(color)) engine.updaters.push((t) => setColor(c, color, t));
     },
     // Pins the render to an exact pixel size and shape. The main window shows
