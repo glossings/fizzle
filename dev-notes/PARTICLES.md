@@ -136,8 +136,10 @@ soft-disc fragment, fade ramps over life. The look verbs share one signature —
 one value or two, two meaning birth → death (size, color, opacity all lerp),
 with `[min, max]` in a number slot scattering that end per particle.
 `depthWrite: false` + unsorted transparency: correct under `'add'`, acceptable
-under `'over'`. Dead texels park outside clip space, so they cost zero
-fragments. The fragment shader ends with three's tonemapping/colorspace
+under `'over'` — and `'solid'` opts out of transparency entirely (opaque
+cutout dots, `depthWrite: true`, alpha-discard at 0.5), because a dense lit
+swarm is unrenderable as unsorted transparency (see the lighting section).
+Dead texels park outside clip space, so they cost zero fragments. The fragment shader ends with three's tonemapping/colorspace
 chunks, which compile to identity when rendering into the linear scene target
 — that keeps the dots looking the same whether the sketch is direct-to-canvas
 or going through `scene()`.
@@ -192,6 +194,35 @@ remembering:
   height — approximate when lights differ, which only fattens or thins dot
   shadows slightly.
 
+Self-shadowing is real but it's *visible* only under conditions worth knowing,
+because a sparse demo fooled us once into "shadows don't work":
+
+- A dot's shadow is invisible unless it lands on another dot (or a mesh) — a
+  thin sheet with spacing wider than the dot size shows no occlusion at all,
+  correctly. Spacing is √(area ÷ alive); keep it under the dot size, or give
+  the swarm depth along the light ray. Mean free path 1/(density × dot
+  cross-section) below the cloud radius = a visible terminator (dust-ball
+  example: ~0.03 vs 1.3).
+- An occluder only registers when it sits more than |bias| × (far − near)
+  world units in front of the receiver — the engine's default bias −0.0005 at
+  its default far 120 forgives ~0.06 units, which can swallow dot-scale gaps.
+  Tightening the light's shadow `far` to the scene is the fix (40 → ~0.02).
+  Bias is *negative* to forgive acne in three's compare; a positive bias adds
+  speckle, it doesn't remove it.
+- **A dense lit swarm must be `.blend('solid')`.** The shipped failure: the
+  dust-ball demo computed its lighting correctly and still read near-black
+  from the light's own direction, because unsorted `'over'` with
+  `depthWrite: false` shows whatever draws last in texel order — a
+  depth-scrambled mix of every dot along the ray, dominated by the (correctly)
+  shadowed interior. The lit skin is a one-mean-free-path shell, a few percent
+  of the dots, and it gets painted over. No amount of light fixes a display
+  problem: `'solid'` writes depth so the z-buffer picks the visible skin, and
+  standing at the light, visibility and illumination then select the *same*
+  dots. This is also what the standard dense-sprite looks do (opaque
+  depth-tested sprites). Side effects, both wanted: solid dots occlude
+  wisp-blend swarms and appear in `depth()`. Cost: they pop at the discard
+  threshold instead of fading.
+
 ## Stage 2 — the video coupling (the differentiator)
 
 This is the differentiator:
@@ -230,7 +261,7 @@ Two traps, both of which shipped broken once and are worth remembering.
 step is `fract(p * 0.1031)`, which for `p` in 0..1 never wraps and so mixes
 nothing. Seeded with `vUv` it left a smooth function whose level sets run along
 x+y, and spawn positions came out in *diagonal bands* — 14% density swing
-along the diagonals, chi²/dof of 7.5 against uniform. Neighbouring texels
+along the diagonals, chi²/dof of 7.5 against uniform. Neighboring texels
 landed together 8% of the time (random: 0.8%) and a texel's consecutive frames
 agreed 6.7% of the time, so the pattern was stable in space *and* time, and the
 index-ordered birth cycle dragged it across the frame as a visible sweep.
@@ -248,7 +279,7 @@ the randomness are coupled through the hash.
 
 **Map taps must use `textureLod(…, 0.0)`, never plain `texture()`.** Every
 fragment of the sim pass reads a *random* uv, so
-the derivatives between neighbouring fragments are huge and the hardware picks
+the derivatives between neighboring fragments are huge and the hardware picks
 the top of the mip pyramid — the whole image averaged into a texel. The first
 version shipped with `texture()` and rendered a perfectly black screen with no
 error: every tap came back at the image's mean brightness, which for text on a

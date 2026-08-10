@@ -1,14 +1,7 @@
-// Datamosh — the decoder rebuilt out of texture ops.
-//
-// A compressed frame is one of two things: a keyframe, which is a whole
-// picture, or a P-frame, which is only per-block motion vectors plus a small
-// residual patch. Delete the keyframes and the decoder has no picture to draw
-// onto, so it keeps shoving the last one it had around using the new shot's
-// motion — pixels from one scene, movement from another.
-//
-// There are no real motion vectors here (no codec), so they're estimated:
-// direction from the image gradient, magnitude from frame difference. The
-// rest is literally a decoder — 'mosh' is the picture it's holding.
+// datamosh — a video decoder built out of texture ops. Drop the keyframes and
+// it keeps pushing the last picture around with the new shot's motion.
+// Motion vectors are estimated: direction from the gradient, magnitude from
+// the frame difference.
 
 const FLY = 6            // tunnel speed, units/sec
 const SPAN = 90          // how far the tunnel runs before it wraps
@@ -22,8 +15,7 @@ const hash = (n, k = 0) => {
   return x - Math.floor(x)
 }
 
-// stepped on `shot`, so every value that reads it jumps at the cut and drifts
-// smoothly in between — a hard discontinuity is exactly what a keyframe is for
+// Stepped on `shot`: jumps at each cut, drifts smoothly in between
 const flight = t => t * FLY + hash(shot(t)) * SPAN
 const sway = (t, k) => Math.sin(t * (0.5 + k * 0.17) + hash(shot(t), k) * 6.283) * (0.8 + k * 0.5)
 
@@ -46,8 +38,8 @@ point({ color: '#ff4d6d', intensity: 90 }).position(3, 2.5, 1).out()
 point({ color: '#4dd8ff', intensity: 90 }).position(-3, -2, -9).out()
 point({ color: '#ffffff', intensity: 40 }).position(0, 0, -20).out()
 
-// a spiral of blocks pulled toward the camera. Moving the geometry rather than
-// the camera keeps the tunnel endless, and puts the cut in the same expression
+// A spiral of blocks pulled toward the camera — moving the geometry instead of
+// the camera keeps the tunnel endless
 box({ width: 1.5, height: 1.5, depth: 1.5, res: 1 })
   .material({ color: '#c8d0e0', roughness: 0.4, metalness: 0.25 })
   .instance(220, (x, i, n, t) => {
@@ -73,15 +65,11 @@ const PATCH = 0.11       // residual: how much of the live render leaks back in
 scene().out('src')
 const live = input('src')
 
-// An exponential average of the render. It reads its own last frame, so this
-// chain is a loop and 'lag' is genuinely behind — an acyclic bus would be a
-// patch cord, same frame. A smear rather than .delay(n)'s one past frame is
-// what's wanted here: motion should register over a window, not a single step.
+// A running average of the render — reads its own last frame, so it lags
 live.comp(input('lag'), 'over', 0.5).out('lag')
 
-// Motion, estimated from the render alone: the live frame against its own
-// history. Deliberately *not* measured against the moshed output — that would
-// saturate as the smear diverges, and every block would think it was moving.
+// Motion: the live frame against its own history, not against the moshed
+// output (which would saturate as the smear diverges)
 const motion = live
   .comp(input('lag'), 'diff')
   .saturation(0)
@@ -90,14 +78,13 @@ const motion = live
   .pixellate(BLOCKS)                          // decided per block, like a codec
   .threshold(0.1, { soft: 0.4 })
 
-// Direction. slope() is 0.5-centred, which is the neutral displace() wants, so
-// a block with no gradient doesn't move. Quantized to the same grid.
+// Direction, on the same grid — slope() is 0.5-centered, so a flat block
+// doesn't move
 const vectors = live.blur(2).slope({ strength: 2.4 }).pixellate(BLOCKS)
 
 input('mosh')                                 // the picture being held
-  // blocks with motion get a vector and a residual; the rest are skipped, and
-  // a skipped block is simply last frame's pixels, untouched. That asymmetry
-  // is the whole look: the moving parts melt, the still parts freeze.
+  // moving blocks get a vector and a residual; the rest keep last frame's
+  // pixels — so the moving parts melt and the still parts freeze
   .mask(motion, s => s
     .displace(vectors, PUSH)
     .comp(live, 'over', PATCH))

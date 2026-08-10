@@ -20,8 +20,8 @@ falloff) is safe in doubles: those paths are continuous, so a knife-edge
 rounding difference costs ~1e-7, not a wrong branch.
 
 **Everything else transliterated cleanly**, including the parts easy to get
-subtly wrong: `NOISE_NORMAL` displaces the two tangent neighbours along the
-*centre's* normal (not their own), tangent choice is `cross(n, +Y)` with a +X
+subtly wrong: `NOISE_NORMAL` displaces the two tangent neighbors along the
+*center's* normal (not their own), tangent choice is `cross(n, +Y)` with a +X
 fallback at `|n.y| ≥ 0.99`, eps is 0.08, and the fbm octave loop breaks on
 `float(i) >= uOctaves` (fractional octaves round up, not down).
 
@@ -32,7 +32,7 @@ equality, so when `x0.x == x0.y == x0.z` every comparison passed, `g` was
 `i2 = max(...)` became `(1,1,1)`: corner 1 duplicated corner 0, corner 2
 duplicated corner 3, and the kernel weights came out `[0.6, 0.517, 0, 0]`
 instead of `[0, 0.6, 0, 0]`. The point evaluated to ~0.3–0.4 of nonsense in a
-[-1, 1] field while every neighbour was fine — `snoise(0,0,0)` returned -0.412
+[-1, 1] field while every neighbor was fine — `snoise(0,0,0)` returned -0.412
 where the surrounding field is ~0. A lone bad *point*, not a seam: 1e-7 either
 way and both sides agreed to 1e-6. Nothing saw it unless a vertex landed
 exactly on it, which is why it survived so long.
@@ -112,13 +112,13 @@ recreated exact ties through the skew sum and produced false positives.
 
 To check vertices are still off the ranking ties, measure the spike directly:
 `|d(p) - (d(p-e) + d(p+e)) / 2|` with e ~ 1e-7 along a tangent is immune to
-slope and curvature, so anything it reports is the centre point evaluating
-differently from its own neighbourhood. Read it at ±X/±Y/±Z over a range of
+slope and curvature, so anything it reports is the center point evaluating
+differently from its own neighborhood. Read it at ±X/±Y/±Z over a range of
 times, periods and lacunarities; 0 is the expected answer, and the same
 measure returns 0.14 on the pre-fix field. Comparing `|d(p-e) - d(p+e)|`
 alongside it separates the two failure modes: sides that disagree are a seam,
-sides that agree around a wrong centre are a tie. Do *not* judge this by
-per-vertex deviation from the neighbour mean — at a pole fan that metric
+sides that agree around a wrong center are a tie. Do *not* judge this by
+per-vertex deviation from the neighbor mean — at a pole fan that metric
 reports the field's own slope times the ring distance (~0.006 here) whatever
 the field does, which is how the tie first got mistaken for a crease. If you
 use it anyway, sweep the resolution: smooth content halves as the mesh

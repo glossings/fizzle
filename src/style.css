@@ -237,8 +237,8 @@ html, body {
      own backgrounds stay as narrow as their text, so the picture shows through */
   .cm-editor .cm-content { min-width: 100%; }
   /* Here the swatch is a real <input type="color"> (colorpicker.js), so it
-     needs to be a size a finger can hit — and stripped of the chrome a colour
-     well comes with, so it still reads as the same small square of colour. */
+     needs to be a size a finger can hit — and stripped of the chrome a color
+     well comes with, so it still reads as the same small square of color. */
   input.cm-color-swatch {
     -webkit-appearance: none;
     appearance: none;

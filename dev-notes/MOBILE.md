@@ -33,7 +33,7 @@ Several changes were made on wrong theories. Reassessed after the fact:
 
 | change | added for | verdict |
 |---|---|---|
-| Safari `GestureEvent` zoom path | theory that cancelling `gesturestart` starves `touchmove` | **reverted** — disproved: pinch was working, just outrun by the page zoom |
+| Safari `GestureEvent` zoom path | theory that canceling `gesturestart` starves `touchmove` | **reverted** — disproved: pinch was working, just outrun by the page zoom |
 | `SNAP_BACK` (release under 1.1× → 1×) | "stuck" zoom | **reverted** — the premise was false, see below |
 | `decideGesture` biased 1.8× toward zoom | "stuck" zoom | **reverted** — never saved a case, and broke one, see below |
 | rebase on every finger-count change | "stuck" zoom | **keep** — not a hack; a stale baseline after a third finger or a lift-and-replace is a real defect, verified separately |
@@ -52,7 +52,7 @@ possible gesture already overshoots to 1×. Measured from both a 200px and a
 a drifting midpoint reading as a pan. Measured: the plain "whichever changed
 more" tiebreaker already gets those right (20px and 30px of drift both still
 read as zoom, because a pinch changes the gap far more than it moves the
-centre). Meanwhile the bias misread a genuine pan — 45px of travel with 30px of
+center). Meanwhile the bias misread a genuine pan — 45px of travel with 30px of
 incidental squeeze — as a zoom, since 45 < 30 × 1.8. It never saved a case and
 it broke one.
 
@@ -70,10 +70,10 @@ surfaces, and the camera lock.
 - **`mousedown` is not a tap.** A synthesized `mousedown` only arrives once the
   browser has ruled out a pan. Use `click`.
 - **Safari won't open a picker for a control it thinks isn't there.** The
-  colour swatch *is* an `<input type="color">` on touch rather than a span that
+  color swatch *is* an `<input type="color">` on touch rather than a span that
   calls `showPicker()` on a hidden one.
 - **Don't replace a widget's DOM while a finger is in it.** Every drag through
-  the colour picker rewrites the hex, which mints a new widget;
+  the color picker rewrites the hex, which mints a new widget;
   `updateDOM` returning true keeps the node so the picker stays open.
 - **CodeMirror only scrolls a scroller you gave an overflow to.** Without
   `.cm-scroller { overflow-y: auto }` the spilled overflow was scrolled by

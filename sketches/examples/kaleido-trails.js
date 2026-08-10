@@ -11,8 +11,8 @@ torusKnot({ radius: 1, tube: 0.28, res: 96 })
   .material({ color: '#ff7f50', roughness: 0.3, metalness: 0.5 })
   .out()
 
-// .feedback(amount, fn) comps last frame back over the chain — pushed a little
-// bigger and turned each time, the trail spirals outward as it fades.
+// .feedback(amount, fn) comps last frame back over the chain — scaled and
+// turned a little each time, so the trail spirals outward as it fades
 scene()
   .kaleido(6, { rotate: t => t * 0.02 })
   .feedback(0.95, p => p.transform({ scale: 1.012, rotate: 0.004 }), { mode: 'over' })

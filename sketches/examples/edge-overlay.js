@@ -1,5 +1,5 @@
-// self-referencing comp: the layer can be a fn of the chain so far, so a node
-// overlays its *own* edges — here tinted magenta and added on top
+// Self-referencing comp: the layer can be a fn of the chain so far, so a node
+// overlays its own edges — here tinted magenta and added on top
 
 bg('#04040a')
 ambient({ intensity: 0.3 })

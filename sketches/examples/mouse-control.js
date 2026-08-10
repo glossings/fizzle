@@ -1,8 +1,7 @@
-// mouse-control — the pointer as a signal, and .range() as the way to aim one
-// move the mouse over the picture; hold a button down
+// mouse-control — the pointer as a signal, and .range() to aim one.
+// Move the mouse over the picture; hold a button down.
 
-// mouse() is -1..1 with 0 at the center, which is already what .position() wants.
-// .smooth() on the way in takes the stutter out of a hand-held move.
+// mouse() is -1..1 with 0 at the center. .smooth() takes the stutter out.
 const mx = mouse('x').smooth(0.08)
 const my = mouse('y').smooth(0.08)
 const held = mouse('down').smooth(0.12)   // a 1/0 gate, ramped
@@ -10,13 +9,13 @@ const held = mouse('down').smooth(0.12)   // a 1/0 gate, ramped
 bg('#06060c')
 ambient({ intensity: 0.25 })
 directional({ intensity: 1.3 }).position(3, 5, 2).out()
-// the light chases the cursor, a little further out than the shape does
+// The light chases the cursor, a little further out than the shape does
 point({ color: '#ff9f6e', intensity: 45 }).position(mx.mul(7), my.mul(5), 3).out()
 
 sphere({ radius: 1.1, res: 96 })
   .position(mx.mul(4), my.mul(2.4), 0)
-  // .range() reads its input as 0..1 — the span every shaper, rand() and
-  // audio() produce — so `held` maps to a roughness sweep without arithmetic
+  // .range() reads its input as 0..1, the span shapers and audio() produce,
+  // and maps it onto the values you want
   .noise({ amp: held.range(0.05, 0.6), period: 0.5, octaves: 4, speed: 0.5 })
   .material({ color: '#4fd1c5', roughness: held.range(0.6, 0.1), metalness: 0.4 })
   .out()
@@ -27,8 +26,7 @@ plane({ width: 40, height: 40, res: 2 })
   .material({ color: '#12141f', roughness: 0.95 })
   .out()
 
-// .tint() recolors by brightness: black -> bg, white -> color. The answer to
-// "edge() handed me a white image and I want it magenta".
+// .tint() recolors by brightness: black -> bg, white -> color
 scene()
   .comp(s => s.edge({ strength: 2.5 }).tint('#ff4fd8'), 'add')
   .bloom({ threshold: 0.5, strength: 0.9 })

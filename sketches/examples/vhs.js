@@ -1,23 +1,21 @@
 // VHS — recording, playback and the television, in that order.
-//
-// Starts empty: the naked videofile() opens a picker on the first ctrl+enter
-// and writes your choice into the call. Delete the name to pick another.
+// A bare videofile() opens a picker on the first ctrl+enter and writes your
+// choice into the call. Delete the name to pick another.
 
 const tape = videofile()
 
-// burned in by the camcorder, so it degrades with everything else (the VCR's
-// own readout is added at the end, after the tape, and stays clean)
+// Burned in by the camcorder, so it degrades with everything else. The VCR's
+// own readout is added at the end and stays clean.
 const recorded = tape.comp(
   text('JUL 28 1994\n 9:41 PM', { size: 0.035, pos: [0.96, 0.15], align: 'right' }),
   'screen'
 )
 
-// --- recording: colour-under ---
+// --- recording: color-under ---
 
-// VHS gives luma ~320 samples across the frame and chroma ~40. That 8:1 split
-// is the whole VHS look. .pixellate(x, y) quantizes position, so a cell count
-// paired with an absurd vertical one is a horizontal-only bandwidth limit —
-// 4000 cells tall is finer than the screen, i.e. a no-op.
+// VHS gives luma ~320 samples across the frame and chroma ~40, and that 8:1
+// split is most of the look. A cell count paired with an absurd vertical one
+// makes .pixellate() a horizontal-only bandwidth limit.
 const LUMA_CELLS = 320
 const CHROMA_CELLS = 44
 
@@ -32,7 +30,7 @@ const chroma = recorded
   .blur([6, 2])
   .pixellate(CHROMA_CELLS, 4000)
   .blur([5, 1])
-  .translate(0.005, 0)     // chroma is decoded late, so colour lags right
+  .translate(0.005, 0)     // chroma is decoded late, so color lags right
   .comp(chromaNoise, 'add', 0.3)
 
 const luma = recorded
@@ -42,14 +40,14 @@ const luma = recorded
   .comp(s => s.edge({ strength: 0.7, spread: 3 }), 'add', 0.3)   // deck sharpening
   .comp(snow, 'add', 0.07)
 
-// 'luminosity' keeps the base's colour and takes the layer's brightness: flat
-// areas survive untouched, edges get one image's colour on the other's luma
+// 'luminosity' keeps the base's color and takes the layer's brightness —
+// smeared chroma over sharp luma, which is what color-under does
 const composite = chroma.comp(luma, 'luminosity')
 
 // --- playback ---
 
-// one jitter value per scanline: collapsing x leaves a single column stretched
-// across the frame, and pinning G to the neutral 0.5 keeps displace() sideways
+// One jitter value per scanline: the x scale collapses noise to a single
+// column, and pinning G to 0.5 keeps displace() sideways.
 const lineJitter = noise({ channels: 2, freq: 140, speed: 30 })
   .transform({ scale: [600, 1] })
   .mul([1, 0, 0])
@@ -58,7 +56,7 @@ const lineJitter = noise({ channels: 2, freq: 140, speed: 30 })
 const headSwitch = ramp({ angle: -Math.PI / 2 }).threshold(0.976, { soft: 0.005 })
 const flagging = ramp({ angle: Math.PI / 2 }).threshold(0.978, { soft: 0.04 })
 
-// a wrapping phase is a sawtooth that scrolls; thresholding it is a drifting band
+// A scrolling ramp, thresholded: a band that drifts up the frame
 const tracking = ramp({ angle: Math.PI / 2, period: 1, phase: t => -t * 0.07 })
   .threshold(0.94, { soft: 0.05 })
 
@@ -83,7 +81,7 @@ const played = composite
 
 // --- the television ---
 
-// a triangle wave up the frame = 240 soft stripes
+// A triangle wave up the frame: 240 soft stripes
 const scanlines = ramp({ a: '#8a8a8a', b: '#ffffff', angle: Math.PI / 2, freq: 240, shape: 'tri' })
 
 const readout = t => {
@@ -109,4 +107,4 @@ played
 // more to try:
 // CHROMA_CELLS = 16                                  // a fourth-generation dub
 // tracking: .threshold(0.86, { soft: 0.12 })         // a fat, unmissable tracking band
-// composite.comp(ramp({ type: 'angular' }), 'color', 0.5)   // colour lock, lost
+// composite.comp(ramp({ type: 'angular' }), 'color', 0.5)   // color lock, lost

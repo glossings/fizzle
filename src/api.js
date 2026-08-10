@@ -1000,8 +1000,8 @@ class LightOp {
     // ambient() adds itself, so calling .out() on one only re-layers it
     if (this._added) return this;
     this._added = true;
-    // intensity and colour animate like everything else in the API. They have
-    // to be driven from here: three folds intensity into the light's colour
+    // intensity and color animate like everything else in the API. They have
+    // to be driven from here: three folds intensity into the light's color
     // uniform with multiplyScalar(), so a raw fn left on light.intensity gives
     // NaN — and a NaN light uniform blacks out every surface it touches rather
     // than merely failing to animate.
@@ -1070,7 +1070,7 @@ export function makeApi(engine) {
     // Drag a model into the window to import it (the drop types the call), or
     // run an empty model() to browse Poly Haven's. name = filename, exact or
     // case-insensitive substring. Every mesh in the file is merged into one
-    // geometry; its materials/textures are dropped in favour of .material().
+    // geometry; its materials/textures are dropped in favor of .material().
     // Options: center (default true) and fit (default 2 — scale the longest
     // axis to this, so any file lands at a usable size; fit: 0 keeps the
     // file's own units). Parsing is async and cached across re-runs: the
@@ -1294,11 +1294,11 @@ export function makeApi(engine) {
       const ae = audioIn(name);
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
     },
-    // An imported audio file, played out loud and analysed like audio():
+    // An imported audio file, played out loud and analyzed like audio():
     // returns its level as a signal with the same chainable methods
     // (.kicks/.lowpass/...). Empty call = file picker. Options: volume,
     // speed, loop (default true), restart (fn of t, rising edge rewinds),
-    // chan (analyse one channel). Numeric second arg = chan.
+    // chan (analyze one channel). Numeric second arg = chan.
     audiofile(name, o = {}) {
       if (typeof o === 'number') o = { chan: o };
       if (name !== null && typeof name === 'object') { o = name; name = o.name; }

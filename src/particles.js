@@ -180,7 +180,7 @@ void main() {
 
   if (!wasAlive && age >= 0.0) {
     // born. hash43 wants inputs at integer scale — handed uv in 0..1 its first
-    // fract() never wraps, and neither neighbouring texels nor consecutive
+    // fract() never wraps, and neither neighboring texels nor consecutive
     // frames come out different enough, which draws spawn positions in bands
     // that sweep as births cycle through the pool. gl_FragCoord is the texel;
     // the key counts frames, wrapped so it keeps float precision all set.
@@ -210,7 +210,7 @@ void main() {
     float found = 0.0;
     vec3 mapc = vec3(1.0);
     for (int j = 0; j < 8; j++) {
-      // textureLod, not texture: neighbouring fragments here read unrelated
+      // textureLod, not texture: neighboring fragments here read unrelated
       // uvs, so derivative-picked mips would sample the whole image averaged
       // down to a texel — every pixel dim, nothing ever bright enough to birth
       vec4 mc = textureLod(uSpawnTex, suv, 0.0);
@@ -385,7 +385,7 @@ const LIT_GLSL = /* glsl */ `
   col *= mix( vec3( 1.0 ), irradiance * RECIPROCAL_PI, uLit );
 `;
 
-const drawFrag = (evolve, mapColor, lit) => /* glsl */ `
+const drawFrag = (evolve, mapColor, lit, solid) => /* glsl */ `
 ${lit ? `#include <common>
 #include <lights_pars_begin>
 #include <shadowmap_pars_fragment>
@@ -415,8 +415,9 @@ void main() {
   float alpha = edge * env * rc.a;`
     : `vec3 col = ${mapColor ? 'vColor' : 'mix(uColorA, uColorB, vFrac)'};
   float alpha = edge * env * mix(uOpacity.x, uOpacity.y, vFrac);`}
+  ${solid ? '// opaque cutout: the z-buffer does the occluding, so no blending to feed\n  if (alpha < 0.5) discard;' : ''}
   ${lit ? LIT_GLSL : ''}
-  gl_FragColor = vec4(col, alpha);
+  gl_FragColor = vec4(col, ${solid ? '1.0' : 'alpha'});
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -532,7 +533,11 @@ const freeState = (s) => {
   s.rtA = s.rtB = s.simMat = s.surfTex = null;
 };
 
-const BLENDS = { over: THREE.NormalBlending, normal: THREE.NormalBlending, add: THREE.AdditiveBlending };
+// 'solid' isn't a blend equation but a different contract: opaque cutout dots
+// that write depth, so the z-buffer picks the visible skin. Unsorted 'over'
+// shows a depth-scrambled mix of every dot along the ray — fine for wisps,
+// but a dense .lit() swarm reads as its shadowed interior from every angle.
+const BLENDS = { over: THREE.NormalBlending, normal: THREE.NormalBlending, add: THREE.AdditiveBlending, solid: THREE.NormalBlending };
 
 // The stand-in .evolve() hands its fn: the verbs a life point can set, applied
 // to one sampled position of a particle's life. The fn runs RAMP_N times per
@@ -704,7 +709,7 @@ export class ParticleOp {
 
   blend(mode = 'over') {
     if (!BLENDS[mode]) {
-      warn(`particles: no blend '${mode}' — over or add; using over`);
+      warn(`particles: no blend '${mode}' — over, add or solid; using over`);
       mode = 'over';
     }
     this._blend = mode;
@@ -1046,12 +1051,13 @@ export class ParticleOp {
         uLit: { value: resolve(litV, 0) },
       });
     }
+    const solid = this._blend === 'solid';
     const material = new THREE.ShaderMaterial({
       vertexShader: drawVert(!!evolve, mapColor, litV != null),
-      fragmentShader: drawFrag(!!evolve, mapColor, litV != null),
+      fragmentShader: drawFrag(!!evolve, mapColor, litV != null, solid),
       uniforms: drawUniforms,
-      transparent: true,
-      depthWrite: false,
+      transparent: !solid,
+      depthWrite: solid,
       blending: BLENDS[this._blend],
       lights: litV != null,
     });

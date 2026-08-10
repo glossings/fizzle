@@ -1,19 +1,14 @@
-// depth haze — depth() is the same render as scene(), read out of the depth
-// buffer instead of the color: black up close, white far away, empty space
-// white. Its range is in world units and defaults to whatever fog() is set to,
-// so the two agree without being told twice.
-//
-// That makes it a mask, and .mask(m, fn) applies fn where the mask is bright —
-// so masking a blur by depth is depth of field, and masking a flat color by
-// depth is atmospheric haze. Both are one line.
+// depth haze — depth() reads the render's depth buffer: black up close, white
+// far away. Used as a mask, that makes depth of field (mask a blur) and
+// atmospheric haze (mask a color) one-liners.
 
 bg('#06060b')
 fog({ color: '#06060b', near: 5, far: 34 })          // depth() picks this range up automatically
 
 ambient({ intensity: 0.1, color: '#8fa2c8' })
 
-// three ceiling lamps sliding toward the camera on a loop, so the corridor
-// never ends. Same z fn drives the lights and the fixtures.
+// Three ceiling lamps sliding toward the camera on a loop, so the corridor
+// never ends. The same z fn drives the lights and the fixtures.
 const lampZ = (i) => (t) => (((t * 3.5 + i * 12) % 36) - 32)
 
 for (let i = 0; i < 3; i++) {
@@ -25,7 +20,7 @@ box({ width: 1.8, height: 0.12, depth: 0.5 })
   .material({ color: '#fff4de', emissive: '#ffdca0', emissiveIntensity: 4 })
   .out()
 
-// the corridor: floor, ceiling, two walls
+// The corridor: floor, ceiling, two walls
 plane({ width: 7, height: 90 }).rotation(-Math.PI / 2, 0, 0).position(0, -2.2, -32)
   .material({ color: '#2a2622', roughness: 0.95 }).out()
 plane({ width: 7, height: 90 }).rotation(Math.PI / 2, 0, 0).position(0, 3.4, -32)
@@ -36,7 +31,7 @@ for (const side of [-1, 1]) {
     .material({ color: '#3a3630', roughness: 0.9 }).out()
 }
 
-// doorframes receding into the haze — recessed, so the lamps rake across them
+// Doorframes receding into the haze — recessed, so the lamps rake across them
 box({ width: 0.25, height: 2.6, depth: 1.1 })
   .instance(28, (x, i, n, t) => {
     const side = i % 2 ? 1 : -1
@@ -47,9 +42,8 @@ box({ width: 0.25, height: 2.6, depth: 1.1 })
 
 camera(0, 0.3, 7, [0, 0.2, -14])
 
-// The look. depth({ focus, range }) measures distance from a focal plane
-// instead — 0 at focus, 1 by focus ± range — so the middle of the corridor
-// stays sharp and both ends go soft.
+// depth({ focus, range }) measures distance from a focal plane instead, so the
+// middle of the corridor stays sharp and both ends go soft.
 scene()
   .mask(depth({ focus: t => 14 + Math.sin(t * 0.2) * 8, range: 12 }), s => s.blur(7))
   .levels({ contrast: 1.08, saturation: 0.85 })

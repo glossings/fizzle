@@ -1,10 +1,6 @@
-// texture chains as material maps: any chain can go where a filename goes in
-// .material(), and it re-renders every frame — so the surface is live.
-//
-// The screen's color map is a texture feedback loop, published on a bus so the
-// material can read it. The floor's relief and roughness are noise textures, one
-// of them moving real vertices. Map chains render before the 3D pass that
-// samples them, so all of this is the current frame, not a frame behind.
+// Texture chains as material maps: any chain can go where a filename goes in
+// .material(), and it re-renders every frame, so the surface is live. Map
+// chains render before the 3D pass that samples them — no frame of lag.
 
 bg('#04040a')
 fog({ color: '#04040a', near: 9, far: 34 })
@@ -14,8 +10,7 @@ ambient({ intensity: 0.15 })
 point({ color: '#ffffff', intensity: 90 }).position(0, 2.2, 3.2).out()
 point({ color: '#7fd7ff', intensity: 40 }).position(-4, 1.5, 2).out()
 
-// a self-contained feedback loop — no 3D in it at all. On a bus so the panel
-// below can read it (and so the cycle has somewhere to close).
+// A feedback loop with no 3D in it, on a bus so the panel below can read it
 circle({ radius: 0.07, soft: 0.05, color: '#7ee787' })
   .translate(t => Math.sin(t * 1.3) * 0.36, t => Math.sin(t * 0.9) * 0.3)
   .comp(input('screen').transform({ scale: 0.985, rotate: 0.012 }), 'add', 0.9)
@@ -26,7 +21,7 @@ plane({ width: 5.4, height: 3.2 })
   .material({ map: input('screen'), roughness: 0.35, metalness: 0.1 })
   .out()
 
-// displacementMap moves real vertices, so the plane needs vertices to move
+// displacementMap moves real vertices, so the plane needs a high res
 plane({ width: 40, height: 40, res: 220 })
   .rotation(-Math.PI / 2, 0, 0)
   .position(0, -1.6, 0)

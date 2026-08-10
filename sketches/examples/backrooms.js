@@ -1,5 +1,4 @@
-// backrooms — a procedurally generated maze, walked on a loop by a camcorder
-// that never finds the exit.
+// backrooms — a generated maze, walked on a loop by a camcorder
 
 // --- maze ---
 
@@ -34,9 +33,7 @@ while (stack.length) {
   stack.push([i + di, j + dj])
 }
 
-// Braiding opens the tree into rooms. Every interior wall removed here joins
-// two cells the tree already connected the long way round, so each one closes
-// exactly one loop — which is what the walk needs.
+// Braiding: knock out interior walls to turn the tree into loops
 const braids = []
 for (let k = 0; k < W * H * 0.25; k++) {
   const i = 1 + Math.floor(rnd() * (W - 1)), j = Math.floor(rnd() * H)
@@ -74,8 +71,7 @@ const lamps = []
 for (let j = 0; j < H; j++)
   for (let i = 0; i < W; i++) if (rnd() < 0.55) lamps.push([i * C, j * C])
 
-// hung 0.14 clear of the ceiling: flush against it they z-fight away down the
-// long sightlines, where a near of 0.01 leaves only ~15mm of depth precision
+// Hung clear of the ceiling — flush against it they z-fight down long sightlines
 box({ res: 1 })
   .instance(lamps.length, (x, i) => x.position(lamps[i][0], WALL_H - 0.14, lamps[i][1]).scale(2.3, 0.1, 1.2))
   .material({ color: '#fffdf2', emissive: '#fff3cc', emissiveIntensity: 7 })
@@ -83,9 +79,8 @@ box({ res: 1 })
 
 // --- walk ---
 
-// The route must be a simple cycle: at a hairpin, "look 2.6m further along the
-// path" points back at your own head. Tree path + one braided wall is such a
-// cycle by construction, so take the longest of those.
+// The route has to be a simple cycle, so the camera can always aim at a point
+// further along it. Take the longest loop closed by a braided wall.
 const toRoot = (c) => { const out = []; for (let x = c; x !== -1; x = parent[x]) out.push(x); return out }
 const loopThrough = (a, b) => {
   const A = toRoot(a), B = toRoot(b)
@@ -102,8 +97,8 @@ for (const [a, b] of braids) {
 }
 const path = best.map((c) => [c % W, Math.floor(c / W)])
 
-// midpoints pin the curve to the corridor axis; without them it cuts 90°
-// corners hard enough to clip walls
+// Midpoints keep the curve on the corridor axis, so it doesn't cut corners
+// through walls
 const pts = []
 for (let k = 0; k < path.length; k++) {
   const a = path[k], b = path[(k + 1) % path.length]
@@ -117,12 +112,12 @@ route.updateArcLengths()
 const LEN = route.getLength()
 const LOOP = LEN / 2.3          // seconds per lap
 
-// cached per t — camera() asks for each component separately, lights ask again
-const along = (metres) => {
+// Cached per t — camera() and the lights each ask for this separately
+const along = (meters) => {
   let last = -1
   const v = new THREE.Vector3()
   return (t) => {
-    if (t !== last) { last = t; route.getPointAt(((t / LOOP + metres / LEN) % 1 + 1) % 1, v) }
+    if (t !== last) { last = t; route.getPointAt(((t / LOOP + meters / LEN) % 1 + 1) % 1, v) }
     return v
   }
 }
@@ -137,9 +132,8 @@ camera(
 
 // --- light ---
 
-// fluorescent light is flat and everywhere, so nearly all of it is ambient;
-// the two points only shape the corridor, one at the camera and one further
-// along so light spills around the corner you haven't turned yet
+// Fluorescent light is flat, so most of it is ambient. Two points shape the
+// corridor: one at the camera, one further along the route.
 ambient({ intensity: 0.58, color: '#d8c98f' })
 
 const buzz = rand(13, 4)
@@ -151,8 +145,8 @@ point({ color: '#ffeec4', intensity: (t) => 9 * (0.8 + 0.28 * buzz(t + 3.1)), di
 // --- tape ---
 
 scene()
-  // masking a solid color by depth is fog, done in texture space. It mixes toward a
-  // bright yellow: haze that darkens is night, haze that brightens is tubes.
+  // Masking a color by depth is fog in texture space — yellow, so the haze
+  // brightens with distance
   .mask(depth({ near: 8, far: 42 }), s => s.comp(constant('#cbb877'), 'over'))
   .mask(depth({ near: 22, far: 46 }), s => s.blur(4))                   // far end goes soft
   .levels({ contrast: 1.02, saturation: 0.9, gamma: 1.12 })

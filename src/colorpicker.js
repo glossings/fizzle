@@ -82,7 +82,7 @@ export function colorPicker(onChange) {
     eq(other) { return other.color === this.color; }
 
     toDOM(view) {
-      // On a touch screen the swatch *is* the colour input rather than a span
+      // On a touch screen the swatch *is* the color input rather than a span
       // that asks one to open. Everything about the indirect route is fragile
       // there: showPicker() needs an activation a tap doesn't always carry
       // past the browser's pan/tap decision, and Safari won't open a picker
@@ -164,7 +164,7 @@ export function colorPicker(onChange) {
         click(e, view) {
           // On touch the swatch is a real input and tapping it is the way in;
           // opening from the text as well would mean a tap anywhere near a
-          // colour puts a picker over the code you were trying to edit.
+          // color puts a picker over the code you were trying to edit.
           if (isTouch) return;
           if (e.target.classList?.contains('cm-color-swatch')) return;
           const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });

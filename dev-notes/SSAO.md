@@ -33,11 +33,12 @@ the subject or the whole estimate compresses into a few gray levels.
 
 Honest caveats, all inherent to the trick:
 
-- **It cannot see particles.** Dots don't write depth (transparent, unsorted,
-  `depthWrite: false` by design — see PARTICLES.md), so `depth()` doesn't know
-  the swarm exists: no self-AO on a particle terrain, and geometry behind a
-  swarm gets creased as if the swarm weren't there. Particle self-occlusion
-  today is `.lit()` + `.shadow()`, full stop.
+- **It cannot see `'over'`/`'add'` particles** — those don't write depth
+  (transparent, unsorted, `depthWrite: false` by design — see PARTICLES.md),
+  so `depth()` doesn't know the swarm exists. `.blend('solid')` dots *do*
+  write scene depth, so a solid swarm shows up in `depth()` and this trick
+  creases it like geometry. Wisp-blend self-occlusion remains `.lit()` +
+  `.shadow()`, full stop.
 - Screen-space halos at silhouettes (a background pixel next to a foreground
   edge reads as "in a crevice"). Smaller radius, or keep the strength subtle.
 - No normal weighting, so it's cavity detection, not real occlusion — flat
@@ -52,10 +53,9 @@ render. No normal buffer exists and adding one means a second scene render or
 MRT on the main pass; reconstructing normals from depth derivatives is the
 usual dodge and is fine at half res. That's a contained op for geometry.
 
-The particle half is the real work: for AO (or `depth()`, or fog) to see the
-swarm, dots would have to write depth somewhere — either flipping
-`depthWrite` on for a dedicated depth-only pass with the draw shaders'
-alpha-discard (cheap, slightly wrong through overlaps), or a separate
-half-res density render treated as soft depth. Until something demands it,
-the shadow-map route is the answer to "creases on particles" — it's also what
-is happening in the reference looks.
+The particle half splits by blend mode: `.blend('solid')` dots already write
+scene depth, so they'd fall out of a depth-only AO for free. Wisp blends
+(`'over'`/`'add'`) would need a separate half-res density render treated as
+soft depth. Until something demands it, the shadow-map route is the answer to
+"creases on particles" — it's also what is happening in the
+reference looks.

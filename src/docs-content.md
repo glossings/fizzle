@@ -612,29 +612,42 @@ swarm lands on the floor as one drifting mass — and, since lit dots read the
 same shadow maps, on itself: ridges shade valleys. Both work on texture
 emitters too, lighting the birth colors the image left on the swarm.
 
+A dense lit swarm also wants `.blend('solid')`. The default `'over'` never
+sorts, so overlapping dots show a depth-scrambled mix — an optically thick
+cloud reads as its shadowed interior from every angle, lit skin and all.
+`'solid'` dots are opaque cutouts that write depth: the z-buffer picks the
+visible skin, and looking from the light you see exactly the dots the light
+reaches. They pop in and out rather than fade — that hardness is what lets
+them occlude.
+
 `.noise()` on the source shape carries through to the births, which is the
 classic grainy-terrain move — a plane the sketch never draws, dissolved into
 dots pinned to its creases, a low casting light raking them:
 
 ```js
-directional({ color: '#ffc9a0', intensity: 3, shadow: { soft: 2, bias: 0.0004, area: 14 } })
-  .position(9, 2.2, 3).out()
+directional({ color: '#ffc9a0', intensity: 3, shadow: { soft: 2, area: 8, far: 40 } })
+  .position(8, 1.6, 2).out()
 ambient({ color: '#30364d', intensity: 0.25 }).out()
 
-plane({ width: 18, height: 18 })
+plane({ width: 10, height: 10 })
   .rotation(-Math.PI / 2, 0, 0)
-  .noise({ amp: 0.9, period: 3.5, speed: 0.12 })
-  .particles({ rate: 100000, life: [1, 2.5], speed: 0.02 })
-  .size([0.015, 0.045])
+  .noise({ amp: 1.1, period: 2.5, speed: 0.1 })
+  .particles({ rate: 150000, life: [1, 2], speed: 0.02 })
+  .size([0.03, 0.06])
   .color('#d8d2c8')
+  .blend('solid')
   .lit()
   .shadow()
   .out()
 ```
 
 Each birth lands where the surface is at that moment, so short lives track a
-drifting field and long ones remember where it was. The small `bias` keeps
-near-coplanar dots from speckling each other with shadow acne.
+drifting field and long ones remember where it was. Self-shadowing lives or
+dies on density: a shadow is invisible unless it lands on another dot, so keep
+the spacing (√(area ÷ alive)) under the dot size or the creases have nothing
+to catch them. A tight shadow `far` helps dot-scale depth gaps survive the
+compare; the dense side-lit ball in the dust-ball example is the clearest
+proof the swarm shades itself.
 
 ### .evolve — across a life
 
@@ -668,10 +681,11 @@ pool size (`rate`, `life`, `max`) is the exception.
 
 Particles draw as camera-facing dots that scale with distance — flat-colored
 unless `.lit()` says otherwise, casting nothing unless `.shadow()` does. They
-test against scene depth, so geometry occludes them, but they don't write it:
-no fog, and `depth()` doesn't see them. `.noise()` on the source shape carries
-through to the births; `.displace()` maps don't. The ceiling is ~1M; phones
-are happiest under ~100k alive.
+test against scene depth, so geometry occludes them; `'over'` and `'add'` dots
+don't write it (no fog, invisible to `depth()`), while `.blend('solid')` dots
+do — they occlude each other and show up in `depth()`. `.noise()` on the
+source shape carries through to the births; `.displace()` maps don't. The
+ceiling is ~1M; phones are happiest under ~100k alive.
 
 ## lights, camera, scene
 
@@ -1549,7 +1563,7 @@ runs on their machine. Files you drop in yourself stay untagged.
   counter: `.counter()` of `.kicks()` steps on kicks, `rand().beat(4).mul(9)`
   jumps randomly each beat. Default: one image per second.
 - `audiofile(name?, { volume, speed, loop, restart, chan })` — an audio file,
-  played out loud and analysed like `audio()`: it returns a level **signal**,
+  played out loud and analyzed like `audio()`: it returns a level **signal**,
   so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
 - `model(name?, { center, fit })` — an `.obj`/`.fbx` as a geometry op that
   starts a chain like `sphere()` does (see **model**).

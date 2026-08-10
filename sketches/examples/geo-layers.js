@@ -1,6 +1,6 @@
-// geometry layers: .out('name') sends a geometry to its own render layer
-// instead of the visible scene; input('name') pulls that layer as a texture.
-// Each layer gets its own treatment before they comp back together.
+// Geometry layers: .out('name') sends a geometry to its own render layer
+// instead of the visible scene, and input('name') pulls it back as a texture —
+// so each layer can get its own treatment before they comp together.
 
 bg('#000008')
 ambient({ intensity: 0.35 })

@@ -1,7 +1,6 @@
-// named buses: .out('name') publishes a point in a chain, input('name') reads
-// it anywhere. Acyclic wiring is a patch cord (same frame); wiring that loops
-// back is a feedback loop (last frame). Here 'kal' routes between two separate
-// chains, and 'trail' closes a loop pre-bloom so glow never compounds into it.
+// Named buses: .out('name') publishes a point in a chain, input('name') reads
+// it anywhere. Wiring forward is same-frame; wiring back is a feedback loop.
+// Here 'kal' routes between two chains and 'trail' closes a loop.
 
 bg('#000005')
 ambient({ intensity: 0.25 })

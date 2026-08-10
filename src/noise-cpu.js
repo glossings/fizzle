@@ -177,7 +177,7 @@ export function displacedPoint(p, n, c, out) {
   return out.set(p.x + n.x * d, p.y + n.y * d, p.z + n.z * d);
 }
 
-// The shader rebuilds the normal by displacing two tangent-offset neighbours
+// The shader rebuilds the normal by displacing two tangent-offset neighbors
 // and crossing the result, rather than differentiating the field — same three
 // taps here, same eps, or a .align() would aim at a surface nobody can see.
 const EPS = 0.08;
@@ -198,7 +198,7 @@ export function displacedNormal(p, n, c, out) {
   const tby = n.z * tax - n.x * taz;
   const tbz = n.x * tay - n.y * tax;
 
-  // every neighbour moves along n, not along its own normal — the shader has
+  // every neighbor moves along n, not along its own normal — the shader has
   // only the one normal to hand at that point, and so do we
   const d0 = offset(p.x, p.y, p.z, c);
   const da = offset(p.x + tax * EPS, p.y + tay * EPS, p.z + taz * EPS, c);

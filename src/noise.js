@@ -380,7 +380,7 @@ export function addUvBasis(geometry) {
   const tri = [0, 0, 0];
 
   // A triangle straddling a uv seam has an edge most of the map wide, which
-  // read as a footprint would blur the whole thing to a flat grey. No sane
+  // read as a footprint would blur the whole thing to a flat gray. No sane
   // mesh has a vertex spacing anywhere near this, so cap it and move on.
   const MAX_PITCH = 0.25;
   const widest = (i, wu, wv) => {
@@ -406,7 +406,7 @@ export function addUvBasis(geometry) {
     widest(c, Math.max(ac, bc), Math.max(cv, bv));
 
     const det = s1 * t2 - s2 * t1;
-    // a triangle that is a point in uv (a pole, a seam artefact) says nothing
+    // a triangle that is a point in uv (a pole, a seam artifact) says nothing
     // about the mapping; skipping it leaves those vertices at zero, which the
     // shader reads as "no basis here" and steps over
     if (Math.abs(det) < 1e-12) continue;
@@ -434,7 +434,7 @@ export function addUvBasis(geometry) {
     if (pitch[i * 2] > 0 && pitch[i * 2 + 1] > 0) { su += pitch[i * 2]; sv += pitch[i * 2 + 1]; k2++; }
   }
   // A vertex no triangle names has no spacing of its own, and a footprint of
-  // zero is the one value that reads the map as a point — the artefact this
+  // zero is the one value that reads the map as a point — the artifact this
   // whole attribute exists to avoid. Three's own spheres leave two of these at
   // the poles and never draw them; an imported mesh might draw its. The mesh's
   // own average is a better guess than nothing, and there is nothing else.

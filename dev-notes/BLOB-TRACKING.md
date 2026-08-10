@@ -44,7 +44,7 @@ bbox during label resolution so blob stats come out of the same pass.
 
 ### 3. Frame-to-frame ID tracking — medium, ~60 lines
 
-Greedy nearest-neighbour match against the previous frame's blobs within a
+Greedy nearest-neighbor match against the previous frame's blobs within a
 max-distance gate, plus birth/death hysteresis: persist N frames to be born,
 survive M missing frames before dying. Hungarian matching is overkill — greedy is
 indistinguishable in practice at these blob counts.

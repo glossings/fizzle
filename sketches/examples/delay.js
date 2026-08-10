@@ -1,9 +1,5 @@
-// delay — the picture as it was n frames ago.
-//
-// A feedback loop only ever reaches back one frame, and blending it into
-// itself gives a smear with no definite age. .delay(n) hands back a specific
-// past frame, which makes two things easy: diffing against your own past
-// (what moved), and echoes with real spacing between the ghosts.
+// delay — .delay(n) hands back the picture as it was n frames ago, so you get
+// echoes with real spacing, and a way to diff against your own past.
 
 const GAP = 6         // frames between ghosts
 const GHOSTS = 4
@@ -21,9 +17,8 @@ torusKnot({ radius: 1.2, tube: 0.34, res: 200, p: 2, q: 3 })
 
 scene().out('src')
 
-// Each ghost is one delay, further back and fainter. Stored at half size:
-// they're behind the live frame and softened by the comp, so the resolution
-// is never on show — and it makes the whole stack a quarter of the memory.
+// Each ghost is one delay, further back and fainter. Stored at half size —
+// they sit behind the live frame, so the resolution never shows.
 let echo = input('src')
 for (let i = 1; i <= GHOSTS; i++) {
   echo = echo.comp(
@@ -32,8 +27,8 @@ for (let i = 1; i <= GHOSTS; i++) {
   )
 }
 
-// ...and the motion mask: the live frame against itself two frames back. Still
-// pixels cancel to black, moving edges survive — here tinted and added on top.
+// A motion mask: the live frame against itself two frames back, so still
+// pixels cancel to black and moving edges survive.
 const motion = input('src')
   .comp(s => s.delay(2), 'diff')
   .saturation(0)

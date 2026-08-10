@@ -76,7 +76,7 @@ closure has no way to run per fragment. That's the wall a JS-flavoured
 
 Two smaller things the pure-function model also mispredicts:
 
-- **Ops read their neighbours.** `.blur()`, `.edge()`, `.pixellate()`,
+- **Ops read their neighbors.** `.blur()`, `.edge()`, `.pixellate()`,
   `.chroma()` all sample *other* pixels of their input. The graph composes whole
   images, not per-pixel values, and a per-pixel function couldn't express any of
   them.

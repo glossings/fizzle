@@ -1,4 +1,4 @@
-// CRT: phosphor cells, scanlines, colour fringing, and a barrel-warped tube face
+// CRT: phosphor cells, scanlines, color fringing, and a barrel-warped tube face
 
 bg('#04060a')
 ambient({ intensity: 0.25 })

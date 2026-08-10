@@ -87,7 +87,7 @@ export class AudioEngine {
     this.running = true;
   }
 
-  // Analyse (and play) a media element — the audiofile() path. The element
+  // Analyze (and play) a media element — the audiofile() path. The element
   // routes through the analyser graph and a gain to the speakers.
   startMedia(el, volume = 1) {
     this.ctx ??= new AudioContext();

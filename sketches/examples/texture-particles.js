@@ -1,6 +1,5 @@
 // An image as a particle emitter: .particles() on a texture chain births on
-// its bright pixels, and each particle keeps the color of the pixel it was
-// born from.
+// its bright pixels, each dot keeping the color it was born from.
 
 bg('#05060c')
 

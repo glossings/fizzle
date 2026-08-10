@@ -47,9 +47,9 @@ the mic engine, the named captures in `engine.audios`, and each `audiofile()`
 element live in separate contexts. Nodes can't be mixed across contexts, so
 capturing all of them into one recording means hoisting a single shared
 module-level context. Nothing appears to depend on the separation, so the risk is
-low — but there is one behavioural consequence: `setSinkId` is per-context, so
+low — but there is one behavioral consequence: `setSinkId` is per-context, so
 output-device selection would start moving `audiofile()` playback along with the
-passthrough. Arguably the right behaviour anyway; not free, and worth deciding on
+passthrough. Arguably the right behavior anyway; not free, and worth deciding on
 purpose rather than discovering.
 
 With that done, one `MediaStreamAudioDestinationNode` fed by every source node

@@ -302,7 +302,7 @@ const SPECS = {
 
   // Scattered feature points, one per lattice cell, each pixel answering to its
   // nearest. The three modes differ only in the scalar they pull out of that
-  // neighbourhood — the a→b color mapping is the same for all of them, so any
+  // neighborhood — the a→b color mapping is the same for all of them, so any
   // mode is also a usable mask or displace map.
   voronoi: {
     extras: { uScale: 6, uSpeed: 0.3, uBlend: 0, uSeed: 0, uMode: 0, uColA: [0, 0, 0, 1], uColB: [1, 1, 1, 1] },
