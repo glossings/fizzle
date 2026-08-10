@@ -52,6 +52,15 @@ html, body {
   padding-right: 10px;
 }
 .cm-editor .cm-gutters { display: none; }
+/* the only handle on a folded list, with the fold arrows gone with the gutter */
+.cm-editor .cm-foldPlaceholder {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  color: #9aa4bf;
+  cursor: pointer;
+}
+.cm-editor .cm-foldPlaceholder:hover { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
 .cm-editor .cm-activeLine { background: rgba(20, 20, 30, 0.75); }
 .cm-editor .cm-cursor { border-left-color: #fff; }
 .cm-editor .cm-selectionBackground { background: rgba(90, 120, 255, 0.35) !important; }

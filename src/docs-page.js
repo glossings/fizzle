@@ -15,7 +15,8 @@ import { apiCompletions, apiHover } from './complete.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { initPolyhaven } from './polyhaven.js';
-import { mediaPut, pickFiles } from './media.js';
+import { mediaPut, pickFiles, nameList } from './media.js';
+import { foldLists } from './editor.js';
 import CONTENT from './docs-content.md?raw';
 
 // --- preview engine --------------------------------------------------------
@@ -98,7 +99,7 @@ async function handlePick({ view, rerun }) {
       const files = await pickFiles(req.kind, req.multiple);
       for (const f of files) await mediaPut(f);
       const q = (f) => JSON.stringify(f.name);
-      if (files.length) pick = req.multiple ? `[${files.map(q).join(', ')}]` : q(files[0]);
+      if (files.length) pick = req.multiple ? nameList(files.map((f) => f.name)) : q(files[0]);
     }
   } catch (e) {
     statusEl.textContent = String(e.message ?? e);
@@ -112,7 +113,10 @@ async function handlePick({ view, rerun }) {
   for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${req.fn}\\(\\s*\\)`, 'g'))) {
     const lineStart = doc.lastIndexOf('\n', m.index) + 1;
     if (doc.slice(lineStart, m.index).includes('//')) continue;
-    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${req.fn}(${pick})${suffix}` } });
+    const indent = /^[ \t]*/.exec(doc.slice(lineStart))[0];
+    const insert = `${req.fn}(${pick.replaceAll('\n', `\n${indent}`)})${suffix}`;
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert } });
+    foldLists(view, m.index, m.index + insert.length);
     rerun();
     return;
   }

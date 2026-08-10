@@ -1373,10 +1373,11 @@ export function makeApi(engine) {
     // different seeds give independent signals. Pairs with .beat()/.hold():
     // rand().beat(1) freezes a new random value each bar,
     // rand().hold(audio().kicks()) one on every kick.
-    // rand({ freq, seed }) and positional rand(freq, seed) both work.
+    // rand({ freq, seed }) and positional rand(freq, seed) both work, and both
+    // take signals — a moving seed jumps between independent randoms.
     rand(freq = 1, seed = 0) {
       if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed = 0 } = freq);
-      return sig((t) => valueNoise(t * resolve(freq, t) + seed * 137.31));
+      return sig((t) => valueNoise(t * resolve(freq, t) + resolve(seed, t) * 137.31));
     },
     // Pointer position as a signal, -1..1 with 0 at the center — the range a
     // .position() wants, so mouse() drops straight into one. 'down' is a 1/0 gate

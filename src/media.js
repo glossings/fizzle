@@ -167,6 +167,15 @@ function findMaterials(names) {
   return { materials, loose };
 }
 
+// A dropped folder's worth of names on one line is a wall of text you have to
+// scroll past to reach the rest of the call — one per line reads, and the
+// editor folds it away to a … on import (see foldLists).
+export function nameList(names) {
+  const q = (s) => JSON.stringify(String(s));
+  if (names.length < 3) return `[${names.map(q).join(', ')}]`;
+  return `[\n${names.map((n) => `  ${q(n)},`).join('\n')}\n]`;
+}
+
 // editor snippet for a set of just-imported files; several images become an
 // imageseq stepping once per beat, ready to retrigger with any counter
 export function snippetFor(files) {
@@ -181,7 +190,7 @@ export function snippetFor(files) {
       `sphere({ radius: 1.4, res: 128 })\n  .material({ pbr: ${q(mat.handle)}, repeat: 2 })\n  .out()`
     );
   }
-  if (loose.length > 1) parts.push(`imageseq([${loose.map(q).join(', ')}], beat(4))`);
+  if (loose.length > 1) parts.push(`imageseq(${nameList(loose)}, beat(4))`);
   else if (loose.length === 1) parts.push(`imagefile(${q(loose[0])})`);
   for (const f of files) {
     const kind = classifyFile(f);

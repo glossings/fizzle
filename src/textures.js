@@ -2012,7 +2012,10 @@ export class TextureOp {
     if (this.kind === 'imageseq') {
       const { names } = this.params;
       if (!names.length) return blackTex();
-      const i = Math.floor(resolve(this.params.index ?? ((t) => t), ctx.t));
+      // a NaN index (a signal fed something it couldn't resolve) would index
+      // past the list and ask for an image called 'undefined' — hold on the first
+      const raw = Math.floor(resolve(this.params.index ?? ((t) => t), ctx.t));
+      const i = Number.isFinite(raw) ? raw : 0;
       const tex = this.engine.ensureMedia('image', names[((i % names.length) + names.length) % names.length]).texture;
       // warm the rest so switching is seamless
       for (const n of names) this.engine.ensureMedia('image', n);

@@ -1,10 +1,10 @@
 import { Transaction } from '@codemirror/state';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
-import { makeEditor } from './editor.js';
+import { makeEditor, foldLists } from './editor.js';
 import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash } from './share.js';
-import { mediaPut, pickFiles, classifyFile, snippetFor } from './media.js';
+import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { resetCarried } from './carry.js';
 import { initProjector } from './projector.js';
@@ -90,7 +90,12 @@ function fillCall(fn, args, suffix = '') {
   for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${fn}\\(\\s*\\)`, 'g'))) {
     const lineStart = doc.lastIndexOf('\n', m.index) + 1;
     if (doc.slice(lineStart, m.index).includes('//')) continue;
-    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert: `${fn}(${args})${suffix}` } });
+    // a filled-in list is several lines; it keeps the indentation of the call
+    // it's landing in, which the args themselves know nothing about
+    const indent = /^[ \t]*/.exec(doc.slice(lineStart))[0];
+    const insert = `${fn}(${args.replaceAll('\n', `\n${indent}`)})${suffix}`;
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert } });
+    foldLists(view, m.index, m.index + insert.length);
     run(view.state.doc.toString(), true);
     return;
   }
@@ -106,7 +111,7 @@ async function filePick(req) {
   for (const f of files) await mediaPut(f);
   const q = (f) => JSON.stringify(f.name);
   return {
-    args: req.multiple ? `[${files.map(q).join(', ')}]` : q(files[0]),
+    args: req.multiple ? nameList(files.map((f) => f.name)) : q(files[0]),
     label: files.map((f) => f.name).join(', '),
   };
 }
@@ -243,6 +248,7 @@ function insertAtCursor(snippet) {
     changes: { from, insert },
     selection: { anchor: from + insert.length },
   });
+  foldLists(view, from, from + insert.length);
 }
 
 // A dropped folder arrives as a directory entry rather than a file, so it has
