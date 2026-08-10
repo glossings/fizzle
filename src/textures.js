@@ -1647,21 +1647,25 @@ export class TextureOp {
     return node;
   }
 
-  // .feedback((prev, src) => chain) — a loop with the bus name managed for it.
-  // `prev` is this point's own output last frame, `src` the chain so far, and
-  // whatever the fn returns is both what renders and what `prev` will be next
-  // frame. Exactly the .out('name')/input('name') cycle written by hand, minus
-  // the name: each call site claims its own (see autoBuffer), so a helper built
-  // on this can be used twice in a sketch without the two loops colliding.
-  feedback(fn) {
+  // .feedback(0.9) — comp this point's own last frame back over the chain: the
+  // amount is how much of it returns, so trails fade at that rate and 1 never
+  // lets go. .feedback(0.9, p => p.rotate(0.02)) treats last frame on its way
+  // round, which is where the drift of a real feedback loop comes from.
+  //
+  // Exactly the .out('name')/input('name') cycle written by hand, minus the
+  // name: each call site claims its own (see autoBuffer), so a helper built on
+  // this can be used twice in a sketch without the two loops colliding.
+  feedback(amount = 0.9, fn, o = {}) {
+    // options object in the fn slot: .feedback(0.9, { mode: 'screen' })
+    if (fn !== null && typeof fn === 'object' && !(fn instanceof TextureOp)) { o = fn; fn = undefined; }
     const name = autoBuffer(this.engine);
-    const prev = new TextureOp(this.engine, 'in', { name });
-    const body = typeof fn === 'function' ? fn(prev, this) : fn;
-    if (!(body instanceof TextureOp)) {
-      warn('feedback: expected a fn returning a texture chain — the loop is skipped');
-      return this;
+    let prev = new TextureOp(this.engine, 'in', { name });
+    if (fn != null) {
+      const treated = typeof fn === 'function' ? fn(prev) : fn;
+      if (treated instanceof TextureOp) prev = treated;
+      else warn('feedback: the second argument treats last frame — a fn of it returning a chain, like p => p.rotate(0.02). Last frame comes back untreated.');
     }
-    return body.out(name);
+    return this.comp(prev, { mode: o.mode ?? 'add', opacity: amount }).out(name);
   }
 
   // .when(cond, fn) — per-frame switch: while cond(t) >= 0.5 the chain

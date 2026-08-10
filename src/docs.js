@@ -163,7 +163,7 @@ export const METHODS = {
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
-  feedback: ['.feedback((prev, src) => chain)', "Texture: a feedback loop — prev is this point's own output last frame, src the chain so far, and the return is both what renders now and next frame's prev. Contents survive a re-run."],
+  feedback: ['.feedback(amount, prev => chain, { mode })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). Contents survive a re-run."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.'],
 };
 

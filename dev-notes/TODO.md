@@ -67,10 +67,10 @@ uniforms (numbers or fns of `t`).
   3×3/5×5 kernel, normalized unless it sums to 0.
 [ ] `.pixelSort({ threshold, dir })` — cheap per frame (one neighbor fetch, same
   as sharpen), but it's an odd–even transposition sort: it converges over many
-  frames and must read its own previous output. `.feedback()` now supplies the
-  self-reference (one call site, one auto-named buffer), so what's left is the
-  sort pass itself plus frame parity — which `.feedback()` doesn't carry, since
-  its buffer holds pixels rather than a counter.
+  frames and must read its own previous output. `bufferId()` supplies the
+  self-reference (one call site, one auto-named buffer — `.feedback()` itself is
+  no use here, since it comps last frame in rather than handing it over), so
+  what's left is the sort pass plus frame parity, which no buffer carries.
 
 ## Coordinates
 

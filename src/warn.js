@@ -26,6 +26,16 @@ export function warn(msg) {
   window.dispatchEvent(new CustomEvent('fizzle-warning', { detail: msg }));
 }
 
+// Something a sketch asked for that's on its way rather than wrong — a Poly
+// Haven asset coming down over the network. Same channel as a warning, minus
+// the alarm.
+export function notice(msg) {
+  if (said.has(msg)) return;
+  said.add(msg);
+  console.log(`fizzle: ${msg}`);
+  window.dispatchEvent(new CustomEvent('fizzle-notice', { detail: msg }));
+}
+
 // Console only, same once-per-patch dedupe. For things a call couldn't honour
 // exactly but did something reasonable about anyway — a speed clamped to what
 // the browser will play is worth being able to look up, not worth a line in

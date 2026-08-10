@@ -10,7 +10,7 @@
 // api.polyhaven.com serves Access-Control-Allow-Origin: * on the index, the
 // thumbnails and the downloads alike, so this needs no key and no proxy.
 
-import { mediaPut, mediaList, pickFiles } from './media.js';
+import { mediaPut, mediaList, pickFiles, bareName } from './media.js';
 import { commonPrefix } from './pbr.js';
 // the browser carries its own styles, so both pages that can open it — the app
 // and the docs — get them by importing the module
@@ -168,6 +168,54 @@ async function importModel(slug, res, onProgress) {
     await mediaPut(await download(maps[i].url), `${prefix}/${maps[i].as}`);
   }
   return { handle: name, pbr: maps.length ? prefix : null };
+}
+
+// --- names that fetch themselves -------------------------------------------
+//
+// A pick from the browser writes its name into the sketch tagged —
+// pbr: 'polyhaven:rock_2k' — so the code says where the files came from. Share
+// that sketch and the tag is what lets the other machine download the same
+// asset rather than render the shape untextured. Nothing else is needed: the
+// local name *is* the slug and the resolution, which is all the API wants.
+
+const RES_SUFFIX = /_(\d+k)$/;
+const DEFAULT_RES = '2k';
+
+// 'polyhaven:rock_2k' -> { slug: 'rock', res: '2k' }, and the same for an
+// HDRI's 'sunset_4k.hdr'. A mesh is published at one size, so 'ship.fbx' keeps
+// its whole name as the slug and `res` only sizes the maps that come with it.
+export function parseAssetName(name, type) {
+  // a map inside a set names the set it belongs to ('rock_2k/diff.jpg')
+  const base = bareName(name).split('/')[0].replace(/\.(hdr|exr|fbx|obj)$/i, '');
+  if (type === 'models') return { slug: base, res: DEFAULT_RES };
+  const res = base.match(RES_SUFFIX);
+  return { slug: res ? base.slice(0, -res[0].length) : base, res: res?.[1] ?? DEFAULT_RES };
+}
+
+// One download per asset, however many callers want it: a model and the
+// material it came with both go missing on the same frame.
+const inflight = new Map();
+
+// Downloads the asset a tagged name points at, into the same store a dropped
+// file lands in — so the caller's ordinary lookup finds it on the second try.
+export function fetchPolyhaven(name, type, onProgress) {
+  const key = `${type}:${bareName(name).toLowerCase()}`;
+  let job = inflight.get(key);
+  if (job) return job;
+  const { slug, res } = parseAssetName(name, type);
+  job = (async () => {
+    if (type === 'hdris') return importHdri(slug, res, onProgress);
+    if (type === 'models') return (await importModel(slug, res, onProgress)).handle;
+    // the height map comes along here, unlike an interactive download: it's the
+    // smallest file in a Poly Haven set (a jpg a fraction of the normal map's
+    // size), and leaving it out would quietly flatten someone else's sketch
+    return importTexture(slug, res, true, onProgress);
+  })();
+  inflight.set(key, job);
+  // a failure clears the slot too — the next run retries, the file may have
+  // only been a dropped connection away
+  job.catch(() => {}).finally(() => inflight.delete(key));
+  return job;
 }
 
 // --- browser ---------------------------------------------------------------
@@ -364,11 +412,11 @@ export function initPolyhaven() {
       const progress = (i, n) => status(`downloading ${asset.name} — file ${i + 1} of ${n}…`);
       if (state.type === 'models') {
         const got = await importModel(slug, state.res, progress);
-        finish(got.handle, got.pbr);
+        finish(got.handle, got.pbr, true);
       } else if (state.type === 'textures') {
-        finish(await importTexture(slug, state.res, state.displacement, progress));
+        finish(await importTexture(slug, state.res, state.displacement, progress), null, true);
       } else {
-        finish(await importHdri(slug, state.res, progress));
+        finish(await importHdri(slug, state.res, progress), null, true);
       }
     } catch (e) {
       status(`${asset.name}: ${e.message ?? e}`, 'err');
@@ -403,12 +451,18 @@ export function initPolyhaven() {
   // names — a pbr prefix for a material, a filename for an HDRI or a model —
   // or null if the browser was dismissed without choosing anything. `pbr` is
   // the material a model brought down with it, when it had one.
-  function finish(handle, pbr = null) {
+  //
+  // A Poly Haven download hands both back tagged, since the sketch can say
+  // where they came from and be fetched again elsewhere; files off the local
+  // disk have nowhere to be fetched from and stay plain. `label` is the name on
+  // this machine either way.
+  function finish(handle, pbr = null, tag = false) {
     const done = settle;
     settle = null;
     el?.classList.remove('show');
     window.removeEventListener('keydown', onKey);
-    done?.(handle == null ? null : { type: state.type, handle, pbr });
+    const mark = (n) => (n && tag ? `polyhaven:${n}` : n);
+    done?.(handle == null ? null : { type: state.type, handle: mark(handle), pbr: mark(pbr), label: handle });
   }
 
   const cancel = () => finish(null);

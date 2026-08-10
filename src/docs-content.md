@@ -68,7 +68,8 @@ still scales the pixels underneath.
 
 Every run mirrors the code into the URL hash, so the address bar is always a
 shareable link, and the browser's back and forward buttons step through the
-sketches you ran.
+sketches you ran. Imported files don't travel with it; Poly Haven names do (see
+**media files**).
 
 ## time is a parameter
 
@@ -166,7 +167,9 @@ searchable, with the polygon count on each card. The pick downloads as an
 fills in already shaded:
 
 ```js static
-model('BarberShopChair_01.fbx').material({ pbr: 'BarberShopChair_01_2k' }).out()
+model('polyhaven:BarberShopChair_01.fbx')
+  .material({ pbr: 'polyhaven:BarberShopChair_01_2k' })
+  .out()
 ```
 
 **from disk…** picks a local file instead. Foliage is the one thing that can't
@@ -378,7 +381,8 @@ Two ways to get a set in:
 
 - **Run an empty `.material()`** to browse [Poly Haven](https://polyhaven.com)'s
   CC0 materials. Your pick downloads locally and the `pbr:` lands in that same
-  call. `esc` cancels; **from disk…** picks your own files.
+  call, tagged `polyhaven:` so it downloads itself on someone else's machine.
+  `esc` cancels; **from disk…** picks your own files.
 - **Drag a folder of maps in** from anywhere else (ambientCG, cgbookcase, a
   Substance export). Files keep a `folder/file.jpg` name, and the folder is
   the handle: `.material({ pbr: 'rock_wall' })`.
@@ -1164,23 +1168,24 @@ The loop closes at `.out('trail')` — pre-bloom, so the glow doesn't compound
 into the trail. Multiple buses coexist, and published chains render even if
 they never reach a naked `.out()` (as long as something does).
 
-### .feedback — the same loop without naming it
+### .feedback — the same loop in one call
 
-A literal bus name breaks down inside a helper, where the second call writes
-over the first one's buffer. `.feedback()` is the same cycle with the name
-handled for you:
+`.feedback(amount)` is that cycle with the bus name handled for you: last frame
+comes back over the chain at the amount you name.
 
 ```js
 circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
   .translate(t => Math.sin(t * 1.3) * 0.3, t => Math.sin(t * 0.9) * 0.3)
-  .feedback((prev, src) => src.comp(prev.transform({ scale: 0.985, rotate: 0.01 }), 'add', 0.75))
+  .feedback(0.75, p => p.transform({ scale: 0.985, rotate: 0.01 }))
   .bloom({ threshold: 0.4 })
   .out()
 ```
 
-`prev` is what this point of the chain rendered last frame, `src` is the chain
-so far, and what the callback returns is both what renders now and what `prev`
-will be next time. Each call site gets its own buffer.
+The amount is how much of last frame returns: 1 never lets go, and a fn of `t`
+opens and closes the loop live. The fn treats last frame on its way round —
+scaled up it smears outward, rotated it spirals. `{ mode: 'screen' }` blends the
+two some way other than `add`. Each call site gets its own buffer, so a helper
+built on `.feedback()` can be used twice without the loops colliding.
 
 ### custom methods
 
@@ -1189,8 +1194,7 @@ every chain of that kind:
 
 ```js
 Texture.prototype.trail = function (amt = 0.9) {
-  return this.feedback((prev, src) =>
-    src.comp(prev.mul(amt).transform({ scale: 1.01 }), 'add'))
+  return this.feedback(amt, p => p.transform({ scale: 1.01 }))
 }
 
 circle({ radius: 0.08, soft: 0.04, color: '#7ee787' })
@@ -1425,6 +1429,11 @@ out and run again to pick something else.
 before you've dropped anything in: `ship.obj`, the HDRI
 `kloofendal_43d_clear_puresky_1k.hdr`, and the material
 `cobblestone_floor_08_1k`. An import of the same name shadows them.
+
+**`polyhaven:` names fetch themselves.** A pick from the browser lands tagged —
+`pbr: 'polyhaven:rock_wall_02_2k'`, `hdri('polyhaven:lilienstein_2k.hdr')` — and
+a tagged name that isn't imported downloads itself, so a sketch you send someone
+runs on their machine. Files you drop in yourself stay untagged.
 
 - `videofile(name?, { speed, loop, mute, restart, phase, jump })` — a looping
   video as a texture. `speed` and `loop` take fns of `t`; `mute: false` unmutes

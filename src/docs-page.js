@@ -42,6 +42,12 @@ const pauseBtn = document.getElementById('preview-pause');
 const polyhaven = initPolyhaven();
 let activeEx = null;
 
+// a tagged Poly Haven asset an example named is on its way (see fetchAsset)
+window.addEventListener('fizzle-notice', (e) => {
+  statusEl.textContent = e.detail;
+  statusEl.className = '';
+});
+
 function runExample(code, exEl, ctx) {
   engine.paused = false;
   pauseBtn.textContent = '⏸';
@@ -83,6 +89,7 @@ async function handlePick({ view, rerun }) {
   let suffix = ''; // the .material() a downloaded model brings with it
   try {
     if (req.browse) {
+      // handle comes back tagged ('polyhaven:rock_2k') — see fetchPolyhaven
       const chosen = await polyhaven.open(req.browse);
       const q = chosen && JSON.stringify(chosen.handle);
       if (chosen) pick = chosen.type === 'textures' ? `{ pbr: ${q}, repeat: 2 }` : q;

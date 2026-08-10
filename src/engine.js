@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTextures } from './textures.js';
 import { AudioEngine } from './audio.js';
-import { mediaGet, mediaList } from './media.js';
+import { mediaGet, mediaList, isPolyhaven, bareName } from './media.js';
 import { loadModelGeometry } from './models.js';
+import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
-import { warn, resetWarnings, newWarningRun } from './warn.js';
+import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
 import { claimDuring, sweepCarried } from './carry.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
@@ -470,6 +471,24 @@ export class Engine {
     return m;
   }
 
+  // A 'polyhaven:…' name whose files aren't in the store: download the asset it
+  // names, so the caller's second lookup finds it. This is what makes a sketch
+  // someone sent you play — the URL carries the code, the tag carries where the
+  // files came from. Says so on screen, since a download takes as long as it
+  // takes, and returns false (having warned) when it couldn't.
+  async fetchAsset(name, type, what) {
+    const local = bareName(name);
+    notice(`${what}: "${local}" isn't imported yet — fetching it from Poly Haven`);
+    try {
+      await fetchPolyhaven(name, type);
+      notice(`${what}: "${local}" downloaded from Poly Haven — it's imported now`);
+      return true;
+    } catch (e) {
+      warn(`${what}: couldn't fetch "${local}" from Poly Haven — ${e.message ?? e}`);
+      return false;
+    }
+  }
+
   // Imported .obj/.fbx geometry by name, matched like the media files. Parsing
   // an FBX is slow enough that it must not happen on every ctrl+enter, so the
   // merged geometry is cached here and survives re-runs; callers get a clone
@@ -481,21 +500,30 @@ export class Engine {
     const center = o.center !== false;
     // fit omitted = 2 (the default framing); fit: 0/false/null = file's own units
     const fit = o.fit === undefined ? 2 : Number(o.fit) || 0;
-    const key = `${String(name).toLowerCase()}|${center}|${fit}`;
+    // the tag isn't part of the identity: 'polyhaven:ship.fbx' and 'ship.fbx'
+    // are the same mesh, parsed once
+    const key = `${bareName(name).toLowerCase()}|${center}|${fit}`;
     let m = this.models.get(key);
     if (m) return m;
     m = { name: String(name), geometry: null, pending: null };
     this.models.set(key, m);
     m.pending = (async () => {
       try {
-        const rec = await mediaGet(name, (n) => /\.(obj|fbx)$/i.test(n));
+        const isMesh = (n) => /\.(obj|fbx)$/i.test(n);
+        let rec = await mediaGet(name, isMesh);
+        let failed = false; // a tagged name that couldn't be fetched has warned already
+        if (!rec && isPolyhaven(name)) {
+          failed = !(await this.fetchAsset(name, 'models', 'model'));
+          if (!failed) rec = await mediaGet(name, isMesh);
+        }
         if (!rec) {
           m.missing = true; // retried on the next run (clearPatch drops it)
-          const names = (await mediaList()).filter((n) => /\.(obj|fbx)$/i.test(n));
-          const listed = names.map((n) => `"${n}"`).join(', ');
-          warn(
-            `model: nothing imported matching "${name}" — run an empty model() to browse Poly Haven, or drop an .obj/.fbx in. Imported models: ${listed || 'none'}`
-          );
+          if (!failed) {
+            const listed = (await mediaList()).filter(isMesh).map((n) => `"${n}"`).join(', ');
+            warn(
+              `model: nothing imported matching "${name}" — run an empty model() to browse Poly Haven, or drop an .obj/.fbx in. Imported models: ${listed || 'none'}`
+            );
+          }
           return null;
         }
         m.geometry = await loadModelGeometry(rec.blob, rec.name, { center, fit });
@@ -522,14 +550,24 @@ export class Engine {
   // a second decode when it happens.
   // Returns { texture, pending }; texture is null until the decode lands.
   ensureTexture(name, srgb = false) {
-    const key = `${String(name).toLowerCase()}|${srgb}`;
+    const key = `${bareName(name).toLowerCase()}|${srgb}`;
     let t = this.textures.get(key);
     if (t) return t;
     t = { name: String(name), texture: null, pending: null };
     this.textures.set(key, t);
     t.pending = (async () => {
       try {
-        const rec = await mediaGet(name, (n) => IMAGE_RE.test(n));
+        const isImage = (n) => IMAGE_RE.test(n);
+        let rec = await mediaGet(name, isImage);
+        // one map of a tagged set ('polyhaven:rock_2k/diff.jpg') brings the
+        // whole set down; the fetch warns for itself
+        if (!rec && isPolyhaven(name)) {
+          if (!(await this.fetchAsset(name, 'textures', 'material map'))) {
+            t.missing = true;
+            return null;
+          }
+          rec = await mediaGet(name, isImage);
+        }
         if (!rec) {
           t.missing = true; // retried on the next run (clearPatch drops it)
           throw new Error(
@@ -562,24 +600,35 @@ export class Engine {
   // 'rock_2k/diff.jpg' style. Resolves to {} (with a warning) if nothing
   // matches, so a typo names itself instead of silently rendering untextured.
   ensurePbrSet(prefix) {
-    const key = String(prefix).toLowerCase();
+    const key = bareName(prefix).toLowerCase();
     let s = this.pbrSets.get(key);
     if (s) return s;
     s = { prefix: String(prefix), maps: null, pending: null };
     this.pbrSets.set(key, s);
     s.pending = (async () => {
-      const all = await mediaList();
       // prefix-first (a folder or download), then substring, matching how
       // every other name lookup here behaves
-      let names = all.filter((n) => n.toLowerCase().startsWith(key));
-      if (!names.length) names = all.filter((n) => n.toLowerCase().includes(key));
+      const lookup = async () => {
+        const all = await mediaList();
+        const hit = all.filter((n) => n.toLowerCase().startsWith(key));
+        return hit.length ? hit : all.filter((n) => n.toLowerCase().includes(key));
+      };
+      let names = await lookup();
+      let failed = false; // a tagged name that couldn't be fetched has warned already
+      if (!names.length && isPolyhaven(prefix)) {
+        failed = !(await this.fetchAsset(prefix, 'textures', 'material'));
+        if (!failed) names = await lookup();
+      }
       s.maps = classifySet(names);
       if (!Object.keys(s.maps).length) {
         s.missing = true;
-        const sets = [...new Set(all.filter((n) => IMAGE_RE.test(n) && n.includes('/')).map((n) => n.slice(0, n.lastIndexOf('/'))))];
-        warn(
-          `material: no maps matching pbr: "${prefix}" — run an empty .material() to browse Poly Haven, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
-        );
+        if (!failed) {
+          const all = await mediaList();
+          const sets = [...new Set(all.filter((n) => IMAGE_RE.test(n) && n.includes('/')).map((n) => n.slice(0, n.lastIndexOf('/'))))];
+          warn(
+            `material: no maps matching pbr: "${prefix}" — run an empty .material() to browse Poly Haven, or drop a folder of maps in. Imported sets: ${sets.map((n) => `"${n}"`).join(', ') || 'none'}`
+          );
+        }
       }
       return s.maps;
     })();
@@ -592,17 +641,26 @@ export class Engine {
   // slow to redo on every ctrl+enter.
   // Returns { texture, env, pending } — null until the load lands.
   ensureHdri(name) {
-    const key = String(name).toLowerCase();
+    const key = bareName(name).toLowerCase();
     let h = this.hdris.get(key);
     if (h) return h;
     h = { name: String(name), texture: null, env: null, pending: null };
     this.hdris.set(key, h);
     h.pending = (async () => {
       try {
-        const rec = await mediaGet(name, (n) => HDRI_RE.test(n));
+        const isHdri = (n) => HDRI_RE.test(n);
+        let rec = await mediaGet(name, isHdri);
+        // a tagged name is a panorama we can go and get; it warns for itself
+        if (!rec && isPolyhaven(name)) {
+          if (!(await this.fetchAsset(name, 'hdris', 'hdri'))) {
+            h.missing = true;
+            return null;
+          }
+          rec = await mediaGet(name, isHdri);
+        }
         if (!rec) {
           h.missing = true;
-          const names = (await mediaList()).filter((n) => HDRI_RE.test(n));
+          const names = (await mediaList()).filter(isHdri);
           throw new Error(
             `nothing imported matching "${name}" — run an empty hdri() to browse Poly Haven, or drop an .hdr/.exr in. Imported: ${names.map((n) => `"${n}"`).join(', ') || 'none'}`
           );

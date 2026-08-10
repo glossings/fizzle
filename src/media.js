@@ -39,6 +39,17 @@ export const mediaPut = (file, name = file.name) =>
   tx('readwrite', (s) => s.put({ name: String(name), type: file.type, blob: file }));
 export const mediaDelete = (name) => tx('readwrite', (s) => s.delete(name));
 
+// A name can also say where the file came from: 'polyhaven:rock_2k'. Every
+// lookup here uses the bare name, so on a machine that has the file the tag
+// changes nothing — and on one that doesn't, it's enough to download the same
+// asset instead of rendering untextured (see fetchPolyhaven). Which is how a
+// shared sketch heals: URLs carry code, not files.
+const PH_TAG = /^\s*polyhaven\s*:\s*/i;
+export const isPolyhaven = (name) => PH_TAG.test(String(name));
+// only a tagged name is trimmed — an untagged one is matched as typed, spaces
+// and all, because a dropped file is allowed to have them
+export const bareName = (name) => (isPolyhaven(name) ? String(name).replace(PH_TAG, '').trim() : String(name));
+
 // The starter files served from public/media/. They're named and looked up
 // exactly like imported ones, so a fresh install can run the examples with
 // nothing dropped in yet — and an import of the same name shadows them.
@@ -79,6 +90,7 @@ export const mediaList = async () => {
 // `accept` narrows the search to filenames it approves of, so a substring
 // lookup for a model can't land on the image of the same name
 export async function mediaGet(name, accept) {
+  name = bareName(name);
   const ok = (n) => !accept || accept(n);
   const get = (key) => tx('readonly', (s) => s.get(key));
   const exact = await get(String(name));

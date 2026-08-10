@@ -44,6 +44,15 @@ window.addEventListener('fizzle-warning', (e) => {
   setTimeout(() => { if (status.textContent === msg) status.className = ''; }, 5000);
 });
 
+// Nothing wrong, just not here yet: a tagged Poly Haven asset the sketch named
+// is coming down the wire, and says so again when it lands.
+window.addEventListener('fizzle-notice', (e) => {
+  const msg = `⬇ ${e.detail}`;
+  status.textContent = msg;
+  status.className = 'show';
+  setTimeout(() => { if (status.textContent === msg) status.className = ''; }, 6000);
+});
+
 // `push` leaves a history entry behind: true for the runs a person asked for,
 // false for the ones the app did on their behalf (page load, live color drag).
 function run(code, push = false) {
@@ -103,7 +112,9 @@ async function filePick(req) {
 }
 
 // an empty hdri() / .material() / model() asked for the Poly Haven browser
-// instead — the pick is downloaded, then written into that same call
+// instead — the pick is downloaded, then written into that same call. A Poly
+// Haven name goes in tagged ('polyhaven:rock_2k'), so the sketch can be sent to
+// someone who hasn't got the files and fetch them there.
 async function browsePick(req) {
   const pick = await polyhaven.open(req.browse);
   if (!pick) return null;
@@ -113,7 +124,7 @@ async function browsePick(req) {
   return {
     args: pick.type === 'textures' ? `{ pbr: ${q}, repeat: 2 }` : q,
     suffix: pick.pbr ? `.material({ pbr: ${JSON.stringify(pick.pbr)} })` : '',
-    label: pick.handle,
+    label: pick.label,
   };
 }
 
