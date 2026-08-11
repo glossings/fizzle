@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
@@ -190,6 +191,41 @@ const asVec = (v) =>
     : Array.isArray(v) ? [v[0], v[1], v[2]]
       : [v.x, v.y, v.z];
 
+// three starts every line at x = 0, so a multiline TextGeometry is always
+// ragged right. Anything but 'left' gets laid out a line at a time and shifted
+// to the alignment edge of the widest one. Same line spacing three uses, so
+// the two paths stack identically.
+function textLines(str, opts, align) {
+  const lines = str.split('\n');
+  if (align === 'left' || lines.length < 2) return new TextGeometry(str, opts);
+
+  // an empty line still pushes the next one down; there's just nothing to shift
+  const parts = lines.map((line) => {
+    if (!line) return null;
+    const g = new TextGeometry(line, opts);
+    g.computeBoundingBox();
+    return g;
+  });
+  // the bevel pads every line's box by the same amount, so widths still differ
+  // by exactly what the glyphs differ by
+  const widths = parts.map((g) => (g ? g.boundingBox.max.x - g.boundingBox.min.x : 0));
+  const block = Math.max(...widths);
+
+  const d = opts.font?.data;
+  const lineH = d
+    ? (d.boundingBox.yMax - d.boundingBox.yMin + d.underlineThickness) * (opts.size / d.resolution)
+    : opts.size * 1.2;
+
+  const kept = [];
+  parts.forEach((g, i) => {
+    if (!g) return;
+    g.translate(align === 'right' ? block - widths[i] : (block - widths[i]) / 2, -i * lineH, 0);
+    kept.push(g);
+  });
+  // every line was blank — let three build the same nothing it would have
+  return kept.length ? mergeGeometries(kept) : new TextGeometry(str, opts);
+}
+
 // extra carries things resolved outside the switch: `font` for text3d, and
 // `geometry` for model() — the parsed .obj/.fbx, which arrives asynchronously
 function buildGeometry(type, o = {}, extra = {}) {
@@ -222,7 +258,7 @@ function buildGeometry(type, o = {}, extra = {}) {
       return new THREE.IcosahedronGeometry(o.radius ?? 1, o.res ?? o.detail ?? 8);
     case 'text3d': {
       const bevel = o.bevel ?? 0.02;
-      const g = new TextGeometry(String(resolve(o.text ?? 'text', 0)), {
+      const g = textLines(String(resolve(o.text ?? 'text', 0)), {
         font: extra.font ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
         size: o.size ?? 1,
         depth: o.depth ?? 0.25,
@@ -231,7 +267,7 @@ function buildGeometry(type, o = {}, extra = {}) {
         bevelThickness: bevel,
         bevelSize: bevel * 0.6,
         bevelSegments: 3,
-      });
+      }, o.align ?? 'left');
       if (o.center !== false) g.center();
       return g;
     }

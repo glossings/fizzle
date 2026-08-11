@@ -82,6 +82,19 @@ to zoom.
 - [sketches/examples/](sketches/examples/) — bundled example sketches
 - [dev-notes/](dev-notes/) — TODO list, deployment notes, scoping documents
 
+## Credits
+
+fizzle is built on [three.js](https://threejs.org). Almost everything that
+reaches the screen is its renderer doing the work. Thanks to Ricardo Cabello
+and the three.js contributors for the wonderful decade of it.
+
+The livecoding model draws inspiration from
+[Hydra](https://hydra.ojack.xyz) and from TouchDesigner. Neither project is
+affiliated with this one.
+
+Redistributed components and their licenses are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 ## License
 
 fizzle is licensed under the **GNU Affero General Public License v3.0**

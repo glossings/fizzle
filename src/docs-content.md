@@ -473,8 +473,8 @@ Prefiltering is cached per file, so only the first run after importing hitches.
 
 ## 3d text
 
-`text3d('hi', { size, depth, bevel, res, font, weight, center })` extrudes real
-type. `font` takes a bare name, resolved against your installed fonts first
+`text3d('hi', { size, depth, bevel, res, font, weight, align, center })` extrudes
+real type. `font` takes a bare name, resolved against your installed fonts first
 (Chrome/Edge, one-time permission prompt) and then fetched from Google Fonts.
 Use `'google:Name'` to skip the local lookup, or a `.ttf`/`.otf`/
 `.typeface.json` URL for a specific file. Fonts render as helvetiker until they
@@ -499,6 +499,20 @@ text3d('fizzle', { size: 1.2, depth: 0.3, bevel: 0.03 })
 
 Content can be a function of `t`. The geometry rebuilds only when the string
 changes, so clocks and counters are cheap.
+
+`\n` breaks lines, and `align` justifies them against the widest one:
+`'left'` (the default), `'center'` or `'right'`. `center` is a separate
+question, whether the whole block sits on the origin, and stays `true` unless
+you turn it off.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.6 }).position(2, 4, 6).out()
+
+text3d('ready\nsteady\ngo', { size: 0.9, depth: 0.2, align: 'center' })
+  .color('#7ee787')
+  .out()
+```
 
 ## particles
 

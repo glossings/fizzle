@@ -52,8 +52,8 @@ export const GLOBALS = {
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
-  text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right' })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
+  text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
 
@@ -511,7 +511,7 @@ const GLOBAL_KEY_DOCS = {
     pos: '[x, y] in UV, 0..1 from bottom-left. Default [0.5, 0.5].',
     font: "Any CSS family name, 'google:Name', or a font URL. Default a monospace stack.",
     weight: 'CSS weight, 100..900. Default 700.',
-    align: "'center', 'left' or 'right'. Default 'center'.",
+    align: "Which end of the line pos anchors. Default 'center'.",
   },
   text3d: {
     size: 'Cap height in world units. Default 1.',
@@ -520,6 +520,7 @@ const GLOBAL_KEY_DOCS = {
     res: 'Curve segments per glyph. Default 8 — raise it for large smooth type.',
     font: "A font name, 'google:Name', or a .ttf/.otf/.typeface.json URL; renders in helvetiker until the real one arrives. A bare name tries installed fonts (Chrome/Edge, one-time prompt), then Google Fonts; the seven common system faces have stand-ins that work in any browser.",
     weight: "'bold' selects the bold built-in when no font is named.",
+    align: "How multiline text justifies against its widest line. Default 'left'.",
     center: 'Center the text on the origin. Default true.',
   },
   audiofile: {
