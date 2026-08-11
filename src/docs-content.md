@@ -89,13 +89,9 @@ sphere({ radius: 1, res: 64 })
   .out()
 ```
 
-Audio and tempo signals are functions of `t` too, so `.scale(audio().mul(2))`
-works anywhere `.scale(t => ...)` does.
-
 ### colors
 
-Every color slot — `.material({ color })`, `.color()`, a light's `color`,
-`bg()`, `fog()`, a texture's `color`/`bg`/`a`/`b` — takes four forms:
+Every color slot accepts any of these four forms:
 
 ```js static
 '#4fd1c5'            // hex
@@ -104,7 +100,7 @@ Every color slot — `.material({ color })`, `.color()`, a light's `color`,
 [0.31, 0.82, 0.77]   // rgb, each channel 0..1
 ```
 
-The array is the computable one. Each channel takes a fn of `t`:
+In the array form, each channel may also accept a function of `t`:
 
 ```js
 ambient({ intensity: 0.4 })
@@ -115,9 +111,6 @@ sphere({ radius: 1.4, res: 96 })
   .material({ roughness: 0.35 })
   .out()
 ```
-
-A whole-color fn works too, for stepping palettes:
-`.color(kick.counter().select(['#f09', '#0fc']))`.
 
 **Texture** color slots take three more forms that carry transparency: `null`
 (nothing at all), `[r, g, b, a]`, and `'#rrggbbaa'`. See **compositing**. 3D
@@ -184,8 +177,9 @@ Parsing is cached across re-runs, so only a fresh import is briefly empty.
 
 ### transforms
 
-`.position(x, y, z)` · `.rotation(x, y, z)` (radians) · `.scale(x, y?, z?)` — one
-argument to `.scale` is uniform. Every component takes numbers or fns of `t`.
+`.position(x, y, z)` · `.rotation(x, y, z)` (radians) · `.scale(x, y?, z?)` —
+one argument to `.scale` is uniform. Every component takes numbers or
+functions of `t`.
 
 `.pos` and `.rot` are short forms of the first two, and textures have `.trans`
 and `.rot`.
@@ -237,7 +231,7 @@ sphere({ radius: 1.4, res: 200 })
 - `mid` — the map value that means no movement. The default 0.5 lets a
   mid-gray map push both ways; `mid: 0` only ever pushes out.
 - `smooth` — how wide each vertex reads the map. See below.
-- All three take fns of `t`.
+- All three take functions of `t`.
 
 Detail comes from `res`, not from the map. A `sphere()` at the default
 `res: 64` has nowhere near enough vertices to show a photo.
@@ -329,8 +323,8 @@ warns in the console rather than silently doing nothing.
 ### glass & coatings
 
 Naming any of these upgrades the mesh to a physical material. That's the
-pricier shader, so a sketch that never mentions them pays nothing. All take fns
-of `t`.
+pricier shader, so a sketch that never mentions them pays nothing. All take
+functions of `t`.
 
 - `transmission` (0..1) — light passes through instead of bouncing off. This is
   glass. Add `thickness` (world units) to refract through a *volume* rather than
@@ -473,7 +467,7 @@ icosa({ radius: 1.2, res: 6 })
   `backgroundIntensity` just the sky.
 - `rotation` (radians) turns the lighting and the sky together;
   `backgroundRotation` slides the sky under fixed lighting.
-- Everything but `background` takes a fn of `t` or a signal.
+- Everything but `background` takes a function of `t` or a signal.
 
 Prefiltering is cached per file, so only the first run after importing hitches.
 
@@ -503,7 +497,7 @@ text3d('fizzle', { size: 1.2, depth: 0.3, bevel: 0.03 })
   .out()
 ```
 
-Content can be a fn of `t`. The geometry rebuilds only when the string
+Content can be a function of `t`. The geometry rebuilds only when the string
 changes, so clocks and counters are cheap.
 
 ## particles
@@ -533,7 +527,7 @@ particle; `dir` is a vector or `'out'` (the surface normal, the default from a
 shape) and `spread` how far off it a particle may aim. A source shape needn't
 be in the scene, and its transform applies live.
 
-Forces stack in any combination. Every parameter takes a fn of `t` or a
+Forces stack in any combination. Every parameter takes a function of `t` or a
 signal, so audio can drive the wind:
 
 - `.force(x, y, z)` — constant acceleration: `.force(0, -2, 0)` is gravity,
@@ -608,11 +602,11 @@ torusKnot({ radius: 1.3 })
 
 A dot has no facing, so there's no shading across it. What shows is each
 light's color, distance and shadow. `.lit(0.5)` mixes flat color back in. The
-amount takes a fn of `t`. Casting is off by default (it's a depth render
+amount takes a function of `t`. Casting is off by default (it's a depth render
 per shadow light); the solid core of each sprite blocks light, so a dense
 swarm lands on the floor as one drifting mass. Since lit dots read the same
-shadow maps, it also shadows itself: ridges shade valleys. Both work on texture
-emitters too, lighting the birth colors the image left on the swarm.
+shadow maps, it also shadows itself: ridges shade valleys. Both work on
+texture emitters too, lighting the birth colors the image left on the swarm.
 
 A dense lit swarm also wants `.blend('solid')`. The default `'over'` never
 sorts, so overlapping dots show a depth-scrambled mix. An optically thick
@@ -654,8 +648,8 @@ proof the swarm shades itself.
 ### .evolve — across a life
 
 `.evolve()` hands you each particle's life as a function: `life` runs 0 at
-birth to 1 at death. Whatever the fn sets applies at that point, the looks and
-even an extra force, so a particle can rise young and sink old.
+birth to 1 at death. Whatever the function sets applies at that point, the
+looks and even an extra force, so a particle can rise young and sink old.
 
 ```js
 bg('#05060c')
@@ -671,8 +665,8 @@ sphere({ radius: 2 })
 ```
 
 Each look starts from the chain's own (`.size()`/`.color()`/`.opacity()`), so
-set only what should change. The fn is baked into a ramp rather than run per
-particle, so it costs the same at ten particles or a million. It can only
+set only what should change. The function is baked into a ramp rather than run
+per particle, so it costs the same at ten particles or a million. It can only
 depend on `life` and `t`, not on one particle's position.
 
 `.position/.rotation/.scale` move the whole system like any shape, and
@@ -708,21 +702,21 @@ plane({ width: 24, height: 24, res: 128 })
 
 - Every light is configured the same way — `ambient({ intensity })`,
   `directional({ intensity, color })`, `point({ intensity, distance, decay })`
-  — and every value takes a fn of `t`.
+  — and every value takes a function of `t`.
 - `directional` / `point` / `spot` / `hemi` chain `.position(x, y, z).out()`,
-  with fns of `t` for moving lights. `ambient` has no position and adds itself
-  without an `.out()`.
+  with functions of `t` for moving lights. `ambient` has no position and adds
+  itself without an `.out()`.
 - `spot({ angle, penumbra })` is a cone from `.position()` toward `.target()`.
   `angle` is its half-width in radians, `penumbra` (0..1) how soft the rim is.
   `directional` takes a `.target(x, y, z)` too; both aim at the origin without
   one, and both animate.
 - `camera(x, y, z, [tx, ty, tz])` with static numbers places the camera and
-  leaves orbit controls live. If **any** argument is a fn of time the sketch
-  drives the camera and orbiting is off; drop the call and the next run hands
-  back the view you last orbited to.
-- `bg(color)` and `fog({ color, near, far })` set the scene backdrop. `bg()` sits
-  under the texture stack too, so a chain with transparency in it shows the
-  background through the gaps rather than black.
+  leaves orbit controls live. If **any** argument is a function of time the
+  sketch drives the camera and orbiting is off; drop the call and the next run
+  hands back the view you last orbited to.
+- `bg(color)` and `fog({ color, near, far })` set the scene backdrop. `bg()`
+  sits under the texture stack too, so a chain with transparency in it shows
+  the background through the gaps rather than black.
 
 ### shadows
 
@@ -775,44 +769,45 @@ scene()
 ### sources
 
 - `scene()` — the lit 3D render of everything sent to a naked `.out()`.
-- `input()` — last frame's display output (a feedback loop; survives
-  re-runs, frozen while paused). Comp it back in for trails.
+- `input()` — last frame's display output (a feedback loop; survives re-runs,
+  frozen while paused). Comp it back in for trails.
 - `input('name')` — a named bus published elsewhere with `.out('name')`. See
   **buses, layers & feedback**.
 - `constant(color)` — one flat color over the whole frame, in any of the color
-  forms and a fn of `t` like any of them.
-- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape })` — a
-  two-color sweep: straight across (`angle` aims it), out from the center, or
-  around it. `period` is how much of the frame one cycle spans (1 by default;
-  under that it repeats into bands) and `shape` waveshapes each cycle: `'saw'`
-  (the plain ramp), `'tri'` (up then back down, seamless), `'sin'`, `'sqr'`
-  (two flat colors). `phase` slides the sweep along itself, in cycles.
-- `circle({ radius, thickness, soft, center, color, bg })` — a disc, hard-edged
-  until `soft` feathers it. `thickness` cuts the middle back out, measured
-  inward from the rim. `bg: null` draws it on nothing.
+  forms and a function of `t` like any of them.
+- `ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape })`
+  — a two-color sweep: straight across (`angle` aims it), out from the center,
+  or around it. `period` is how much of the frame one cycle spans (1 by
+  default; under that it repeats into bands) and `shape` waveshapes each
+  cycle: `'saw'` (the plain ramp), `'tri'` (up then back down, seamless),
+  `'sin'`, `'sqr'` (two flat colors). `phase` slides the sweep along itself,
+  in cycles.
+- `circle({ radius, thickness, soft, center, color, bg })` — a disc,
+  hard-edged until `soft` feathers it. `thickness` cuts the middle back out,
+  measured inward from the rim. `bg: null` draws it on nothing.
 - `ring({ inner, outer, soft, center, color, bg })` — the same shape addressed
   by its two edges instead.
-- `noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })` —
-  animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
+- `noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })`
+  — animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
   stacks detail layers, `lacunarity` is the frequency step per octave, `gain`
   the amplitude falloff (low = smooth blobs, high = rough grain). Output is
-  normalized, so use `.contrast()` / `.mul()` to change level. `channels: 2`–`4`
-  puts independent fields in R/G(/B/A) instead of the a→b ramp, which is what
-  `.displace()` maps want.
-- `voronoi({ period, freq, speed, blend, seed, mode, a, b })` — scattered points
-  drifting over the frame, each pixel colored by the nearest. `mode` picks what
-  gets drawn: `'cells'` fills each cell flat, `'distance'` shades by distance to
-  its point, `'edges'` lights only the seams. `blend` is how far past its own
-  cell a pixel listens, in cell widths. 0 is hard, higher melts the cells
-  together. All three shade `a`→`b`, so any of them is also a mask or a
-  `.displace()` map.
-- `text('hi', { size, color, bg, pos, font, weight, align })` — canvas-rendered
-  text. `size` is a font size in screen px (values ≤ 1 = fraction of screen
-  height); any CSS font, `\n` for multiline, content may be a fn of `t`.
-  `bg: null` puts the letters on nothing.
+  normalized, so use `.contrast()` / `.mul()` to change level.
+  `channels: 2`–`4` puts independent fields in R/G(/B/A) instead of the a→b
+  ramp, which is what `.displace()` maps want.
+- `voronoi({ period, freq, speed, blend, seed, mode, a, b })` — scattered
+  points drifting over the frame, each pixel colored by the nearest. `mode`
+  picks what gets drawn: `'cells'` fills each cell flat, `'distance'` shades
+  by distance to its point, `'edges'` lights only the seams. `blend` is how
+  far past its own cell a pixel listens, in cell widths. 0 is hard, higher
+  melts the cells together. All three shade `a`→`b`, so any of them is also a
+  mask or a `.displace()` map.
+- `text('hi', { size, color, bg, pos, font, weight, align })` —
+  canvas-rendered text. `size` is a font size in screen px (values ≤ 1 =
+  fraction of screen height); any CSS font, `\n` for multiline, content may be
+  a function of `t`. `bg: null` puts the letters on nothing.
 - `video(name?)` — live camera (see **video input**).
-- `person(name?)` — a live person mask cut from that same camera (see
-  **video input**).
+- `person(name?)` — a live person mask cut from that same camera (see **video
+  input**).
 - `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` —
   imported media files (see **media files**).
 
@@ -934,18 +929,19 @@ scene()
   — UV-space transform. Or the shorthands `.translate(x, y)`, `.rotate(v)`,
   `.scale(x, y?)`. Each takes `{ wrap }` as a trailing option. Translation is
   in UV units (1 = a full frame); scale zooms around center, one number
-  uniform, `.scale(1, 4)` stretching y alone. A negative scale flips that axis:
-  `.scale(-1, 1)` mirrors the whole image left to right.
+  uniform, `.scale(1, 4)` stretching y alone. A negative scale flips that
+  axis: `.scale(-1, 1)` mirrors the whole image left to right.
 - `.crop(w, h?, { center })` — keep the middle `w`×`h` and drop the rest to
   transparent black. Nothing is resampled; the picture stays put and the
-  emptiness closes in around it. Sizes above 1 count pixels of the frame's grid
-  (unaffected by retina or `quality()`), 0..1 is a fraction of the frame, and
-  `h` follows `w` when left out. All take fns of `t`. Keep an animated size on
-  one side of 1, since crossing it swaps which reading applies.
+  emptiness closes in around it. Sizes above 1 count pixels of the frame's
+  grid (unaffected by retina or `quality()`), 0..1 is a fraction of the frame,
+  and `h` follows `w` when left out. All take functions of `t`. Keep an
+  animated size on one side of 1, since crossing it swaps which reading
+  applies.
 - `.mirror({ axis: 'x'|'y'|'both', flip })` — reflect one half onto the other.
   For a whole-image flip instead, use a negative `.scale(-1, 1)`.
 - `.kaleido(sides, { rotate })` — polar kaleidoscope fold.
-- `.radial(s => ...)` — run the fn in polar space (see below).
+- `.radial(s => ...)` — run the function in polar space (see below).
 - `.polar({ inverse })` — the one-way coordinate change, as an effect.
 - `.tile(nx, ny, (src, i, x, y) => variant)` — tile the image with a per-cell
   chain: return `src`, a treatment of it, or any other texture chain. `x` runs
@@ -1009,8 +1005,9 @@ what composite video does to color, and most of why VHS looks like VHS (see the
 **vhs** example).
 
 `layer` may also be a **function of the chain so far**.
-`.comp(s => s.edge(), 'add')` overlays the chain's own edges. `.displace(map)`,
-`.remap(map)` and `.mask(m, fn)` take the same fn form.
+`.comp(s => s.edge(), 'add')` overlays the chain's own edges.
+`.displace(map)`, `.remap(map)` and `.mask(m, fn)` take the same function
+form.
 
 ```js
 ramp({ type: 'angular', a: '#000000', b: '#334455' })
@@ -1077,8 +1074,8 @@ noise({ period: 0.5, speed: 0.15, a: '#03102a', b: '#155a8a' })
 `.mask(maskTop, fn?)` — spatial masking by the mask's luma:
 
 - `.mask(m)` — cutout: multiply the chain by the mask.
-- `.mask(m, s => ...)` — apply the fn **only where the mask is bright**: a
-  dry→wet blend by mask luma, untouched where the mask is black.
+- `.mask(m, s => ...)` — apply the function **only where the mask is bright**:
+  a dry→wet blend by mask luma, untouched where the mask is black.
 
 ```js
 noise({ freq: 3, speed: 0.3, a: '#031018', b: '#4fd1c5' })
@@ -1133,9 +1130,9 @@ coordinates directly (the map **is** the UV space).
 
 ### radial
 
-`.radial(s => ...)` runs the fn in **polar space** — x is the angle around the
-center, y the distance from it — and resamples back afterwards, so every
-ordinary op acts radially:
+`.radial(s => ...)` runs the function in **polar space** — x is the angle
+around the center, y the distance from it — and resamples back afterwards, so
+every ordinary op acts radially:
 
 ```js
 noise({ freq: 4, speed: 0.3, a: '#0b0f2a', b: '#7ee8ff' })
@@ -1283,11 +1280,11 @@ circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
   .out()
 ```
 
-The amount is how much of last frame returns: 1 never lets go, and a fn of `t`
-opens and closes the loop live. The fn treats last frame on its way round:
-scaled up it smears outward, rotated it spirals. Each call site gets its own
-buffer, so a helper built on `.feedback()` can be used twice without the loops
-colliding.
+The amount is how much of last frame returns: 1 never lets go, and a function
+of `t` opens and closes the loop live. The function treats last frame on its
+way round: scaled up it smears outward, rotated it spirals. Each call site
+gets its own buffer, so a helper built on `.feedback()` can be used twice
+without the loops colliding.
 
 The mode is how last frame comes back, `add` by default. A bare mode name
 stands in for the options, in whichever slot is free:
@@ -1386,8 +1383,8 @@ A `diff` against your own past is a motion mask: still parts go black, moving
 edges light up. Comping several delays at falling opacity is an echo rather
 than a trail, each ghost a definite age.
 
-The count takes a fn of `t` (`.delay(beat(1).select([1, 6, 20]))`), and the ring
-grows to the longest delay asked for.
+The count takes a function of `t` (`.delay(beat(1).select([1, 6, 20]))`), and
+the ring grows to the longest delay asked for.
 
 Frames are expensive — ~47 MB each at a retina 1080p buffer — so past a budget
 history is stored **smaller** rather than shorter and says so. `{ scale }`
@@ -1558,22 +1555,22 @@ a tagged name that isn't imported downloads itself, so a sketch you send someone
 runs on their machine. Files you drop in yourself stay untagged.
 
 - `videofile(name?, { speed, loop, mute, restart, phase, jump })` — a looping
-  video as a texture. `speed` and `loop` take fns of `t`; `mute: false` unmutes
-  its soundtrack; `phase` and `jump` move it around (below).
+  video as a texture. `speed` and `loop` take functions of `t`; `mute: false`
+  unmutes its soundtrack; `phase` and `jump` move it around (below).
 - `imagefile(name?)` — a still image as a texture.
 - `imageseq([names], index?)` — several images with a signal choosing the
   current one (floored, wrapped). Dropping multiple images at once types
-  `imageseq([...], beat(4))` for you. Swap the index for any
-  counter: `.counter()` of `.kicks()` steps on kicks, `rand().beat(4).mul(9)`
-  jumps randomly each beat. Default: one image per second.
+  `imageseq([...], beat(4))` for you. Swap the index for any counter:
+  `.counter()` of `.kicks()` steps on kicks, `rand().beat(4).mul(9)` jumps
+  randomly each beat. Default: one image per second.
 - `audiofile(name?, { volume, speed, loop, restart, chan })` — an audio file,
   played out loud and analyzed like `audio()`: it returns a level **signal**,
   so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.
 - `model(name?, { center, fit })` — an `.obj`/`.fbx` as a geometry op that
   starts a chain like `sphere()` does (see **model**).
 - `hdri(name?, { ... })` — an `.hdr`/`.exr` panorama as environment lighting
-  (see **hdri**). An empty call browses Poly Haven; **from disk…** there is the
-  file picker.
+  (see **hdri**). An empty call browses Poly Haven; **from disk…** there is
+  the file picker.
 - A **folder** of images that read as maps of one material is imported as a
   material rather than a pile of pictures (see **textured materials**). Files
   keep a `folder/file.jpg` name, so a dozen identically-named `Color.jpg`s
@@ -1584,9 +1581,10 @@ To rewind:
 
 - `ctrl+r` — media files rewind and everything a sketch has accumulated
   (particle swarms, `.delay()` frames, `.feedback()` trails, `counter()`
-  positions) starts over. The clock keeps running; a paused sketch stays paused.
+  positions) starts over. The clock keeps running; a paused sketch stays
+  paused.
 - `restartMedia(name?)` — in a sketch; runs on every execute. No name = all.
-- `restart:` option — a fn of `t` or signal; a rising edge through 0.5
+- `restart:` option — a function of `t` or signal; a rising edge through 0.5
   rewinds. `videofile('clip.mp4', { restart: beat(1).sqr(0.05) })` restarts
   every bar; `{ restart: audio().kicks() }` on every kick.
 
@@ -1619,10 +1617,10 @@ instrument you play with the trigger. Each jump costs a seek and the audio
 gaps for its duration. That gap is part of the sound.
 
 **Speed.** `speed` is the playback rate: `1` normal, `0.5` half, `0` a freeze,
-and a fn of `t` like anything else. Browsers only play roughly 1/16× to 16× and
-only forwards, so a negative speed freezes and out-of-range values are brought
-to what will play (noted once in the console). To run a clip backwards, drive
-`phase` down instead: `phase: (t) => -t * 0.05`.
+and a function of `t` like anything else. Browsers only play roughly 1/16× to
+16× and only forwards, so a negative speed freezes and out-of-range values are
+brought to what will play (noted once in the console). To run a clip
+backwards, drive `phase` down instead: `phase: (t) => -t * 0.05`.
 
 No video or audio ships with fizzle, so this is a template rather than a live
 block. Drop your own files in and the names write themselves:
@@ -1670,8 +1668,8 @@ icosa({ radius: 1 })
   decays. Chain after a band: `.bandpass(30, 160).kicks()` for kick drums,
   `.highpass(5000).kicks()` for hats.
 - `.add` `.sub` `.mul` `.div` `.pow` — arithmetic (`pow < 1` lifts quiet
-  detail). Each takes a number, a fn of `t` or another signal, so the operand
-  can move.
+  detail). Each takes a number, a function of `t` or another signal, so the
+  operand can move.
 - `.range(min, max)` — rescale, and the method that removes most of that
   arithmetic. Signals are 0..1 by convention, so `audio().range(1, 4)` beats
   `.mul(3).add(1)`. `.clamp(lo, hi)` fences a value without rescaling;
@@ -1723,8 +1721,9 @@ scene().when(beat(4).sqr(), s => s.invert())            // half of every beat
 - `.counter(max?, threshold?)` — counts rising edges, wrapping at `max`. For
   event streams like kicks and clicks; `beat()` already counts itself.
 - `.select([...])` — index a list by the value (floored, wrapped); items can
-  be numbers, colors, strings, or fns of `t`.
-- `.gte(v)` / `.lte(v)` — comparison gates, mainly for `.when()` and `.counter()`.
+  be numbers, colors, strings, or functions of `t`.
+- `.gte(v)` / `.lte(v)` — comparison gates, mainly for `.when()` and
+  `.counter()`.
 - `.hold(trigger, threshold?)` — sample-and-hold driven by **another** signal.
 - `.round()` `.floor()` `.ceil()` `.abs()` — the usual math, chainable.
 
@@ -1754,8 +1753,8 @@ no index it steps one item per second, like `imageseq()`.
 
 `rand({ freq, seed })` is a smooth random signal, 0..1, the signal cousin of
 the `noise()` texture. Different seeds are independent, so `rand({ seed: i })`
-inside a `.tile()` or `.instance()` fn gives every copy its own. `.beat(perBar)`
-snaps it to the grid, `.hold` samples a new value per trigger:
+inside a `.tile()` or `.instance()` function gives every copy its own.
+`.beat(perBar)` snaps it to the grid, `.hold` samples a new value per trigger:
 
 ```js
 const hit = beat(4).sqr(0.1)   // stand-in trigger: fires each beat (try audio().kicks())
