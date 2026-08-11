@@ -6,6 +6,40 @@ what's left, not a history of what happened.
 
 Ordered roughly by leverage.
 
+## Suggested order
+
+Sections below are grouped by kind, which is not the order to do them in. The
+grouping that matters is: **things that fail invisibly, then things that cost
+too much, then things that are merely missing.** A missing feature announces
+itself — you go to write it, it isn't there, you write something else. A silent
+wrong answer costs an afternoon and teaches you nothing, and this list grew by
+several entries that were found exactly that way.
+
+1. **`.read()` + a way to print a pixel.** First, and not because it's the most
+   wanted — because everything else on this list is cheaper to build and verify
+   once a number in the graph can be looked at. Right now a field that renders
+   black is equally "zero", "negative", "NaN" and "never started", and the only
+   way to tell them apart is to re-implement the pass chain outside the app.
+2. **`.blur(r)` sampling.** A correctness bug that silently rules out every
+   iterated-blur sketch, with no symptom except that the result is wrong.
+3. **Alpha-0 buses render black**, and **the papercuts** (non-finite uniform
+   warn, `camera()` target). Same class as 2 — cheap, and each one removes a
+   failure that currently looks like "my maths is wrong".
+4. **`.math()` fused op.** The first non-bug: halves the buffer count of any
+   arithmetic chain and stops sketches reaching into `_n()`. Do it before
+   sub-stepping, since sub-stepping multiplies whatever the per-frame cost is.
+5. **Signal ergonomics** — `hash()`, `.since()`, `perFrame()`, the `kicks()`
+   detector fix and `.dyn()`. Small, independent, and each one deletes a
+   hand-rolled block that sketches currently get subtly wrong.
+6. **Bus sub-stepping**, then **target pooling.** With 2 and 4 done, this is
+   what turns simulation from a stunt into a feature.
+7. **`.glsl()`.** Deliberately after the above, not before. It would paper over
+   2, 4 and 6 — anyone hitting those would be told to drop into a shader — and
+   the escape hatch is much more valuable once the ops around it are correct.
+8. **Everything else**: generators, filters, deformers, particle collision,
+   `prose()`, booleans, SDFs. Real features, all announce themselves when
+   missing, none of them blocked on the rest.
+
 Most of what follows is "add an operator." That's four edits, and the last two
 are the ones easy to forget: the implementation (a `SPECS` entry in
 [src/textures.js:79](../src/textures.js#L79) for a texture op, a `buildGeometry` case in
@@ -21,6 +55,106 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 [ ] L systems
 [ ] Hand tracking?
 [ ] Fluid solver
+
+## `.blur(r)` is only a gaussian at r = 1
+
+The kernel is five fixed gaussian weights whose taps sit at `±r, ±2r, ±3r, ±4r`
+texels ([src/textures.js:1298](../src/textures.js#L1298)). At `r = 1` that's a
+proper 9-tap gaussian. At `r = 3` it's a *comb*: it samples every third texel
+and leaves everything between the taps completely unattenuated. As a look
+that's fine — a big soft blur still reads as blurry, because the eye doesn't
+audit the stopband. In anything that **iterates** on the blur it is fatal, and
+the failure is silent: measured on a difference-of-gaussians feedback loop,
+`blur(1)` gives lag-1 pixel correlation +0.81 (smooth labyrinths), `blur(2)`
+gives −0.09 and `blur(3)` gives ~0.00 — the loop converges to a one-texel
+checkerboard, because "diffusion" that doesn't attenuate high frequencies
+amplifies them instead.
+
+That makes every simulation in the graph — reaction-diffusion, fluid, anything
+with a laplacian — quietly unbuildable above radius 1, and the workaround
+(stacking `blur(1)` calls, since variance adds) costs two full-frame targets per
+stack step.
+
+[ ] Scale the tap *count* with the radius rather than the spacing, or run wide
+  blurs as a mip pyramid (downsample, blur small, upsample) which is what a
+  large-radius blur should be doing anyway and is cheaper than the current pass
+  at big radii. Either way `blur(8)` stops being a comb.
+[ ] Whatever the fix, say the sampling rule in the tooltip. "Radius in pixels"
+  is what it reads as now, and that is not what it does.
+
+## Alpha 0 buses silently render black
+
+A named bus that only ever does arithmetic never acquires coverage: `input()`
+on a cold buffer is alpha 0, `math` preserves the left side's alpha, so the
+whole loop stays transparent. Then any op that respects coverage multiplies it
+away — `.threshold()` ends `vec4(vec3(m), 1.0) * src.a`
+([src/textures.js:755](../src/textures.js#L755)), `.tint()` and the comp modes
+likewise — and returns black on a field that is numerically fine. Nothing warns;
+the sketch just doesn't light up, and the natural next move is to go and retune
+the maths that was never wrong.
+
+The workaround is to head the loop with `constant('#000000').add(input(…))`,
+which is a whole extra full-frame pass to say "this is opaque".
+
+[ ] `.opaque()` (or `.alpha()` accepting a *set* rather than the multiply it
+  currently does — [src/textures.js:852](../src/textures.js#L852)) so there's a
+  cheap, findable way to say it.
+[ ] Better: `warn()` once when a coverage-respecting op is handed an input whose
+  alpha is uniformly 0. Cheap to detect at the node level for the common case
+  where the input is a bus that no generator ever fed.
+
+## Papercuts that break a sketch silently
+
+Small, and they matter more here than they would elsewhere: a livecoding sketch
+has no stack trace worth reading and no step debugger, so an argument in the
+wrong slot has to say so or it costs an hour.
+
+[ ] **An options object in a positional number slot reaches the uniform.**
+  `.chroma({ amount: 0.02 })` reads like every other op, but the signature is
+  `chroma(amount, o)` ([src/textures.js:1595](../src/textures.js#L1595)), so the
+  object lands in `uAmount`, `resolve()` hands it back unchanged and the
+  shader gets NaN — the pass then samples at NaN coordinates and the picture
+  goes wrong somewhere else entirely, with nothing in the console. Two halves:
+  make the numeric params `warn()` when what resolves isn't a finite number
+  (one guard in `resolve`, or in `setVec3`/the uniform writers), and let the
+  ops that take a single scalar accept `{ amount }` the way `.displace()`
+  already does ([src/textures.js:1641](../src/textures.js#L1641)).
+
+[ ] **`camera(x, y, z, tx, ty, tz)` throws from inside the engine.** The target
+  is one argument, an array ([src/api.js:1123](../src/api.js#L1123)), and the
+  six-number spelling is the natural guess — it dies on `...target` with
+  "target is not iterable" and the previous sketch keeps playing, which reads
+  as the edit having done nothing. Accept both spellings.
+
+## Simulation in the texture graph
+
+A named bus that reads itself (`.out('a')` + `input('a')`) is already a working
+integrator, and the cycle semantics are right — a difference-of-gaussians
+feedback loop (the classic shape: feedback, two blurs, subtract, clamp)
+settles into stable Turing patterns in about thirty frames. Three things stand
+between that and it being a feature rather than a stunt, and the blur sampling
+above is the first of them:
+
+[ ] **Sub-stepping.** A bus advances exactly one step per rendered frame, so the
+  timestep is tied to the display and a sim that wants to settle takes minutes
+  of wall clock. `.out('a', { steps: 4 })` — run this bus's chain n times before
+  the frame is shown — would decouple them, and is the difference between a
+  reaction-diffusion or fluid sketch that is watchable and one that is a
+  screensaver. Everything needed is already in the bus loop
+  ([src/textures.js:2411](../src/textures.js#L2411)); the work is making
+  `renderNode`'s per-frame memo advance per *step* instead.
+
+[ ] **Buffer cost.** One persistent full-frame target per node with no pooling
+  ([src/textures.js:1803](../src/textures.js#L1803)) means an arithmetic-heavy
+  chain is priced per operation: a Gray-Scott sketch at 1080×1920 holds
+  ~18 half-float targets, about 300 MB, and the only dial is the quality
+  slider. Targets whose contents die within a frame (every intermediate that
+  isn't published or fed back) could come from a small pool keyed by size. The
+  `.math()` fusion above is the cheaper half of the same problem.
+
+[ ] Neither is blocked on the other, and `.glsl()` below is a third way to buy
+  the same thing — worth deciding which one lands first rather than doing all
+  three.
 
 ## New texture generators
 
@@ -47,6 +181,22 @@ uniforms (numbers or fns of `t`).
   angle: Math.PI / 2, shape: 'sqr' }), 'difference')`), so what these buy is
   `nx`/`ny` separately plus the brick offset and mortar.
 
+[ ] `prose(text, { source, font, minSize })` — fill the bright parts of a
+  `source` texture with running text: words laid out in reading order, each
+  scaled and tinted by the brightness under it, and **never broken** — a word
+  that doesn't fit its remaining run gets scaled down or pushed to the next
+  one. ASCII art that stays readable as prose.
+
+  Not a filter and not reachable from the ops we have: `text()` draws one
+  string on one canvas ([src/textures.js:1875](../src/textures.js#L1875)) and
+  nothing in the graph measures or places words. It needs a real layout pass on
+  the 2D canvas — walk the brightness field, `measureText` each word against
+  the space left, place, advance — which is CPU work per frame, so it wants the
+  same "redraw only when the resolved content changes" cache the text generator
+  already has. The brightness field has to come back to the CPU too, so it
+  either shares whatever `.read()` builds or draws the source into a small
+  offscreen canvas itself.
+
 ## New texture filters
 
 [ ] `sharpen`, `emboss`, `erode`, `dilate` — all four are 3×3 neighbor
@@ -59,7 +209,18 @@ uniforms (numbers or fns of `t`).
   banding. `mode`: `'bayer2'|'bayer4'|'bayer8'` (ordered, from a constant
   matrix indexed by `gl_FragCoord`), `'random'` (hash of the pixel). Pairs with
   `.posterize()`; `levels: 2` plus a bayer matrix is the classic look.
+[ ] `.math({ pow, mul, div, add, sub })` — expose the `math` spec
+  ([src/textures.js:495](../src/textures.js#L495)) as one public op. Every slot
+  already takes a texture, so one pass can do `a * b + c - d`; spelled with the
+  chain methods that is four passes and four full-frame targets, and there is
+  no other way to write it. A sketch doing arithmetic in the graph (any
+  simulation, any compositing formula) currently reaches
+  `._n('math', {...})` — a private method — to get back to one pass. Cheap:
+  the spec exists, this is a method and a docs entry.
 [ ] `.reorder('bgr')` — permute channels by a 3-or-4 char string of `rgba`.
+  Also what a two-species simulation needs: without it, each field needs its
+  own grayscale buffer, so "two reaction-diffusion sims competing in R and G"
+  costs four full-frame buffers instead of two.
   Repeats allowed, so `'rrr'` broadcasts red to gray — that's the case
   `.mul([1,0,0])` can't do. No separate r/g/b ops.
 [ ] `.hueByLuma(amount)` — rotate hue by the pixel's own brightness × `amount`,
@@ -202,6 +363,85 @@ Chain methods go next to `.smooth()` at
   resolves a frame or more late, so the value lags — batch all reads for a
   frame into one call and accept the latency rather than stalling the pipeline.
 
+  Second reason to want it, maybe the bigger one: **there is currently no way
+  to find out what a number in the texture graph is.** Anything numeric built
+  out of passes — a simulation, a mask, an accumulator — can only be judged by
+  looking at it, and a field that reads as black is equally "zero", "negative",
+  "NaN" or "never nucleated". One pixel readback plus a `print()` would turn
+  that from guesswork into debugging.
+
+[ ] `.since(threshold)` — seconds since this signal last crossed up through
+  `threshold`, counting up forever until the next hit. `.counter()` already
+  does the edge detection ([src/audio.js:249](../src/audio.js#L249)); this is
+  the other half, and it's what every "restart an animation on the beat" sketch
+  hand-rolls in `onFrame` with a latch, a timer and a `Math.min(1, …)`. With
+  it, a crossfade on each kick is `kick.since().div(0.6)` and needs no mutable
+  state at all.
+
+[ ] `hash(a, b, …)` — deterministic 0..1 from a few integers, exported next to
+  `rand()`. `rand()` is a function of `t`; the thing `.instance()` layout fns
+  actually need is a function of *index*, and every sketch that wants stable
+  per-copy variation writes its own integer hash inline. They are easy to get
+  subtly wrong: fold the arguments together before the mix and neighbouring
+  seeds differ by a constant, which shows up as a "random" arrangement that
+  alternates between two poses. One good 32-bit mixer in the API removes a
+  whole class of that.
+
+[ ] **`.bandpass(…).kicks()` can never fire, and that's the natural way to
+  write a kick detector.** The two signals are on incompatible scales: a bare
+  `audio()` is the waveform's linear RMS ([src/audio.js:159](../src/audio.js#L159)),
+  while `lowpass`/`highpass`/`bandpass` return the mean of the *normalized dB*
+  spectrum ([src/audio.js:168](../src/audio.js#L168)) — with the analyser's
+  default −100/−30 dB window that's `(dB + 100) / 70`, which idles near half
+  scale whenever anything is playing and moves a few hundredths on a hit.
+  `kicks()` tests `e > average × threshold` ([src/audio.js:311](../src/audio.js#L311)),
+  and 1.5× of a logarithmic quantity means about +35 dB over the running mean.
+  So it triggers on `audio().kicks()` and is silent on
+  `audio().bandpass(30, 160).kicks()` — the spelling the docs' own comment
+  recommends ("Feed it a band for percussion").
+
+  Fix the detector rather than the band: test `e > avg + threshold × deviation`
+  (a running mean absolute deviation is two more lines of the same EMA), which
+  is scale-free and works on either input. Worth checking the same question for
+  `.counter()` and `.hold()`, which take a threshold in whatever units they're
+  handed.
+
+  Same mismatch bites continuous use: `.lowpass(160)` as a control parameter
+  idles around 0.5 rather than near 0, so `bass.mul(x)` is a constant offset
+  plus a wiggle. A `.dyn()` / `.normalize(window)` chain method — the value's
+  distance above its own slow average, rescaled — would be the general answer,
+  and every audio-reactive sketch currently hand-rolls it.
+
+[ ] `kicks()` fires a free hit on its first frame
+  ([src/audio.js:302](../src/audio.js#L302)): `s.avg` starts at 0 and `dt` is 0,
+  so the `e > avg * threshold` test is `e > 0` and any input at all triggers.
+  Then the average catches up and a quiet or bass-shy source may never cross
+  again — so the sketch flashes once at load and looks broken rather than
+  silent. Seed `avg` from the first sample instead of firing on it.
+
+## Particles
+
+[ ] `.collide(shape, { bounce, friction })` — the one force particles don't
+  have. `force`/`turbulence`/`attract`/`drag` all act on the particle alone
+  ([src/particles.js:630](../src/particles.js#L630)); nothing in the system has
+  a notion of a surface to stop against, so "sand pouring through a room and
+  piling up against a hidden shape" — the whole class of sketches where the
+  invisible object is revealed by what settles on it — can't be written at all.
+
+  The honest version wants a distance field to test against, which is the SDF
+  item below; a cheap first pass could take only the primitives whose distance
+  function is a one-liner (sphere, box, plane) and say so in the tooltip.
+  Piling also needs particles to be able to come to rest — a velocity floor and
+  enough friction that a settled grain stays settled — or everything jitters
+  down the slope forever.
+
+[ ] `.particles()` bakes its emitter surface once, at build
+  ([src/particles.js:953](../src/particles.js#L953)). A `model('polyhaven:…')`
+  resolves later, so on a cold cache the first run emits from a point and the
+  arriving model never repopulates it — the sketch is only correct on the
+  second ctrl+enter, with nothing on screen saying so. Rebake when the geometry
+  a particle system was built from changes.
+
 ## `glsl()` escape hatch
 
 [ ] `.glsl(source)` for a custom fragment pass — the texture-side counterpart to
@@ -312,6 +552,22 @@ Euler by hand inside a sketch is miserable.
 [ ] Add a `path()` helper wrapping `THREE.CatmullRomCurve3`, exposing
   `.getPointAt` / `.getTangentAt`, to make it pleasant rather than merely
   possible.
+
+[ ] `perFrame(fn)` — run `fn(t)` at most once per frame and hand every caller
+  the same result. An `.instance()` layout fn is called n times a frame, so
+  anything shared between copies (rebuilding a curve, resampling a set of
+  signals, computing a common frame of reference) has to be memoized by hand
+  with a `let builtAt = -1` and a `t` comparison in every sketch that does it.
+  The signals already have exactly this cache internally
+  ([src/audio.js:200](../src/audio.js#L200)) — this is that, exposed.
+
+[ ] A tangent basis to go with `.sample(i)` / `.normal(i)`
+  ([src/api.js:419](../src/api.js#L419)) — `.basis(i)` returning the two
+  perpendiculars, or just letting `.align()` take a roll. Scattering anything
+  that isn't rotationally symmetric over a surface (petals round a flower,
+  scales, shingles) needs a direction *in* the tangent plane, and the normal
+  alone doesn't give one: the sketch has to cross the normal with an arbitrary
+  up vector and special-case the poles where that degenerates.
 
 [ ] `line(points | fn)` as drawable stroke geometry, and instancing *along* a
   path — copies distributed by arc length and oriented to the tangent. Ask
