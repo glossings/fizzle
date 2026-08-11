@@ -933,7 +933,8 @@ scene()
   — UV-space transform. Or the shorthands `.translate(x, y)`, `.rotate(v)`,
   `.scale(x, y?)` — each takes `{ wrap }` as a trailing option. Translation is
   in UV units (1 = a full frame); scale zooms around center, one number
-  uniform, `.scale(1, 4)` stretching y alone.
+  uniform, `.scale(1, 4)` stretching y alone. A negative scale flips that axis:
+  `.scale(-1, 1)` mirrors the whole image left to right.
 - `.crop(w, h?, { center })` — keep the middle `w`×`h` and drop the rest to
   transparent black. Nothing is resampled; the picture stays put and the
   emptiness closes in around it. Sizes above 1 count pixels of the frame's grid
@@ -941,6 +942,7 @@ scene()
   `h` follows `w` when left out. All take fns of `t` — keep an animated size on
   one side of 1, since crossing it swaps which reading applies.
 - `.mirror({ axis: 'x'|'y'|'both', flip })` — reflect one half onto the other.
+  For a whole-image flip instead, use a negative `.scale(-1, 1)`.
 - `.kaleido(sides, { rotate })` — polar kaleidoscope fold.
 - `.radial(s => ...)` — run the fn in polar space (see below).
 - `.polar({ inverse })` — the one-way coordinate change, as an effect.
