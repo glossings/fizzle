@@ -81,32 +81,15 @@ deploy works as-is.
 
 ## Live
 
-**[fizzle.glossing.dev](https://fizzle.glossing.dev)**, as its own Vercel
-project importing `glossings/fizzle`. Not a route inside `glossing-website` —
-that's an Astro site, this is Vite plus a serverless function, and a subdomain
-keeps the two deploying independently. Vite preset auto-detected, nothing
-configured; `api/` is picked up as a function by convention, no `functions`
-block needed.
-
-The zone is on Cloudflare, not Vercel's nameservers, so the subdomain `CNAME`
-Vercel asks for has to be added by hand there — it will not appear on its own.
-It must be **unproxied / DNS-only**; proxying breaks Vercel's domain
-verification and TLS issuance. The per-project target Vercel hands you is not
-the one `www` uses — that one points at glossing-website.
-
-Leave the zone where it is. Moving it onto Vercel's nameservers would buy
-automatic records for Vercel subdomains and little else, while coupling DNS to
-the host — leaving Vercel later becomes a zone migration rather than a
-two-record edit. If it ever does move, migrate the zone as its own change,
-never alongside a deploy: two moving parts at once makes propagation problems
-unattributable.
+**[fizzle.glossing.dev](https://fizzle.glossing.dev)**, on Vercel. The Vite
+preset is auto-detected and nothing is configured; `api/` is picked up as a
+function by convention, no `functions` block needed. The subdomain's DNS lives
+with the domain's registrar, off Vercel — its records are maintained by hand.
 
 Post-deploy checks, for whenever the host changes again: `/docs` (not
 `/docs.html`) loads and its previews render, and `/api/gfont/Inter?weight=700`
 returns a TTF — then a sketch with `text3d('x', { font: 'google:Inter' })`,
 where the font swaps in a frame or two after the mesh appears.
-
-Still to do: add the URL to the GitHub repo's About field.
 
 ## Optional, not blocking
 
