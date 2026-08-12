@@ -6,6 +6,10 @@
 import { syncHash } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
 import { isTouch, forPlatform, exampleApplies } from './touch.js';
+import { initOrganize } from './organize.js';
+import {
+  autoTags, autoTagsFor, forgetSketch, keyOf, loadLibrary, manualTags, matches, splitKey,
+} from './library.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
 const EXAMPLES = Object.fromEntries(
@@ -17,6 +21,7 @@ const EXAMPLES = Object.fromEntries(
 const LS_SKETCHES = 'td-user-sketches';
 const LS_LAST = 'td-last-sketch';
 const LS_SETTINGS = 'td-settings';
+const LS_ACTIVE = 'td-active-playlist';
 const NEW_TEMPLATE = `bg('#07070c')\nambient({ intensity: 0.2 })\ndirectional({ intensity: 1.4 }).position(4, 6, 3).out()\n\nsphere({ radius: 1, res: 96 })\n  .noise({ amp: 0.3, period: 0.5, octaves: 4, speed: 0.4 })\n  .material({ color: '#8899ff', roughness: 0.35 })\n  .out()\n`;
 
 // --- storage (disk API with localStorage fallback) -------------------------
@@ -25,15 +30,18 @@ let onDisk = true;
 const lsAll = () => { try { return JSON.parse(localStorage.getItem(LS_SKETCHES)) ?? {}; } catch { return {}; } };
 const lsWrite = (all) => localStorage.setItem(LS_SKETCHES, JSON.stringify(all));
 
+// [{ name, mtime }] — mtime is what the auto-tag cache is keyed on. The
+// localStorage side has no timestamps, so it hands back 0 and the tags are
+// derived from the source in hand instead of cached.
 async function listUser() {
   try {
     const r = await fetch('/api/sketches');
     if (!r.ok) throw new Error();
     onDisk = true;
-    return (await r.json()).user;
+    return (await r.json()).user.map((f) => (typeof f === 'string' ? { name: f, mtime: 0 } : f));
   } catch {
     onDisk = false;
-    return Object.keys(lsAll()).sort();
+    return Object.keys(lsAll()).sort().map((name) => ({ name, mtime: 0 }));
   }
 }
 async function loadUser(name) {
@@ -111,10 +119,23 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
         <button id="sb-new">new</button>
         <button id="sb-share">copy link</button>
       </div>
-      <h2>your sketches</h2>
-      <ul id="sb-user"><li class="sb-empty">none yet — save one!</li></ul>
-      <h2>examples</h2>
-      <ul id="sb-examples"></ul>
+      <div class="sb-tabs">
+        <button id="sb-tab-sketches" class="on">sketches</button>
+        <button id="sb-tab-playlists">playlists</button>
+      </div>
+      <div class="sb-find">
+        <input id="sb-search" type="search" placeholder="search…" autocomplete="off">
+        <button id="sb-organize" title="playlists & tags">organize</button>
+      </div>
+      <div id="sb-pane-sketches">
+        <h2 id="sb-h-user">your sketches</h2>
+        <ul id="sb-user"><li class="sb-empty">none yet — save one!</li></ul>
+        <h2 id="sb-h-examples">examples</h2>
+        <ul id="sb-examples"></ul>
+      </div>
+      <div id="sb-pane-playlists" hidden>
+        <ul id="sb-playlists"></ul>
+      </div>
     </section>
     <footer id="sb-footer">© 2026 <a href="https://glossing.dev" target="_blank" rel="noopener">Glossing</a></footer>`;
   document.body.appendChild(el);
@@ -141,6 +162,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     current = { scope, name };
     $('#sb-current').textContent = scope === 'examples' ? `${name} (example)` : name;
     localStorage.setItem(LS_LAST, JSON.stringify(current));
+    render(); // the list marks what's playing
   };
 
   // --- settings wiring ---
@@ -240,50 +262,258 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     lastFrames = engine.frames;
   }, 1000);
 
-  // --- sketch list wiring ---
-  async function refreshList() {
-    const names = await listUser();
-    $('#sb-store').textContent = onDisk ? '· disk: sketches/user/' : '· localStorage';
-    const ul = $('#sb-user');
-    ul.innerHTML = names.length ? '' : '<li class="sb-empty">none yet — save one!</li>';
-    for (const name of names) {
-      const li = document.createElement('li');
-      const a = document.createElement('span');
-      a.textContent = name;
-      a.addEventListener('click', async () => {
-        const code = await loadUser(name);
-        if (code == null) return refreshList();
-        setCode(code);
-        setCurrent('user', name);
-        run(code);
+  // --- sketch list, search & playlists ---
+
+  const lib = await loadLibrary();
+  const exampleNames = Object.keys(EXAMPLES).sort();
+  let userList = [];   // [{ name, mtime }]
+  let auto = {};       // key -> tags read out of the sketch itself
+  let query = '';
+  let tab = 'sketches';
+  let openList = null; // the playlist unfolded in the playlists pane
+  // what ctrl+[ / ctrl+] walks, and where in it we are. Survives a reload, so
+  // reopening the tab mid-set puts you back in the same running order.
+  let active = (() => {
+    try { return JSON.parse(localStorage.getItem(LS_ACTIVE) ?? 'null'); } catch { return null; }
+  })();
+  const setActive = (v) => {
+    active = v;
+    if (v) localStorage.setItem(LS_ACTIVE, JSON.stringify(v));
+    else localStorage.removeItem(LS_ACTIVE);
+  };
+
+  // everything on offer, in the order the panes show it
+  const allSketches = () => [
+    ...userList.map(({ name }) => sketchAt('user', name)),
+    ...exampleNames.map((name) => sketchAt('examples', name)),
+  ];
+  const sketchAt = (scope, name) => {
+    const key = keyOf(scope, name);
+    return { key, scope, name, tags: auto[key] ?? [] };
+  };
+  const tagsOf = (s) => [...s.tags, ...manualTags(lib, s.key)];
+  const hits = () => allSketches().filter((s) => matches(query, s.name, tagsOf(s)));
+  const currentKey = () => (current.scope ? keyOf(current.scope, current.name) : null);
+
+  // Tags are read from the source, so they need the source. Examples are
+  // bundled and free; user sketches are files, and only the ones whose mtime
+  // has moved are re-read (see autoTagsFor).
+  async function refreshTags() {
+    for (const name of exampleNames) auto[keyOf('examples', name)] = autoTags(EXAMPLES[name]);
+    if (!onDisk) {
+      const all = lsAll();
+      for (const { name } of userList) auto[keyOf('user', name)] = autoTags(all[name] ?? '');
+      return;
+    }
+    Object.assign(auto, await autoTagsFor(
+      userList.map(({ name, mtime }) => ({
+        key: keyOf('user', name),
+        stamp: mtime,
+        read: () => loadUser(name),
+      }))
+    ));
+  }
+
+  // Load a sketch by key and start it. Null if it's gone — a playlist can
+  // outlive the sketches in it.
+  async function play(key) {
+    const { scope, name } = splitKey(key);
+    const code = scope === 'examples' ? EXAMPLES[name] : await loadUser(name);
+    if (code == null) return null;
+    setCode(code);
+    setCurrent(scope, name);
+    run(code);
+    return name;
+  }
+
+  function row(text, { on = false, muted = false } = {}) {
+    const li = document.createElement('li');
+    if (on) li.classList.add('sb-on');
+    const span = document.createElement('span');
+    span.textContent = text;
+    if (muted) span.className = 'sb-missing';
+    li.appendChild(span);
+    return li;
+  }
+
+  // Only while a search is running: the chips are there to show why a sketch
+  // came up, and the rest of the time they'd just be noise down the sidebar.
+  function chips(tags) {
+    const box = document.createElement('span');
+    box.className = 'sb-tags';
+    for (const t of tags.slice(0, 4)) {
+      const chip = document.createElement('i');
+      chip.textContent = t;
+      box.appendChild(chip);
+    }
+    return box;
+  }
+
+  // A null emptyMsg leaves the list blank rather than saying so — under a
+  // search, one "nothing matches" for the pane beats one per heading.
+  function fillList(ul, list, emptyMsg) {
+    ul.innerHTML = '';
+    if (!list.length) {
+      if (emptyMsg) ul.innerHTML = `<li class="sb-empty">${emptyMsg}</li>`;
+      return;
+    }
+    for (const s of list) {
+      const li = row(s.name, { on: s.key === currentKey() });
+      li.title = tagsOf(s).join(' · ');
+      if (query) li.appendChild(chips(tagsOf(s)));
+      // clicking outside a playlist is leaving it — the arrows follow what
+      // you're actually looking at
+      li.addEventListener('click', async () => {
+        setActive(null);
+        // gone from disk since the list was drawn — show what's really there
+        if ((await play(s.key)) == null) refreshList();
       });
-      const del = document.createElement('button');
-      del.textContent = '✕';
-      del.title = `delete ${name}`;
-      del.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Delete sketch "${name}"?`)) return;
-        await deleteUser(name);
-        if (current.scope === 'user' && current.name === name) setCurrent(null, name);
-        refreshList();
-      });
-      li.append(a, del);
+      if (s.scope === 'user') {
+        const del = document.createElement('button');
+        del.textContent = '✕';
+        del.title = `delete ${s.name}`;
+        del.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm(`Delete sketch "${s.name}"?`)) return;
+          await deleteUser(s.name);
+          forgetSketch(lib, s.key);
+          if (current.scope === 'user' && current.name === s.name) setCurrent(null, s.name);
+          refreshList();
+        });
+        li.appendChild(del);
+      }
       ul.appendChild(li);
     }
   }
 
-  const exUl = $('#sb-examples');
-  for (const name of Object.keys(EXAMPLES).sort()) {
-    const li = document.createElement('li');
-    const a = document.createElement('span');
-    a.textContent = name;
-    a.addEventListener('click', () => {
-      setCode(EXAMPLES[name]);
-      setCurrent('examples', name);
-      run(EXAMPLES[name]);
-    });
-    li.appendChild(a);
-    exUl.appendChild(li);
+  // Under a search the headings follow their lists: a query that only matches
+  // examples shouldn't leave "your sketches" standing over an empty gap.
+  const renderSketches = () => {
+    const shown = hits();
+    const mine = shown.filter((s) => s.scope === 'user');
+    const theirs = shown.filter((s) => s.scope === 'examples');
+    fillList($('#sb-user'), mine, query ? (shown.length ? null : 'nothing matches that') : 'none yet — save one!');
+    fillList($('#sb-examples'), theirs, null);
+    $('#sb-h-user').hidden = Boolean(query) && !mine.length && theirs.length > 0;
+    $('#sb-h-examples').hidden = Boolean(query) && !theirs.length;
+  };
+
+  // A playlist answers to its own name or to anything in it, so searching for
+  // a sketch finds the sets it plays in.
+  const listMatches = (p) => {
+    if (!query) return true;
+    if (matches(query, p.name, [])) return true;
+    const known = new Map(allSketches().map((s) => [s.key, s]));
+    return p.items.some((k) => { const s = known.get(k); return s && matches(query, s.name, tagsOf(s)); });
+  };
+
+  function renderPlaylists() {
+    const ul = $('#sb-playlists');
+    ul.innerHTML = '';
+    const shown = lib.playlists.filter(listMatches);
+    if (!shown.length) {
+      ul.innerHTML = `<li class="sb-empty">${
+        lib.playlists.length ? 'nothing matches that' : 'no playlists yet — press organize'
+      }</li>`;
+      return;
+    }
+    const known = new Map(allSketches().map((s) => [s.key, s]));
+    for (const p of shown) {
+      const li = row(p.name, { on: p.id === active?.id });
+      li.classList.add('sb-list');
+      const count = document.createElement('em');
+      count.textContent = p.items.length;
+      li.appendChild(count);
+      li.addEventListener('click', () => {
+        // Opening a playlist starts it: the set plays from the top, and ctrl+]
+        // carries on from there. Clicking the open one again just folds it up.
+        if (openList === p.id) {
+          openList = null;
+          setActive(null);
+          return render();
+        }
+        openList = p.id;
+        setActive({ id: p.id, index: -1 });
+        render();
+        step(1); // the first sketch it can actually load
+      });
+      ul.appendChild(li);
+      if (openList !== p.id) continue;
+      p.items.forEach((key, i) => {
+        const s = known.get(key);
+        const item = row(s ? s.name : `${splitKey(key).name} (missing)`, {
+          on: active?.id === p.id && active.index === i,
+          muted: !s,
+        });
+        item.classList.add('sb-item');
+        const n = document.createElement('i');
+        n.className = 'sb-n';
+        n.textContent = i + 1;
+        item.prepend(n);
+        item.addEventListener('click', () => {
+          setActive({ id: p.id, index: i });
+          if (s) play(key);
+          else render();
+        });
+        ul.appendChild(item);
+      });
+    }
+  }
+
+  function render() {
+    $('#sb-pane-sketches').hidden = tab !== 'sketches';
+    $('#sb-pane-playlists').hidden = tab !== 'playlists';
+    $('#sb-tab-sketches').classList.toggle('on', tab === 'sketches');
+    $('#sb-tab-playlists').classList.toggle('on', tab === 'playlists');
+    if (tab === 'sketches') renderSketches();
+    else renderPlaylists();
+  }
+
+  async function refreshList() {
+    userList = await listUser();
+    $('#sb-store').textContent = onDisk ? '· disk: sketches/user/' : '· localStorage';
+    render();          // names first: reading every sketch for its tags can wait
+    await refreshTags();
+    render();
+  }
+
+  const organize = initOrganize({ lib, sketches: allSketches, onChange: render });
+  $('#sb-organize').addEventListener('click', () => organize.open());
+  $('#sb-search').addEventListener('input', (e) => { query = e.target.value.trim(); render(); });
+  for (const which of ['sketches', 'playlists']) {
+    $(`#sb-tab-${which}`).addEventListener('click', () => { tab = which; render(); });
+  }
+
+  // --- ctrl+[ / ctrl+] : walk the set ---
+
+  const wrap = (i, n) => ((i % n) + n) % n;
+
+  // Inside a playlist those keys walk its running order; outside one they walk
+  // whatever the list is currently showing, so a search is also a shortlist
+  // you can step through. Returns what to say about the move, or null.
+  async function step(delta) {
+    const p = active && lib.playlists.find((x) => x.id === active.id);
+    if (p?.items.length) {
+      // a playlist can hold sketches that have since been deleted; skip past
+      // them rather than stopping the set on one
+      // an armed playlist nobody has played yet starts at either end
+      let i = active.index >= 0 ? active.index : (delta > 0 ? -1 : 0);
+      for (let tries = 0; tries < p.items.length; tries++) {
+        i = wrap(i + delta, p.items.length);
+        const name = await play(p.items[i]);
+        if (name == null) continue;
+        setActive({ id: p.id, index: i });
+        render();
+        return `▶ ${p.name} ${i + 1}/${p.items.length} · ${name}`;
+      }
+      return `${p.name}: nothing left to play`;
+    }
+    const list = hits();
+    if (!list.length) return null;
+    const at = list.findIndex((s) => s.key === currentKey());
+    const next = list[wrap(at < 0 ? (delta > 0 ? 0 : -1) : at + delta, list.length)];
+    const name = await play(next.key);
+    return name ? `▶ ${name}` : null;
   }
 
   async function saveAs(defaultName) {
@@ -347,5 +577,10 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   } catch { /* fall through to default sketch */ }
   if (initialCode == null) setCurrent('examples', 'welcome');
 
-  return { initialCode, toggle, settings };
+  // the playlist the last session left open is the one this one steps through
+  if (active && !lib.playlists.some((p) => p.id === active.id)) setActive(null);
+  else if (active) openList = active.id;
+  render();
+
+  return { initialCode, toggle, settings, step };
 }

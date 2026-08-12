@@ -7,7 +7,7 @@ import { nameOk } from './src/sketch-name.js';
 // plain .js files so the folder can be version controlled; examples ship in
 // sketches/examples/ (bundled into the client, read-only here).
 //
-//   GET    /api/sketches            -> { user: [...], examples: [...] }
+//   GET    /api/sketches            -> { user: [{ name, mtime }], examples: [...] }
 //   GET    /api/sketches/user/:name -> sketch source
 //   PUT    /api/sketches/user/:name -> save
 //   DELETE /api/sketches/user/:name -> delete
@@ -15,12 +15,22 @@ import { nameOk } from './src/sketch-name.js';
 const ROOT = path.resolve('sketches');
 const DIRS = { user: path.join(ROOT, 'user'), examples: path.join(ROOT, 'examples') };
 
+// mtime rides along so the client can cache what it derived from a sketch's
+// source (its auto tags) and only re-read the files that have moved since.
 const listDir = (dir) => {
   try {
-    return fs.readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => f.slice(0, -3)).sort();
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => ({ name: f.slice(0, -3), mtime: statMtime(path.join(dir, f)) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
   }
+};
+
+const statMtime = (file) => {
+  try { return fs.statSync(file).mtimeMs; } catch { return 0; }
 };
 
 function sketchApi() {
@@ -65,6 +75,56 @@ function sketchApi() {
           send(405, '{"error":"unsupported method"}');
         } catch (e) {
           send(500, JSON.stringify({ error: String(e) }));
+        }
+      });
+    },
+  };
+}
+
+// Playlists and tags: GET/PUT /api/library -> sketches/user/library.json.
+// It sits with the sketches rather than in the app's own storage, so a set and
+// the sketches it plays are one folder you can version or copy to another
+// machine. A missing file is an empty library, not an error.
+const LIBRARY = path.join(DIRS.user, 'library.json');
+const MAX_LIBRARY = 4 * 1024 * 1024;
+
+function libraryApi() {
+  return {
+    name: 'library-api',
+    configureServer(server) {
+      server.middlewares.use('/api/library', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        try {
+          if (req.method === 'GET') {
+            res.end(fs.existsSync(LIBRARY) ? fs.readFileSync(LIBRARY, 'utf8') : '{}');
+            return;
+          }
+          if (req.method === 'PUT') {
+            let body = '';
+            req.on('data', (c) => {
+              body += c;
+              if (body.length > MAX_LIBRARY) req.destroy();
+            });
+            req.on('end', () => {
+              // parsed before it's written: a half-sent body would otherwise
+              // land as a corrupt file and lose every playlist at once
+              try {
+                JSON.parse(body);
+              } catch {
+                res.statusCode = 400;
+                return res.end('{"error":"not json"}');
+              }
+              fs.mkdirSync(DIRS.user, { recursive: true });
+              fs.writeFileSync(LIBRARY, body);
+              res.end('{"ok":true}');
+            });
+            return;
+          }
+          res.statusCode = 405;
+          res.end('{"error":"unsupported method"}');
+        } catch (e) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: String(e) }));
         }
       });
     },
@@ -119,7 +179,7 @@ function gfontApi() {
 }
 
 export default defineConfig({
-  plugins: [sketchApi(), gfontApi()],
+  plugins: [sketchApi(), libraryApi(), gfontApi()],
   build: {
     rollupOptions: {
       // two pages: the app itself and the interactive docs

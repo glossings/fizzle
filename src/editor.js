@@ -24,9 +24,10 @@ export function foldLists(view, from, to) {
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
-//   this window's code · ctrl+p sidebar · ctrl+r restart · F1 projector window
+//   this window's code · ctrl+p sidebar · ctrl+r restart · ctrl+[ / ctrl+]
+//   previous / next in the playlist · F1 projector window
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onChange, onScroll }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onStep, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
@@ -50,6 +51,10 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-m', run: () => { toggleLocalCode(); return true; } },
       { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
       { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
+      // brackets rather than the arrows: ctrl+up/down belong to Mission
+      // Control on a Mac and never reach the page
+      { key: 'Ctrl-[', run: () => { onStep?.(-1); return true; } },
+      { key: 'Ctrl-]', run: () => { onStep?.(1); return true; } },
       { key: 'F1', run: () => { onToggleProjector?.(); return true; } },
       // completions accept with Tab, not Enter; Enter just newlines through
       // an open popup. Tab indents when no popup is showing.
@@ -138,6 +143,8 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     else if (e.key === 'm') { e.preventDefault(); toggleLocalCode(); }
     else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
+    else if (e.key === '[') { e.preventDefault(); onStep?.(-1); }
+    else if (e.key === ']') { e.preventDefault(); onStep?.(1); }
   });
 
   // Where the view is scrolled to, as the projector can use it: the line at the

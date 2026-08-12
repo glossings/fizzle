@@ -68,7 +68,9 @@ function run(code, push = false) {
     // over the top of it would be the one thing the run got wrong, hidden
     status.textContent = '✓';
     status.className = 'show ok';
-    setTimeout(() => { if (status.classList.contains('ok')) status.className = ''; }, 800);
+    // by text, not by class: loading a sketch runs it and then says which one
+    // it was, and that message shouldn't be swept up by this run's timer
+    setTimeout(() => { if (status.textContent === '✓') status.className = ''; }, 800);
   }
   // a run resumes playback, and loading a sketch is a run — so the play button
   // has to be told about the ones nobody pressed it for
@@ -365,6 +367,12 @@ initDrop();
     },
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
+    // ctrl+[ / ctrl+]: the next sketch in the playlist, or in the list the
+    // sidebar is showing. The sidebar knows which and says what it moved to.
+    onStep: async (delta) => {
+      const moved = await sidebar.step(delta);
+      if (moved) flash(moved);
+    },
     onChange: (u) => projector.sync(u),
     onScroll: (anchor) => projector.scrollTo(anchor),
   });

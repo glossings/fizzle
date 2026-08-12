@@ -1,0 +1,225 @@
+/* the organize window — playlists, their contents, and everything you have */
+#org-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+#org-modal.show { display: flex; }
+
+#org-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, 94vw);
+  height: min(680px, 88vh);
+  background: rgba(10, 12, 18, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #cfd4e0;
+  font-size: 13px;
+  overflow: hidden;
+}
+#org-panel header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.org-title {
+  color: #7ee787;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+#org-search {
+  flex: 1;
+  min-width: 100px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 13px;
+}
+#org-search:focus { outline: none; border-color: rgba(126, 231, 135, 0.5); }
+#org-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#org-close:hover { color: #fff; }
+
+#org-cols {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1.4fr;
+  min-height: 0; /* or the columns push the panel past its own height */
+}
+.org-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.org-col:last-child { border-right: none; }
+.org-col h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.org-col h3 button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #dfe4ee;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.org-col h3 button:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+.org-col ul {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.org-col li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  border-top: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+}
+.org-col li:hover { background: rgba(255, 255, 255, 0.07); }
+.org-col li.on { background: rgba(126, 231, 135, 0.14); color: #fff; }
+.org-col li > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-col li button {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.org-col li button:hover { color: #fff; }
+.org-col li button:disabled { opacity: 0.25; cursor: default; }
+.org-col li button.org-del:hover { color: #ff7b72; }
+.org-col li em {
+  font-style: normal;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+}
+.org-n {
+  font-style: normal;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  min-width: 15px;
+  text-align: right;
+}
+.org-missing { color: rgba(255, 123, 114, 0.7); font-style: italic; }
+.org-badge {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.org-empty {
+  color: rgba(255, 255, 255, 0.3);
+  cursor: default;
+  padding: 8px 6px;
+}
+.org-empty:hover { background: none; }
+
+/* drop feedback: a line on the edge the row would land against */
+.org-col li.org-over { background: rgba(126, 231, 135, 0.18); }
+.org-col li.org-before { border-top-color: #7ee787; }
+.org-col li.org-after { border-bottom-color: #7ee787; }
+
+.org-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 55%;
+  justify-content: flex-end;
+}
+.org-tags i {
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.55);
+}
+.org-tags.auto i { background: rgba(79, 209, 197, 0.14); color: #4fd1c5; }
+
+#org-tagbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.org-tagfor {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+}
+#org-tagin {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 13px;
+}
+#org-tagin:focus { outline: none; border-color: rgba(126, 231, 135, 0.5); }
+
+/* Safari zooms the page in on focusing anything under 16px and never back out */
+@media (pointer: coarse) {
+  #org-search, #org-tagin { font-size: 16px; }
+  /* three columns don't fit a phone; stack them and scroll the panel */
+  #org-cols { grid-template-columns: 1fr; overflow-y: auto; }
+  .org-col { border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+  .org-col ul { max-height: 34vh; }
+  .org-col li { padding: 9px 6px; }
+  .org-col li button { padding: 4px 8px; font-size: 14px; }
+}

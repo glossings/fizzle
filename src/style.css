@@ -368,6 +368,51 @@ html, body {
   cursor: pointer;
 }
 .sb-btns button:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+/* sketches | playlists */
+.sb-tabs { display: flex; gap: 6px; margin: 14px 0 8px; }
+.sb-tabs button {
+  flex: 1;
+  background: none;
+  color: rgba(255, 255, 255, 0.45);
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 4px 0 5px;
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+.sb-tabs button:hover { color: #fff; }
+.sb-tabs button.on { color: #7ee787; border-bottom-color: #7ee787; }
+
+.sb-find { display: flex; gap: 6px; margin-bottom: 4px; }
+#sb-search {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font: inherit;
+  font-size: 12px;
+}
+#sb-search:focus { outline: none; border-color: rgba(126, 231, 135, 0.5); }
+#sb-organize {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dfe4ee;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#sb-organize:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+/* Safari zooms the page in on focusing anything under 16px and never back out */
+@media (pointer: coarse) { #sb-search { font-size: 16px; } }
+
 #sidebar ul { list-style: none; margin: 0; padding: 0; }
 #sidebar ul li {
   display: flex;
@@ -390,6 +435,31 @@ html, body {
 #sidebar ul li button:hover { color: #ff7b72; }
 #sidebar .sb-empty { color: rgba(255, 255, 255, 0.3); cursor: default; }
 #sidebar .sb-empty:hover { background: none; }
+/* what's playing, in either list */
+#sidebar ul li.sb-on { background: rgba(126, 231, 135, 0.14); color: #fff; }
+#sidebar ul li em { font-style: normal; font-size: 11px; color: rgba(255, 255, 255, 0.35); }
+#sidebar ul li.sb-list span { color: #dfe4ee; }
+/* a playlist's own sketches, indented under it */
+#sidebar ul li.sb-item { padding-left: 4px; }
+#sidebar ul li.sb-item span { color: rgba(255, 255, 255, 0.7); }
+.sb-n {
+  font-style: normal;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  min-width: 14px;
+  text-align: right;
+  margin-right: 6px;
+}
+.sb-missing { color: rgba(255, 123, 114, 0.7); font-style: italic; }
+.sb-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-left: 6px; }
+.sb-tags i {
+  font-style: normal;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 7px;
+  background: rgba(79, 209, 197, 0.14);
+  color: #4fd1c5;
+}
 
 @media (pointer: coarse) {
   /* the touch buttons float over the open sidebar — its footer has to be able

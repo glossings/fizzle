@@ -49,6 +49,7 @@ a chain ends in `.out()`.
 | `ctrl + h` | hide / show the editor (the projector's code, while one is open) |
 | `ctrl + m` | hide / show the editor in this window, projector or not |
 | `ctrl + p` | toggle the sidebar (settings & sketches) |
+| `ctrl + ]` / `ctrl + [` | next / previous sketch in the playlist |
 | `ctrl + hover` | pop docs for the API name under the cursor |
 | `F1` | open / close the projector window |
 | `ctrl + r` | restart media and accumulated state |
@@ -60,6 +61,16 @@ On a phone, the cameras are `video('front')` / `video('back')`.
 in it, mirroring your typing. Press **`f`** in it (or double-click) for
 fullscreen. While it's open `ctrl + h` hides the code **on the projector**;
 `ctrl + m` always means your own window.
+
+**Playlists.** The sidebar's **sketches** tab searches names and tags. Every
+sketch tags itself with what it uses (`3d`, `2d`, `fx`, `particles`, `audio`,
+`cam`, `media`, `hdri`, plus its size when it pins one), so `tag:audio 3d`
+narrows to what you meant. **organize** opens a window for adding your own tags
+and building playlists; the same sketch can sit in as many as you like. Open a
+playlist in the **playlists** tab and `ctrl + ]` / `ctrl + [` walk its running
+order. With no playlist open they walk the list on screen instead, so a search
+is a shortlist you can step through. Playlists and tags are saved in
+`sketches/user/library.json`, alongside the sketches they play.
 
 **`resolution(width, height)`** pins the render to an exact size and shape,
 letterboxed in your window and matched by the projector's, so
