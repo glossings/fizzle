@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { renderTextures } from './textures.js';
+import { renderTextures, resetTextureBuffers } from './textures.js';
 import { AudioEngine } from './audio.js';
 import { mediaGet, mediaList, isPolyhaven, bareName } from './media.js';
 import { loadModelGeometry } from './models.js';
 import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
-import { claimDuring, sweepCarried } from './carry.js';
+import { claimDuring, sweepCarried, resetCarried } from './carry.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -719,6 +719,22 @@ export class Engine {
         if (!this.paused) m.el.play().catch(() => {});
       }
     }
+  }
+
+  // Start the show over: ctrl+r, and loading a different sketch, which has no
+  // more claim on what the last one accumulated than a restart does. Only the
+  // run that follows builds anything, so this is every kind of leftover in one
+  // place — carried state (delays, counters, particles), the frames held in
+  // the texture stack, media position.
+  //
+  // The clock isn't one of them: beat() counts bars from it, so zeroing it
+  // would move the beat grid under a set that's running to music. Nor is where
+  // orbiting left the camera, or the caller's decision about paused — a
+  // restart while paused holds the freeze-frame.
+  restartSketch() {
+    resetCarried();
+    resetTextureBuffers(this);
+    this.restartMedia();
   }
 
   // An empty videofile()/imagefile()/imageseq()/audiofile() call: remember

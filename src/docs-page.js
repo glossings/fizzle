@@ -52,6 +52,10 @@ window.addEventListener('fizzle-notice', (e) => {
 function runExample(code, exEl, ctx) {
   engine.paused = false;
   pauseBtn.textContent = '⏸';
+  // one preview for every block on the page, so a different block is a
+  // different sketch and starts clean; re-running the same one is an edit of
+  // it, which keeps its trails and counters like the app does
+  if (exEl !== activeEx) engine.restartSketch();
   const err = engine.run(code, api);
   activeEx?.classList.remove('running');
   activeEx = exEl ?? null;

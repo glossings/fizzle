@@ -6,7 +6,6 @@ import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
-import { resetCarried } from './carry.js';
 import { initProjector } from './projector.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
@@ -219,8 +218,9 @@ let editor;
 // back/forward, ctrl+z should undo your last edit, not the navigation.
 const setCode = (code, undoable = true) => {
   // swapping the whole document is a different sketch, not an edit of this one:
-  // its delays and counters have no business inheriting the last one's state
-  resetCarried();
+  // its delays, trails and counters have no business inheriting the last one's
+  // state, so it starts from the same clean slate ctrl+r gives
+  engine.restartSketch();
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: code },
     annotations: undoable ? [] : [Transaction.addToHistory.of(false)],
@@ -356,12 +356,11 @@ initDrop();
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
     onToggleSidebar: sidebar.toggle,
     // Allowed to restart the show only because a person asked, rather than an
-    // edit causing it. resetCarried frees state the patch still points at, so
+    // edit causing it. restartSketch frees state the patch still points at, so
     // the rebuild belongs to the same action; run rather than runResume, so a
     // paused screen stays frozen.
     onRestartMedia: () => {
-      resetCarried();
-      engine.restartMedia();
+      engine.restartSketch();
       run(view.state.doc.toString());
       flash('⏮ restarted');
     },

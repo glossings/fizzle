@@ -2255,6 +2255,26 @@ function renderMaterialMaps(engine, ctx) {
   binds.length = live;
 }
 
+// A different sketch, rather than an edit of this one: every frame held
+// anywhere in the stack belongs to the last one. Named buffers and layers go
+// entirely, since their names were that sketch's; the ones that get
+// reallocated on the next frame are dropped rather than cleared, because a
+// fresh render target reads as transparent black and clearing one wouldn't
+// (the renderer's clear alpha is 1, and the feedback snapshot is unplated).
+export function resetTextureBuffers(engine) {
+  const st = engine._textureState;
+  if (!st) return;
+  for (const rt of st.fbRTs?.values() ?? []) rt.dispose();
+  st.fbRTs?.clear();
+  for (const e of st.layerRTs?.values() ?? []) { e.lin.dispose(); e.out.dispose(); }
+  st.layerRTs?.clear();
+  for (const key of ['feedbackRT', 'sceneRT', 'stackA', 'stackB']) {
+    st[key]?.depthTexture?.dispose();
+    st[key]?.dispose();
+    st[key] = null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // per-frame evaluation, called by the engine when a texture chain has .out() (or
 // feeds a material map)
