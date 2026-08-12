@@ -17,7 +17,7 @@ export const splitKey = (k) => {
   return { scope: k.slice(0, i), name: k.slice(i + 1) };
 };
 
-const EMPTY = { version: 1, tags: {}, playlists: [] };
+const EMPTY = { version: 1, tags: {}, created: {}, playlists: [] };
 
 // --- storage ---------------------------------------------------------------
 
@@ -44,6 +44,7 @@ function normalize(lib) {
   return {
     version: 1,
     tags: lib.tags && typeof lib.tags === 'object' ? lib.tags : {},
+    created: lib.created && typeof lib.created === 'object' ? lib.created : {},
     playlists: Array.isArray(lib.playlists)
       ? lib.playlists
           .filter((p) => p && typeof p.name === 'string')
@@ -171,18 +172,56 @@ export function setManualTags(lib, key, tags) {
   saveLibrary(lib);
 }
 
+// --- dates -----------------------------------------------------------------
+
+// When a sketch was first seen. The filesystem's birthtime is only a first
+// guess: a clone rewrites it, so the first answer is kept and reused after
+// that. Returns true if anything was recorded.
+export function noteCreated(lib, entries) {
+  let added = false;
+  for (const { key, at } of entries) {
+    if (lib.created[key] || !at) continue;
+    lib.created[key] = Math.round(at);
+    added = true;
+  }
+  if (added) saveLibrary(lib);
+  return added;
+}
+
+// yyyy-mm-dd, which is what the search reads dates as. Local time, so a
+// sketch saved late in the evening files under the day it felt like.
+export const isoDay = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+export const SORTS = { name: 'name', created: 'newest', modified: 'last edited' };
+
+// Sorted within one scope — user sketches and examples are listed apart, and
+// an example's dates are the build's, not yours. Newest first for both dates,
+// which is the end of the list you're actually looking for.
+export function sortSketches(list, mode) {
+  const by = { created: (s) => s.created, modified: (s) => s.modified }[mode];
+  if (!by) return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  return [...list].sort((a, b) => (by(b) || 0) - (by(a) || 0) || a.name.localeCompare(b.name));
+}
+
 // --- search ----------------------------------------------------------------
 
-// Every word has to match something — the name or one of the tags — so
-// "kaleido audio" narrows rather than widens. `tag:x` demands a tag.
-export function matches(query, name, tags) {
+// Every word has to match something — the name, a tag, or one of the dates —
+// so "kaleido audio" narrows rather than widens. `tag:x` demands a tag.
+// Dates are searchable but never shown as tags: "2026-08" is a useful thing to
+// type and a useless thing to read sixty times down a list.
+export function matches(query, name, tags, dates = '') {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const hay = name.toLowerCase();
   const tl = tags.map((t) => t.toLowerCase());
   return words.every((w) => {
     if (w.startsWith('tag:')) return tl.some((t) => t.includes(w.slice(4)));
-    return hay.includes(w) || tl.some((t) => t.includes(w));
+    return hay.includes(w) || tl.some((t) => t.includes(w)) || (w.length > 3 && dates.includes(w));
   });
 }
 
@@ -236,6 +275,7 @@ export function moveItem(lib, id, from, to) {
 // A deleted sketch leaves its slots behind everywhere it played.
 export function forgetSketch(lib, key) {
   delete lib.tags[key];
+  delete lib.created[key];
   for (const p of lib.playlists) p.items = p.items.filter((k) => k !== key);
   saveLibrary(lib);
 }

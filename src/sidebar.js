@@ -8,7 +8,8 @@ import { nameOk, NAME_RULE } from './sketch-name.js';
 import { isTouch, forPlatform, exampleApplies } from './touch.js';
 import { initOrganize } from './organize.js';
 import {
-  autoTags, autoTagsFor, forgetSketch, keyOf, loadLibrary, manualTags, matches, splitKey,
+  autoTags, autoTagsFor, forgetSketch, isoDay, keyOf, loadLibrary, manualTags, matches,
+  noteCreated, sortSketches, splitKey, SORTS,
 } from './library.js';
 
 const exampleFiles = import.meta.glob('../sketches/examples/*.js', { query: '?raw', import: 'default', eager: true });
@@ -80,7 +81,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     // a laptop renders and is the difference between the heavier examples
     // playing and stuttering. Both are only defaults; the sidebar owns them.
     { quality: isTouch ? 0.75 : 1, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120,
-      resFixed: false, resWidth: 1920, resHeight: 1080 },
+      resFixed: false, resWidth: 1920, resHeight: 1080, sort: 'name' },
     JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
   );
   const persist = () => localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
@@ -282,17 +283,26 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     else localStorage.removeItem(LS_ACTIVE);
   };
 
-  // everything on offer, in the order the panes show it
+  // Everything on offer, in the order the panes show it: your sketches in the
+  // chosen order, then the examples by name. Sorting an example by date would
+  // be sorting it by when the app was built.
   const allSketches = () => [
-    ...userList.map(({ name }) => sketchAt('user', name)),
-    ...exampleNames.map((name) => sketchAt('examples', name)),
+    ...sortSketches(userList.map((f) => sketchAt('user', f)), settings.sort),
+    ...exampleNames.map((name) => sketchAt('examples', { name })),
   ];
-  const sketchAt = (scope, name) => {
+  const sketchAt = (scope, { name, mtime = 0, birthtime = 0 }) => {
     const key = keyOf(scope, name);
-    return { key, scope, name, tags: auto[key] ?? [] };
+    return {
+      key, scope, name,
+      tags: auto[key] ?? [],
+      // the recorded date wins: it's the one that survived a clone
+      created: lib.created[key] ?? birthtime,
+      modified: mtime,
+    };
   };
   const tagsOf = (s) => [...s.tags, ...manualTags(lib, s.key)];
-  const hits = () => allSketches().filter((s) => matches(query, s.name, tagsOf(s)));
+  const datesOf = (s) => `${isoDay(s.created)} ${isoDay(s.modified)}`;
+  const hits = () => allSketches().filter((s) => matches(query, s.name, tagsOf(s), datesOf(s)));
   const currentKey = () => (current.scope ? keyOf(current.scope, current.name) : null);
 
   // Tags are read from the source, so they need the source. Examples are
@@ -404,7 +414,10 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     if (!query) return true;
     if (matches(query, p.name, [])) return true;
     const known = new Map(allSketches().map((s) => [s.key, s]));
-    return p.items.some((k) => { const s = known.get(k); return s && matches(query, s.name, tagsOf(s)); });
+    return p.items.some((k) => {
+      const s = known.get(k);
+      return s && matches(query, s.name, tagsOf(s), datesOf(s));
+    });
   };
 
   function renderPlaylists() {
@@ -471,13 +484,31 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
 
   async function refreshList() {
     userList = await listUser();
+    // The first time a sketch is seen its age is whatever the filesystem says;
+    // from then on the library's own record is what's asked, so a clone onto
+    // another machine doesn't reset everything to the day you cloned it.
+    noteCreated(lib, userList.map((f) => ({
+      key: keyOf('user', f.name),
+      // localStorage has no timestamps at all, and not every filesystem keeps
+      // a birthtime — first seen is a fair answer when nothing better exists
+      at: f.birthtime || f.mtime || Date.now(),
+    })));
     $('#sb-store').textContent = onDisk ? '· disk: sketches/user/' : '· localStorage';
     render();          // names first: reading every sketch for its tags can wait
     await refreshTags();
     render();
   }
 
-  const organize = initOrganize({ lib, sketches: allSketches, onChange: render });
+  // The order is chosen in the organize window; this list follows it, so the
+  // sidebar stays a list of sketches and nothing else.
+  if (!SORTS[settings.sort]) settings.sort = 'name';
+  const organize = initOrganize({
+    lib,
+    sketches: allSketches,
+    getSort: () => settings.sort,
+    setSort: (v) => { settings.sort = SORTS[v] ? v : 'name'; persist(); render(); },
+    onChange: render,
+  });
   $('#sb-organize').addEventListener('click', () => organize.open());
   $('#sb-search').addEventListener('input', (e) => { query = e.target.value.trim(); render(); });
   for (const which of ['sketches', 'playlists']) {

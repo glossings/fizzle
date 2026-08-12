@@ -98,6 +98,18 @@
   cursor: pointer;
 }
 .org-col h3 button:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+.org-col h3 select {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dfe4ee;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font: inherit;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
 .org-col ul {
   flex: 1;
   list-style: none;

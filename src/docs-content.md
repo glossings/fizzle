@@ -65,8 +65,11 @@ fullscreen. While it's open `ctrl + h` hides the code **on the projector**;
 **Playlists.** The sidebar's **sketches** tab searches names and tags. Every
 sketch tags itself with what it uses (`3d`, `2d`, `fx`, `particles`, `audio`,
 `cam`, `media`, `hdri`, plus its size when it pins one), so `tag:audio 3d`
-narrows to what you meant. **organize** opens a window for adding your own tags
-and building playlists; the same sketch can sit in as many as you like. Open a
+narrows to what you meant, and dates are searchable the same way, so `2026-08`
+finds that month's work. **organize** opens a window for adding your own tags
+and building playlists; the same sketch can sit in as many as you like. Its
+**sort** orders every sketch by name, newest, or last edited, and the sidebar's
+list follows. Open a
 playlist in the **playlists** tab and `ctrl + ]` / `ctrl + [` walk its running
 order. With no playlist open they walk the list on screen instead, so a search
 is a shortlist you can step through. Playlists and tags are saved in

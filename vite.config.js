@@ -7,7 +7,7 @@ import { nameOk } from './src/sketch-name.js';
 // plain .js files so the folder can be version controlled; examples ship in
 // sketches/examples/ (bundled into the client, read-only here).
 //
-//   GET    /api/sketches            -> { user: [{ name, mtime }], examples: [...] }
+//   GET    /api/sketches            -> { user: [{ name, mtime, birthtime }], examples: [...] }
 //   GET    /api/sketches/user/:name -> sketch source
 //   PUT    /api/sketches/user/:name -> save
 //   DELETE /api/sketches/user/:name -> delete
@@ -15,22 +15,31 @@ import { nameOk } from './src/sketch-name.js';
 const ROOT = path.resolve('sketches');
 const DIRS = { user: path.join(ROOT, 'user'), examples: path.join(ROOT, 'examples') };
 
-// mtime rides along so the client can cache what it derived from a sketch's
-// source (its auto tags) and only re-read the files that have moved since.
+// The times ride along so the client can cache what it derived from a sketch's
+// source (its auto tags) and only re-read the files that have moved since, and
+// so the list can be sorted by age.
 const listDir = (dir) => {
   try {
     return fs
       .readdirSync(dir)
       .filter((f) => f.endsWith('.js'))
-      .map((f) => ({ name: f.slice(0, -3), mtime: statMtime(path.join(dir, f)) }))
+      .map((f) => ({ name: f.slice(0, -3), ...stat(path.join(dir, f)) }))
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
   }
 };
 
-const statMtime = (file) => {
-  try { return fs.statSync(file).mtimeMs; } catch { return 0; }
+// birthtime isn't recorded by every filesystem, and a `git clone` gives every
+// file the same fresh one either way — so it's a starting point the client
+// keeps hold of (see `created` in library.json), not the last word.
+const stat = (file) => {
+  try {
+    const s = fs.statSync(file);
+    return { mtime: s.mtimeMs, birthtime: s.birthtimeMs || s.mtimeMs };
+  } catch {
+    return { mtime: 0, birthtime: 0 };
+  }
 };
 
 function sketchApi() {

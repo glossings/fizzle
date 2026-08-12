@@ -7,8 +7,8 @@
 
 import './organize.css';
 import {
-  addPlaylist, addToPlaylist, manualTags, matches, moveItem, removeAt,
-  removePlaylist, renamePlaylist, setManualTags,
+  addPlaylist, addToPlaylist, isoDay, manualTags, matches, moveItem, removeAt,
+  removePlaylist, renamePlaylist, setManualTags, SORTS,
 } from './library.js';
 
 // What's in the hand between dragstart and drop. The DataTransfer carries the
@@ -16,9 +16,10 @@ import {
 // drop target has to decide whether it wants it.
 let held = null;
 
-// sketches: () => [{ key, scope, name, tags }] — the auto tags come with it.
-// onChange runs after anything is edited, so the sidebar can redraw.
-export function initOrganize({ lib, sketches, onChange }) {
+// sketches: () => [{ key, scope, name, tags, created, modified }], already in
+// the order the sort asks for. onChange runs after anything is edited, so the
+// sidebar can redraw; get/setSort share the one setting with it.
+export function initOrganize({ lib, sketches, getSort, setSort, onChange }) {
   let el = null;
   let selectedList = null; // playlist id
   let selectedSketch = null; // key, for the tag editor
@@ -44,7 +45,7 @@ export function initOrganize({ lib, sketches, onChange }) {
             <ul id="org-items"></ul>
           </section>
           <section class="org-col">
-            <h3>all sketches</h3>
+            <h3>all sketches <select id="org-sort"></select></h3>
             <ul id="org-all"></ul>
           </section>
         </div>
@@ -59,6 +60,12 @@ export function initOrganize({ lib, sketches, onChange }) {
     el.querySelector('#org-add').addEventListener('click', newList);
     el.querySelector('#org-search').addEventListener('input', (e) => {
       query = e.target.value.trim();
+      renderAll();
+    });
+    const sort = el.querySelector('#org-sort');
+    for (const [value, label] of Object.entries(SORTS)) sort.append(new Option(label, value));
+    sort.addEventListener('change', (e) => {
+      setSort?.(e.target.value); // the sidebar's list follows the same order
       renderAll();
     });
     // a drag that ends anywhere lets go of what it was holding
@@ -215,7 +222,11 @@ export function initOrganize({ lib, sketches, onChange }) {
   function renderAll() {
     const ul = el.querySelector('#org-all');
     ul.innerHTML = '';
-    const hits = sketches().filter((s) => matches(query, s.name, [...s.tags, ...manualTags(lib, s.key)]));
+    el.querySelector('#org-sort').value = getSort?.() ?? 'name';
+    const dates = (s) => `${isoDay(s.created)} ${isoDay(s.modified)}`;
+    const hits = sketches().filter(
+      (s) => matches(query, s.name, [...s.tags, ...manualTags(lib, s.key)], dates(s))
+    );
     if (!hits.length) {
       ul.innerHTML = '<li class="org-empty">nothing matches that</li>';
       return;
@@ -239,6 +250,8 @@ export function initOrganize({ lib, sketches, onChange }) {
         onChange?.();
       });
       add.disabled = !selectedList;
+      // dates order the list and are searchable, but aren't shown: the order
+      // is the useful part, and a date on every row only crowds it
       li.append(name, tagChips([...s.tags, ...manualTags(lib, s.key)]), add);
       li.addEventListener('click', () => selectSketch(s.key));
       li.addEventListener('dragstart', (e) => {
