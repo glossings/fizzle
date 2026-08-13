@@ -178,7 +178,8 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     settings.resWidth = dim(settings.resWidth, 1920);
     settings.resHeight = dim(settings.resHeight, 1080);
     engine.setQuality(settings.quality);
-    engine.bpm = settings.bpm;
+    // the default a sketch's tempo() overrides, not the last word
+    engine.defaultBpm = settings.bpm;
     // a fixed size here beats the sketch's own resolution(), so one setting
     // retargets every sketch
     engine.setResolutionOverride(settings.resFixed ? [settings.resWidth, settings.resHeight] : null);

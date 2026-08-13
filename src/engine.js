@@ -78,7 +78,8 @@ export class Engine {
     this.updaters = [];   // fns called every frame with (t, dt)
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
 
-    this.bpm = 120;                 // tempo for beat(), set in the sidebar
+    this.sketchBpm = null;          // tempo() in the sketch; null = the sidebar's
+    this.defaultBpm = 120;          // the sidebar's tempo, which tempo() outranks
     // Pointer as a control source, in the render's own space: -1..1 with 0 at
     // the center and y up, clamped so a pointer out over the sidebar or the
     // letterbox bars reads as the edge rather than flying past it. Written from
@@ -152,6 +153,14 @@ export class Engine {
   // if one is set, otherwise whatever the sketch asked for.
   get resolution() {
     return this.resOverride ?? this.sketchRes;
+  }
+
+  // beat()'s tempo: the sketch's tempo() if it set one, else the sidebar's.
+  // Reversed from resolution(), where the sidebar's fixed size is an opt-in
+  // that outranks the sketch — the tempo field always holds a value, so
+  // deferring to it would mean tempo() never won.
+  get bpm() {
+    return this.sketchBpm ?? this.defaultBpm;
   }
 
   // Set from the sidebar, so switching target sizes doesn't mean editing every
@@ -817,6 +826,8 @@ export class Engine {
     this.controls.enabled = this.orbitAllowed;
     // dropping the resolution() call goes back to filling the window
     this.sketchRes = null;
+    // and dropping tempo() goes back to the sidebar's
+    this.sketchBpm = null;
     // a picker request belongs to the run that made it: the code has moved on,
     // and a request left over from a run whose empty call has since been filled
     // in would pop the picker straight back open

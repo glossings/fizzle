@@ -1225,6 +1225,22 @@ export function makeApi(engine) {
       const px = (n) => Math.max(1, Math.round(n));
       engine.sketchRes = width == null ? null : [px(width), px(height ?? width)];
     },
+    // Tempo for beat() and .beat(), overriding the sidebar's for this sketch;
+    // dropping the call hands it back. Deliberately not a fn of t: barPhase
+    // counts t * bpm, so a moving tempo jumps the beat instead of easing it.
+    tempo(bpm) {
+      if (bpm == null) {
+        engine.sketchBpm = null;
+        return;
+      }
+      const n = Number(bpm);
+      // a NaN here would spread into every beat() phase at once, freezing the lot
+      if (!Number.isFinite(n) || n <= 0) {
+        warn(`tempo: ${bpm} isn't a tempo — staying at ${engine.bpm}`);
+        return;
+      }
+      engine.sketchBpm = n;
+    },
     // positional fog(color, near, far) predates the config form; a THREE.Color
     // in the first slot is still a color, not a config
     fog(color = 0x0a0a0f, near = 5, far = 30) {

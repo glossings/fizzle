@@ -33,10 +33,26 @@ async function tx(mode, fn) {
   });
 }
 
+// Safari can't serialize a Blob that came from fetch() into IndexedDB — the
+// put fails with "Error preparing Blob/File data to be stored in object store",
+// which takes out every download on iOS. Anything that isn't a File is stored
+// as its bytes instead and rebuilt on the way out. A dropped File stays a File:
+// that's the case WebKit handles, and reading a 500 MB video into memory to
+// dodge a bug it doesn't have would be its own problem.
+const readable = (rec) =>
+  !rec || rec.blob
+    ? rec
+    : { name: rec.name, type: rec.type, blob: new Blob([rec.data], { type: rec.type }) };
+
 // `name` overrides the key — used for folder drops ('rock_2k/diff.jpg') and
 // for downloads, which arrive as bare blobs with no name of their own
-export const mediaPut = (file, name = file.name) =>
-  tx('readwrite', (s) => s.put({ name: String(name), type: file.type, blob: file }));
+export async function mediaPut(file, name = file.name) {
+  const rec =
+    file instanceof File
+      ? { name: String(name), type: file.type, blob: file }
+      : { name: String(name), type: file.type, data: await file.arrayBuffer() };
+  return tx('readwrite', (s) => s.put(rec));
+}
 export const mediaDelete = (name) => tx('readwrite', (s) => s.delete(name));
 
 // A name can also say where the file came from: 'polyhaven:rock_2k'. Every
@@ -83,7 +99,7 @@ function urlGet(url) {
 
 async function fetchUrl(url) {
   const hit = await tx('readonly', (s) => s.get(url));
-  if (hit) return hit;
+  if (hit) return readable(hit);
   let r;
   try {
     r = await fetch(url);
@@ -97,14 +113,19 @@ async function fetchUrl(url) {
     );
   }
   if (!r.ok) throw new Error(`the host answered HTTP ${r.status}`);
-  let blob = await r.blob();
-  if (!blob.type || blob.type === 'application/octet-stream') {
+  const data = await r.arrayBuffer();
+  let type = r.headers.get('content-type')?.split(';')[0].trim() ?? '';
+  if (!type || type === 'application/octet-stream') {
     const ext = url.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
-    if (MIME[ext]) blob = new Blob([blob], { type: MIME[ext] });
+    if (MIME[ext]) type = MIME[ext];
   }
-  const rec = { name: url, type: blob.type, blob };
-  await tx('readwrite', (s) => s.put(rec));
-  return rec;
+  const rec = { name: url, type, data };
+  // the download already worked, so a store that won't take it (private
+  // browsing, quota) costs a re-download next session and nothing else
+  try {
+    await tx('readwrite', (s) => s.put(rec));
+  } catch { /* urlCache still holds it for the rest of this session */ }
+  return readable(rec);
 }
 
 // The starter files served from public/media/. They're named and looked up
@@ -156,7 +177,7 @@ export async function mediaGet(name, accept) {
   // — and a query string would defeat its extension test anyway
   if (isUrl(name)) return urlGet(name.trim());
   const ok = (n) => !accept || accept(n);
-  const get = (key) => tx('readonly', (s) => s.get(key));
+  const get = async (key) => readable(await tx('readonly', (s) => s.get(key)));
   const exact = await get(String(name));
   if (exact && ok(exact.name)) return exact;
   const n = String(name).toLowerCase();

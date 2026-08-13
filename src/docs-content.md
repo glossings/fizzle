@@ -1728,7 +1728,7 @@ speakers will howl.
 ## tempo & sequencing
 
 `beat(perBar)` is the tempo as a rising phase. `perBar` cycles per bar at the
-sidebar's bpm, counting up as the pulse gets faster:
+current tempo, counting up as the pulse gets faster:
 
 | call | pulse |
 |---|---|
@@ -1741,6 +1741,19 @@ sidebar's bpm, counting up as the pulse gets faster:
 Shape it into an LFO with `.sin()` / `.tri()` / `.saw()`, into a gate with
 `.sqr()`, or use it bare as a list index. The whole part is which cycle you're
 in, the fraction is where inside it.
+
+The tempo itself comes from the sidebar, and **`tempo(bpm)`** overrides it for
+one sketch:
+
+```js
+tempo(174)
+circle({ radius: beat(4).saw().mul(-0.3).add(0.4), color: '#ff5f9e' })
+  .out()
+```
+
+A sketch that names its own tempo keeps it wherever it's played, which is what
+you want for one built around a specific track. Drop the call and it follows
+the sidebar again.
 
 ```js
 circle({
