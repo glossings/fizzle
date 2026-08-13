@@ -484,6 +484,9 @@ export class Engine {
           }
         }
       } catch (e) {
+        // like its siblings below: a re-run retries, which is what gives a URL
+        // that failed on a flaky network a second chance
+        m.missing = true;
         warn(`${kind}file "${name}": ${e.message ?? e}`);
       }
     })();

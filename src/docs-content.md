@@ -1565,7 +1565,8 @@ Drag a video, image, audio, model or HDRI file (or a folder of them) into the
 window: it's imported into the browser — no upload, survives reloads — and a
 ready-made call lands at your cursor. Files are referenced by filename, exact
 or case-insensitive substring, so `videofile('clip')` finds `clip.mp4`. An
-unmatched name lists what's imported in the console.
+unmatched name lists what's imported in the console. A name can also be an
+`https://` URL (below).
 
 Running an **empty** call (`videofile()`, `imagefile()`, `audiofile()`,
 `imageseq()`) opens a file picker and fills the name in; an empty `hdri()`,
@@ -1581,6 +1582,21 @@ before you've dropped anything in: `ship.obj`, the HDRI
 `pbr: 'polyhaven:rock_wall_02_2k'`, `hdri('polyhaven:lilienstein_2k.hdr')` — and
 a tagged name that isn't imported downloads itself, so a sketch you send someone
 runs on their machine. Files you drop in yourself stay untagged.
+
+**URLs fetch themselves too.** Any filename here can be an `https://` link
+instead, which is the easy way to send someone a sketch that just runs:
+
+```js
+imagefile('https://raw.githubusercontent.com/you/art/main/cat.jpg')
+  .out()
+```
+
+The file downloads once and is kept, so re-runs and offline runs read it
+straight back out of the browser. The catch is that the host has to allow other
+sites to load its files. `raw.githubusercontent.com` and `upload.wikimedia.org`
+do; most results you'd right-click out of an image search do not, and those say
+so in the console instead of loading. To put your own images behind a URL, push
+them to a public GitHub repo and copy the **Raw** link.
 
 - `videofile(name?, { speed, loop, mute, restart, phase, jump })` — a looping
   video as a texture. `speed` and `loop` take functions of `t`; `mute: false`

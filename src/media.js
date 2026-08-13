@@ -50,6 +50,63 @@ export const isPolyhaven = (name) => PH_TAG.test(String(name));
 // and all, because a dropped file is allowed to have them
 export const bareName = (name) => (isPolyhaven(name) ? String(name).replace(PH_TAG, '').trim() : String(name));
 
+// A name can also be a URL, which heals the same way for any host instead of
+// one API: imagefile('https://…/cat.jpg') sends the picture along with the
+// code. The file is downloaded once and kept under the URL as its key, so
+// later runs read it back like anything else that was dropped in — offline
+// included.
+const URL_RE = /^https?:\/\//i;
+export const isUrl = (name) => URL_RE.test(String(name).trim());
+
+// Types the download may have to supply itself: a host that answers
+// application/octet-stream leaves the blob untyped, and an untyped blob URL
+// won't play as a video or decode as an image.
+const MIME = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4',
+};
+
+// Memoized like bundledGet, so one URL used in two slots downloads once rather
+// than racing itself.
+const urlCache = new Map();
+function urlGet(url) {
+  let rec = urlCache.get(url);
+  if (!rec) {
+    rec = fetchUrl(url);
+    rec.catch(() => urlCache.delete(url)); // a failed download retries next run
+    urlCache.set(url, rec);
+  }
+  return rec;
+}
+
+async function fetchUrl(url) {
+  const hit = await tx('readonly', (s) => s.get(url));
+  if (hit) return hit;
+  let r;
+  try {
+    r = await fetch(url);
+  } catch {
+    // A cross-origin fetch that the host didn't opt into fails identically to
+    // a dead network — the browser withholds which on purpose — and CORS is
+    // overwhelmingly the one that's actually happening. WebGL can't sample a
+    // texture the page wasn't allowed to read, so there's no lenient path.
+    throw new Error(
+      "couldn't download it — the host may not let other sites load its files (CORS). raw.githubusercontent.com and upload.wikimedia.org do; most image search results don't. Otherwise save the file and drop it in."
+    );
+  }
+  if (!r.ok) throw new Error(`the host answered HTTP ${r.status}`);
+  let blob = await r.blob();
+  if (!blob.type || blob.type === 'application/octet-stream') {
+    const ext = url.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
+    if (MIME[ext]) blob = new Blob([blob], { type: MIME[ext] });
+  }
+  const rec = { name: url, type: blob.type, blob };
+  await tx('readwrite', (s) => s.put(rec));
+  return rec;
+}
+
 // The starter files served from public/media/. They're named and looked up
 // exactly like imported ones, so a fresh install can run the examples with
 // nothing dropped in yet — and an import of the same name shadows them.
@@ -84,13 +141,20 @@ function bundledGet(name) {
 // that was dropped in.
 export const mediaList = async () => {
   const keys = await tx('readonly', (s) => s.getAllKeys());
-  return [...keys, ...BUNDLED.filter((n) => !keys.includes(n))];
+  // downloaded URLs share the store but aren't imports: listing them would pad
+  // the completions and the "nothing imported" warnings with full URLs, and
+  // let a bare name substring-match one
+  const local = keys.filter((k) => !isUrl(k));
+  return [...local, ...BUNDLED.filter((n) => !local.includes(n))];
 };
 
 // `accept` narrows the search to filenames it approves of, so a substring
 // lookup for a model can't land on the image of the same name
 export async function mediaGet(name, accept) {
   name = bareName(name);
+  // a URL names one exact file, so there's no ambiguity for `accept` to settle
+  // — and a query string would defeat its extension test anyway
+  if (isUrl(name)) return urlGet(name.trim());
   const ok = (n) => !accept || accept(n);
   const get = (key) => tx('readonly', (s) => s.get(key));
   const exact = await get(String(name));
