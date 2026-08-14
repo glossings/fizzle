@@ -738,10 +738,11 @@ plane({ width: 24, height: 24, res: 128 })
   `angle` is its half-width in radians, `penumbra` (0..1) how soft the rim is.
   `directional` takes a `.target(x, y, z)` too; both aim at the origin without
   one, and both animate.
-- `camera(x, y, z, [tx, ty, tz])` with static numbers places the camera and
-  leaves orbit controls live. If **any** argument is a function of time the
-  sketch drives the camera and orbiting is off; drop the call and the next run
-  hands back the view you last orbited to.
+- `camera(x, y, z, [tx, ty, tz])` puts the camera at `x, y, z` and aims it at
+  the target point `[tx, ty, tz]`, the origin without one. Static numbers leave
+  orbit controls live. If **any** argument is a function of time the sketch
+  drives the camera and orbiting is off; drop the call and the next run hands
+  back the view you last orbited to.
 - `bg(color)` and `fog({ color, near, far })` set the scene backdrop. `bg()`
   sits under the texture stack too, so a chain with transparency in it shows
   the background through the gaps rather than black.

@@ -33,7 +33,7 @@ export const GLOBALS = {
 
   hdri: ['hdri(name?, { background, intensity, blur, rotation, backgroundRotation, backgroundIntensity })', "Image-based lighting from an imported .hdr/.exr: lights every material and shows behind the scene — metal has nothing to reflect without one. Empty hdri() opens the Poly Haven browser; drag a file in to import. Every option but background takes a fn of t."],
 
-  camera: ['camera(x, y, z, [tx, ty, tz])', 'Static numbers: place camera, orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
+  camera: ['camera(x, y, z, [tx, ty, tz])', 'Puts the camera at x, y, z looking at the point [tx, ty, tz] — the origin without one. Static numbers: orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
   resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again. The sidebar's fixed resolution overrides this."],
   tempo: ['tempo(bpm)', "Tempo for beat() and .beat(), overriding the sidebar's for this sketch. Drop the call to hand it back."],

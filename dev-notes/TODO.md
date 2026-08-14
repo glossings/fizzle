@@ -50,6 +50,71 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 
 ---
 
+## `camera()` has nowhere to put roll or the lens
+
+`camera()` is a position plus a look-at target ([src/api.js:1159](../src/api.js#L1159)),
+and the dynamic path re-runs `lookAt` every frame against three's default `up`
+of `+Y`. Pan and tilt are therefore reachable by animating the target, and roll
+is not reachable at all: anything a sketch writes to `camera.rotation.z` is
+overwritten before the next render. A banking camera, a dutch angle, the tilt on
+a star-wars crawl — all of it has to be faked by rotating the picture instead
+(`scene().rotate(…)`), which swings the frame's own corners in with it.
+
+Roll is the smallest part of this. `fov`, `near` and `far` are missing for the
+same reason: the signature is four positional slots with no room left, so every
+new camera property would want a call of its own. The engine's camera is a
+singleton the sketch aims rather than constructs, which is why it's a bare call
+next to `bg()`/`fog()`/`resolution()` and not an op with `.position()` — that
+part is right, and a chainable handle would put the API's most-retyped line
+(`camera(0, 2, 8)`) behind a constructor. What it needs is a fifth thing to
+say, not a different shape.
+
+[ ] **Widen the parse before adding anything to it.** All four spellings
+  dispatch on the JS type of a single slot, so they collapse into one flat
+  branch and no two can be confused:
+
+  ```
+  slot 1 object  -> fully named, camera({ position, target, roll, fov })
+  slot 4 array   -> target (what ships today)
+  slot 4 number  -> tx, ty, tz, closing the papercut under "Papercuts" below
+  slot 4 object  -> options, camera(x, y, z, { target, roll })
+  ```
+
+  This is the house style already — `resolution()` and `fog()` are both
+  documented as taking either grammar, and `hdri`/`ring`/`constant` all sniff
+  slot 1. Note `camera(0, 0.3, 7, [0, 0.2, -14])` has an in-tree caller
+  ([sketches/examples/depth-haze.js:43](../sketches/examples/depth-haze.js#L43)),
+  so the array form is added to, never replaced.
+
+  Three things to pin before writing it:
+
+  - **The object form is a complete restatement, not a partial patch.** Every
+    omitted value takes its default, exactly as the positional form does, so
+    `camera({ roll: 0.2 })` snaps back to the default position rather than
+    banking in place. Surprising once; the alternative is two grammars with
+    different semantics, which is worse. Re-aiming without moving is a real
+    gap and genuinely unexpressible today, but it needs its own spelling and
+    must not ride in on this.
+  - **A Vector3 in slot 1 collides with the config form.** `asVec()` already
+    accepts `{x, y, z}` ([src/api.js:190](../src/api.js#L190)), so
+    `camera(somePosition)` is a plausible thing to type. Dispatch on the
+    presence of `position`/`target`/`roll` keys, not on `typeof === 'object'` —
+    the same guard `fog()` uses for `isColor`.
+  - **Tolerant parser, narrow docs.** Accept all four, teach one per use case.
+    A tooltip that lists every grammar makes a one-line call look like it has
+    four modes.
+
+[ ] Then `roll`, in radians and a fn of `t` like the rest: set `camera.up` to
+  `[sin(roll), cos(roll), 0]` before the `lookAt`. Five lines, but check what
+  it does to orbiting before shipping it — OrbitControls builds its orbit frame
+  from `object.up`, so on the *static* path a roll would tilt the whole orbit
+  sphere rather than bank the view, which is not what anyone means by it.
+  Simplest answer is probably that roll implies the programmed path.
+
+[ ] `fov`, `near`, `far` in the same options object once it exists, each a fn
+  of `t` (`updateProjectionMatrix` per frame is free at this rate). A fn `fov`
+  is the dolly zoom, which nothing in the API can express today.
+
 ## General
 
 [ ] L systems
@@ -121,10 +186,13 @@ wrong slot has to say so or it costs an hour.
   already does ([src/textures.js:1641](../src/textures.js#L1641)).
 
 [ ] **`camera(x, y, z, tx, ty, tz)` throws from inside the engine.** The target
-  is one argument, an array ([src/api.js:1123](../src/api.js#L1123)), and the
+  is one argument, an array ([src/api.js:1159](../src/api.js#L1159)), and the
   six-number spelling is the natural guess — it dies on `...target` with
   "target is not iterable" and the previous sketch keeps playing, which reads
-  as the edit having done nothing. Accept both spellings.
+  as the edit having done nothing. Fixed by the widened parse under
+  "`camera()` has nowhere to put roll or the lens" near the top, which takes
+  the six-number form as one of its four branches; kept here because it's a
+  silent failure today and that's what this section is for.
 
 ## Simulation in the texture graph
 
