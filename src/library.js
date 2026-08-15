@@ -21,21 +21,22 @@ const EMPTY = { version: 1, tags: {}, created: {}, playlists: [] };
 
 // --- storage ---------------------------------------------------------------
 
-let onDisk = true;
+// Same as the sketch list next door: the endpoint is the dev server's, so a
+// built site goes straight to storage instead of taking a 404 to find out.
+let onDisk = import.meta.env?.DEV ?? false;
 
 export async function loadLibrary() {
-  try {
-    const r = await fetch('/api/library');
-    if (!r.ok) throw new Error();
-    onDisk = true;
-    return normalize(await r.json());
-  } catch {
-    onDisk = false;
+  if (onDisk) {
     try {
-      return normalize(JSON.parse(localStorage.getItem(LS_LIB) ?? 'null'));
-    } catch {
-      return normalize(null);
-    }
+      const r = await fetch('/api/library');
+      if (r.ok) return normalize(await r.json());
+    } catch { /* no server after all — storage has it */ }
+    onDisk = false;
+  }
+  try {
+    return normalize(JSON.parse(localStorage.getItem(LS_LIB) ?? 'null'));
+  } catch {
+    return normalize(null);
   }
 }
 

@@ -27,7 +27,11 @@ const NEW_TEMPLATE = `bg('#07070c')\nambient({ intensity: 0.2 })\ndirectional({ 
 
 // --- storage (disk API with localStorage fallback) -------------------------
 
-let onDisk = true;
+// The sketch API is the dev server's (see vite.config.js), so a built site has
+// nothing to ask — hence starting from the build flag rather than finding out
+// through a 404 in the console on every load. It can still drop to false later
+// if the dev server goes away mid-session.
+let onDisk = import.meta.env?.DEV ?? false;
 const lsAll = () => { try { return JSON.parse(localStorage.getItem(LS_SKETCHES)) ?? {}; } catch { return {}; } };
 const lsWrite = (all) => localStorage.setItem(LS_SKETCHES, JSON.stringify(all));
 
@@ -35,15 +39,14 @@ const lsWrite = (all) => localStorage.setItem(LS_SKETCHES, JSON.stringify(all));
 // localStorage side has no timestamps, so it hands back 0 and the tags are
 // derived from the source in hand instead of cached.
 async function listUser() {
-  try {
-    const r = await fetch('/api/sketches');
-    if (!r.ok) throw new Error();
-    onDisk = true;
-    return (await r.json()).user.map((f) => (typeof f === 'string' ? { name: f, mtime: 0 } : f));
-  } catch {
+  if (onDisk) {
+    try {
+      const r = await fetch('/api/sketches');
+      if (r.ok) return (await r.json()).user.map((f) => (typeof f === 'string' ? { name: f, mtime: 0 } : f));
+    } catch { /* no server after all — storage has it */ }
     onDisk = false;
-    return Object.keys(lsAll()).sort().map((name) => ({ name, mtime: 0 }));
   }
+  return Object.keys(lsAll()).sort().map((name) => ({ name, mtime: 0 }));
 }
 async function loadUser(name) {
   if (onDisk) {
