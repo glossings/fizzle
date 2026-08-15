@@ -147,6 +147,17 @@ stack step.
 [ ] Whatever the fix, say the sampling rule in the tooltip. "Radius in pixels"
   is what it reads as now, and that is not what it does.
 
+## `.field()` reads the chain through point sampling
+
+The readback copy samples the full-res chain once per field texel
+([src/textures.js:2470](../src/textures.js#L2470)), so a high-frequency source —
+raw video, fine voronoi — shimmers between texels as it moves. Smooth fields,
+which is what layouts mostly want, don't notice.
+
+[ ] A mip step in the copy pass (or read the source through its pyramid) so
+  each field texel averages its share of the picture instead of picking one
+  sample. Same family as the blur fix above.
+
 ## Alpha 0 buses silently render black
 
 A named bus that only ever does arithmetic never acquires coverage: `input()`
@@ -223,6 +234,41 @@ above is the first of them:
 [ ] Neither is blocked on the other, and `.glsl()` below is a third way to buy
   the same thing — worth deciding which one lands first rather than doing all
   three.
+
+## Per-chain resolution
+
+Every node renders at the drawing-buffer size, and the pipeline quietly leans
+on that: buses and feedback allocate by frame size
+([src/textures.js:2345](../src/textures.js#L2345)), `uAspect` is the frame's
+([src/textures.js:1331](../src/textures.js#L1331)), comp assumes both inputs
+cover the frame. One model is per-operator resolution with inheritance, and
+three current items are this feature in disguise:
+
+- A texture as a **tile face** wants the face's aspect — the split-flap example
+  crops full-frame `text()` with hand-rolled `repeat`/`offset`, and any square
+  material map on a square surface has the same problem.
+- **`.field()`** renders full-frame and downsamples by point sampling (section
+  above). A chain rendering *at* 64×64 needs no copy pass, and for generator
+  sources no mip fix either — the shader evaluated at 64×64 is the right
+  answer by construction. (Image/video sources still want minification
+  filtering; the mip note stands for those.)
+- **Simulations** ("Buffer cost" above) want a 512×512 bus, not eighteen
+  full-frame targets.
+
+[ ] `.res(w, h?)` as a chain operator (maybe `{ aspect }` sugar): sources
+  default to the frame, every node inherits its first input's size, `.res()`
+  re-targets from that point downstream. Pin before building:
+  - `uAspect` becomes the *target's* aspect, so a `circle()` on a square
+    target is round on the square — correct, and only reachable by asking, so
+    existing sketches don't move.
+  - Mismatched comp inputs already sample by uv, and neighbor ops' `uTexel`
+    already follows the target — both fall out.
+  - The fiddly half is buffers that outlive the graph: feedback targets, named
+    buses and delay rings all allocate at frame size, keyed by name — size has
+    to travel with the publish, and a re-run that resizes a bus must realloc
+    without blanking unrelated loops.
+  - `text()` needs its canvas to follow the target size, which then replaces
+    the split-flap crop outright.
 
 ## New texture generators
 
@@ -629,6 +675,14 @@ Euler by hand inside a sketch is miserable.
   The signals already have exactly this cache internally
   ([src/audio.js:200](../src/audio.js#L200)) — this is that, exposed.
 
+[ ] `.uv(i)` to go with `.sample(i)` / `.normal(i)` — the mesh's own uv at the
+  scattered point, which `MeshSurfaceSampler.sample()` already interpolates
+  through its unused fourth argument. It's the same "where does copy i live,
+  0..1" contract as `grid(...).uv(i)` above, and what lets a `.field()` drive
+  copies scattered over *any* surface, not just a grid. Return something
+  neutral and warn when the geometry has no uv attribute (some imported
+  models).
+
 [ ] A tangent basis to go with `.sample(i)` / `.normal(i)`
   ([src/api.js:419](../src/api.js#L419)) — `.basis(i)` returning the two
   perpendiculars, or just letting `.align()` take a roll. Scattering anything
@@ -642,6 +696,32 @@ Euler by hand inside a sketch is miserable.
   about the API before implementing: how a path is declared, whether `line()`
   and `path()` are one thing or two, and how the layout fn addresses position
   along the curve.
+
+[ ] `grid(cols, rows, { pitch })` — the structured counterpart of `.sample(i)`'s
+  scatter: an index-addressed layout with `.count`, `.pos(i)` (centered, ready
+  for `x.position()`) and `.uv(i)` (0..1 — the coordinates a `.field()` sampler
+  wants). Every grid sketch re-derives `(col - (cols - 1) / 2) * pitch` and the
+  uv normalization by hand — see
+  [sketches/examples/split-flap.js](../sketches/examples/split-flap.js), which
+  spends half its layout fn on it. Rings and lines are the same item with a
+  different shape; decide whether they're options or siblings before building.
+
+[ ] **Per-instance map selection.** One material per batch means every copy
+  shows the same picture. The API to want: a *collection* in the map slot —
+  `.material({ map: [text('A'), text('B'), …] })` — plus `x.tile(j)` on the
+  handle ([src/api.js:320](../src/api.js#L320)) picking per copy, per frame,
+  the way `x.color()` already does. No user-facing atlas.
+  The implementation can't stay a collection: one instanced draw call means
+  one bound sampler set, and GLSL can't index a sampler per instance — so the
+  engine consolidates the sources into a 2D **array texture** (dynamic layer
+  index is legal, per-layer mips, no atlas bleed; all layers one size, each
+  source drawn into its cell) and `j` rides an instanced float attribute into
+  a patched map lookup (same onBeforeCompile surgery class as
+  [src/noise.js](../src/noise.js)). `text()`/`imagefile()` sources re-upload
+  only on change; *live* chains as variants cost a copy per variant per
+  frame — v1 should take static-ish sources and warn on live chains.
+  What lets a split-flap board spell words, with a `.field()` picking the
+  letter per cell.
 
 ## `box().noise()` comes apart at the edges
 

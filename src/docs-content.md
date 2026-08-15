@@ -312,6 +312,9 @@ box({ res: 4 })
 The batch is one mesh with one material, so `.noise()`, the rest of
 `.material()` and `.out()` are shared and belong on the chain, not on `x`.
 
+A texture can drive the layout: `.field()` reads a chain back as numbers the
+fn can sample. See **a texture read back as numbers**.
+
 ### a shape as a function — copies that differ
 
 `.out()` doesn't copy the op, so sending one out twice gives two meshes reading
@@ -1282,6 +1285,54 @@ falls back to the default.
 `circle({ radius: noise({ freq: 3 }).mul(0.1).add(0.25) })` is a disc with a
 wandering rim. `voronoi({ blend: ramp({ type: 'radial' }) })` is cracked
 glass at the center melting to wax at the rim.
+
+### .field — a texture read back as numbers
+
+`.field()` ends a chain with a sampler instead of a picture: a plain function
+`(u, v) => 0..1` reading the chain's luma at that point (`v = 0` at the
+bottom, like a geometry uv). The chain renders to a small buffer once a frame
+and is read back on the CPU, one frame behind, so any texture can drive plain
+sketch code. `.instance()` layouts are the natural customer. Here radial
+waves flip a grid of tiles to their dark face, split-flap style. Two grids
+share each cell, one facing away, so a half turn swaps which face shows:
+
+```js
+resolution(1280, 720)
+bg('#0b0b0d')
+camera(0, 0, 11)
+
+ambient({ intensity: 0.55 })
+directional({ intensity: 1.5 }).position(2, 4, 6).out()
+
+const wave = ramp({ type: 'radial', freq: 2.5, shape: 'sin', phase: t => -t * 0.6 })
+  .threshold(0.5, { soft: 0.3 })
+  .field()
+
+const COLS = 24, ROWS = 13, PITCH = 0.62
+const grid = (turn) => (x, i) => {
+  const col = i % COLS, row = (i / COLS) | 0
+  const flip = wave(col / (COLS - 1), row / (ROWS - 1))
+  x.position((col - (COLS - 1) / 2) * PITCH, (row - (ROWS - 1) / 2) * PITCH, 0)
+    .rotation(flip * Math.PI + turn, 0, 0)
+}
+
+// text() fills the 16:9 frame; crop the map back to its middle square
+const face = (ink, paper) => ({
+  map: text('A', { size: 0.8, color: ink, bg: paper }),
+  repeat: [9 / 16, 1],
+  offset: [(1 - 9 / 16) / 2, 0],
+  roughness: 0.85,
+})
+
+const tile = () => plane({ width: 0.55, height: 0.55, res: 1 })
+tile().instance(COLS * ROWS, grid(0)).material(face('#111111', '#e8e4dc')).out()
+tile().instance(COLS * ROWS, grid(Math.PI)).material(face('#e8e4dc', '#111111')).out()
+```
+
+The sampler is just a function, so it drops into a `.position()`, an
+`onFrame`, anywhere sketch code runs. Any source feeds it: noise, `video()`,
+an audio-reactive chain, a feedback bus. `.field({ res: 128 })` reads finer
+than the default 64 when a grid is dense enough to need it.
 
 ## buses, layers & feedback
 

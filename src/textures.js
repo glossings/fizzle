@@ -1776,6 +1776,37 @@ export class TextureOp {
     return this;
   }
 
+  // .field({ res }) — end the chain with a sampler instead of a picture: a
+  // plain function (u, v) => 0..1, the chain's luma at that point, v = 0 at
+  // the bottom like a geometry uv. The chain lands in a small target once a
+  // frame and is read back (see renderTextures), so the value is one frame
+  // behind — and 0 until the first frame arrives, so a layout fn reading it
+  // on the settle after a re-run gets a number, not a crash.
+  field(o = {}) {
+    const res = Math.min(256, Math.max(2, Math.round(o.res ?? 64) || 64));
+    const rec = { node: this, res, rt: null, data: null };
+    this.engine.textureFields.push(rec);
+    return (u, v) => {
+      const d = rec.data;
+      if (!d) return 0;
+      const n = rec.res;
+      // clamp written so a NaN falls through to 0 instead of poisoning a layout
+      const fx = (u > 1 ? 1 : u > 0 ? u : 0) * (n - 1);
+      const fy = (v > 1 ? 1 : v > 0 ? v : 0) * (n - 1);
+      const x0 = fx | 0, y0 = fy | 0;
+      const x1 = x0 < n - 1 ? x0 + 1 : x0, y1 = y0 < n - 1 ? y0 + 1 : y0;
+      const tx = fx - x0, ty = fy - y0;
+      // readPixels rows run bottom-up, which is exactly uv's v — no flip
+      const L = (x, y) => {
+        const i = (y * n + x) * 4;
+        return (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      };
+      const a = L(x0, y0) + (L(x1, y0) - L(x0, y0)) * tx;
+      const b = L(x0, y1) + (L(x1, y1) - L(x0, y1)) * tx;
+      return a + (b - a) * ty;
+    };
+  }
+
   // three reads a render target's wrap mode once, when it first sets the target
   // up — so a node feeding a tiled material map has to be marked before that
   // happens, and re-marked whenever a resize forces a realloc
@@ -2435,6 +2466,19 @@ export function renderTextures(engine) {
       const tex = node.renderNode(ctx);
       const rt = fbRT(name);
       if (tex !== rt.texture) runPass(ctx, MAT_COPY, tex, null, rt);
+    }
+    // fields: each .field() chain lands in its small unsigned-byte target and
+    // is read back for the CPU samplers. Updaters ran before this, so what a
+    // layout fn reads is last frame's — the one-frame latency .field()
+    // promises. Frozen while paused, like the rest of the graph.
+    for (const f of engine.textureFields) {
+      const tex = f.node.renderNode(ctx);
+      if (!f.rt) {
+        f.rt = new THREE.WebGLRenderTarget(f.res, f.res, { depthBuffer: false });
+        f.data = new Uint8Array(f.res * f.res * 4);
+      }
+      runPass(ctx, MAT_COPY, tex, null, f.rt);
+      renderer.readRenderTargetPixels(f.rt, 0, 0, f.res, f.res, f.data);
     }
   }
   renderer.setRenderTarget(null);
