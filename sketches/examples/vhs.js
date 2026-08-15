@@ -1,6 +1,7 @@
 // VHS — recording, playback and the television, in that order.
 // A bare videofile() opens a picker on the first ctrl+enter and writes your
 // choice into the call. Delete the name to pick another.
+// Commented-out lines are extras: uncomment one to try it.
 
 const tape = videofile()
 
@@ -17,7 +18,7 @@ const recorded = tape.comp(
 // split is most of the look. A cell count paired with an absurd vertical one
 // makes .pixellate() a horizontal-only bandwidth limit.
 const LUMA_CELLS = 320
-const CHROMA_CELLS = 44
+const CHROMA_CELLS = 44   // 16 for a fourth-generation dub
 
 const snow = noise({ freq: 320, octaves: 1, speed: 55 })
   .blur([5, 0])      // tape noise is 1-D, read along the line
@@ -43,6 +44,7 @@ const luma = recorded
 // 'luminosity' keeps the base's color and takes the layer's brightness —
 // smeared chroma over sharp luma, which is what color-under does
 const composite = chroma.comp(luma, 'luminosity')
+  // .comp(ramp({ type: 'angular' }), 'color', 0.5)   // color lock, lost
 
 // --- playback ---
 
@@ -59,6 +61,7 @@ const flagging = ramp({ angle: Math.PI / 2 }).threshold(0.978, { soft: 0.04 })
 // A scrolling ramp, thresholded: a band that drifts up the frame
 const tracking = ramp({ angle: Math.PI / 2, period: 1, phase: t => -t * 0.07 })
   .threshold(0.94, { soft: 0.05 })
+  // .threshold(0.86, { soft: 0.12 })   // instead: a fat, unmissable tracking band
 
 const dropouts = noise({ freq: 240, octaves: 1, speed: 9 })
   .transform({ scale: [14, 1] })
@@ -103,8 +106,3 @@ played
   .warp({ barrel: 0.09, zoom: 1.03 })
   .bloom({ threshold: 0.72, strength: 0.55, radius: 1.3 })
   .out()
-
-// more to try:
-// CHROMA_CELLS = 16                                  // a fourth-generation dub
-// tracking: .threshold(0.86, { soft: 0.12 })         // a fat, unmissable tracking band
-// composite.comp(ramp({ type: 'angular' }), 'color', 0.5)   // color lock, lost

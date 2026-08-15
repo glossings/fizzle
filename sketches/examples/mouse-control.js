@@ -1,5 +1,6 @@
 // mouse-control — the pointer as a signal, and .range() to aim one.
 // Move the mouse over the picture; hold a button down.
+// Commented-out lines are extras: uncomment one to try it.
 
 // mouse() is -1..1 with 0 at the center. .smooth() takes the stutter out.
 const mx = mouse('x').smooth(0.08)
@@ -18,6 +19,10 @@ sphere({ radius: 1.1, res: 96 })
   // and maps it onto the values you want
   .noise({ amp: held.range(0.05, 0.6), period: 0.5, octaves: 4, speed: 0.5 })
   .material({ color: '#4fd1c5', roughness: held.range(0.6, 0.1), metalness: 0.4 })
+  // mouse() is the one signal that isn't 0..1, so ranging it says so:
+  // .rotation(0, mouse('x').range(0, Math.PI * 2, { from: [-1, 1] }), 0)
+  // .scale(sig().sin().range(0.6, 1.4))    // bare sig() is t, the seconds-based beat()
+  // .color(mouse('down').counter().select(['#4fd1c5', '#ff5f9e', '#ffd166']))  // per click
   .out()
 
 plane({ width: 40, height: 40, res: 2 })
@@ -31,11 +36,3 @@ scene()
   .comp(s => s.edge({ strength: 2.5 }).tint('#ff4fd8'), 'add')
   .bloom({ threshold: 0.5, strength: 0.9 })
   .out()
-
-// more to try:
-// mouse() is the one signal that isn't 0..1, so ranging it says so:
-//   .rotation(0, mouse('x').range(0, Math.PI * 2, { from: [-1, 1] }), 0)
-// bare sig() is t as a signal — the seconds-based beat():
-//   .scale(sig().sin().range(0.6, 1.4))
-// mouse('down').counter() steps a value per click:
-//   .color(mouse('down').counter().select(['#4fd1c5', '#ff5f9e', '#ffd166']))

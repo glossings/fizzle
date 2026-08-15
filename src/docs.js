@@ -67,6 +67,8 @@ export const GLOBALS = {
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
   T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
   mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up. Default axis is x; mouse('down') is a 1/0 gate while a button is held."],
+  midi: ['midi(name?)', "A MIDI controller as signals: .cc(74) a knob or fader 0..1, .note .vel .gate .touch the keys, .key(38) narrowing those to one pad, .bend -1..1. No name reads every connected device at once; a name matches an input by substring.\nAn empty .cc() or .key() learns: move the control and its numbers are written into the call. Safari has no Web MIDI, so the signals read 0 there."],
+  gamepad: ['gamepad(index?, { deadzone })', "A game controller as signals: .lx .ly .rx .ry sticks (-1..1, y up), .lt .rt analog triggers, .btn('a') a 1/0 gate. Standard mapping, so the face buttons answer to either brand's names — 'a' or 'cross'.\nAn empty .btn() learns the next button pressed. Browsers hide a pad until it sends something, so press a button if nothing is reading."],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
@@ -90,6 +92,20 @@ export const METHODS = {
   color: ['.color(c) | .color(birth, death)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.\nOn particles a second color fades each particle from birth to death."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists.\nParticles: .shadow() makes the swarm cast — off by default, since it's a depth pass per shadow light. Receiving is .lit()'s side."],
+  cc: ['.cc(num, channel?)', "midi: a knob, fader or button by its CC number, 0..1. Without a channel the number answers to whichever channel sent it last, which is what a controller on its factory setting wants.\nEmpty .cc() learns instead — move a control and the numbers are written into the call."],
+  key: ['.key(num?)', 'midi: narrows .note .vel .gate .touch to one key or pad, so a drum pad drives one thing on its own. Empty .key() learns the next key played.'],
+  note: ['.note', 'midi: the pitch last played, 0..1 across the MIDI range — .mul(127) for the note number back. Latched: it holds after the key is released.'],
+  vel: ['.vel', 'midi: how hard the last key was struck, 0..1. Latched, so it holds between notes; after .key(38) it follows that pad alone.'],
+  gate: ['.gate', 'midi: 1 while a key is held, 0 when none is. After .key(38), that pad alone. Feed it .smooth() for a ramp or .counter() to step per press.'],
+  touch: ['.touch', 'midi: aftertouch — pressure on a key that is already down, 0..1. Channel pressure or polyphonic, whichever the gear sends; not every controller has it.'],
+  bend: ['.bend', 'midi: the pitch wheel, -1..1 with 0 centered. Springs back to 0 on release, like the wheel does.'],
+  lx: ['.lx', 'gamepad: left stick, left to right, -1..1. .ly is the same stick up and down, .rx / .ry the right one.'],
+  ly: ['.ly', 'gamepad: left stick, down to up, -1..1 with up positive.'],
+  rx: ['.rx', 'gamepad: right stick, left to right, -1..1.'],
+  ry: ['.ry', 'gamepad: right stick, down to up, -1..1 with up positive.'],
+  lt: ['.lt', 'gamepad: left trigger, 0..1 through its travel. .rt is the right one. A pad with digital triggers reports 0 or 1.'],
+  rt: ['.rt', 'gamepad: right trigger, 0..1 through its travel.'],
+  btn: [".btn('a')", "gamepad: a button as a 1/0 gate. Face buttons by either brand's name ('a'/'cross', 'b'/'circle', 'x'/'square', 'y'/'triangle'), the d-pad as 'up' 'down' 'left' 'right', shoulders 'lb' 'rb', also 'start' 'back' 'l3' 'r3'.\nEmpty .btn() learns the next button pressed."],
   out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output — several naked .out()s stack in code order, later over earlier, showing through where a chain is transparent. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
 
   particles: ['.particles({ max, rate, life, speed, spread, dir, size, threshold })', "The source as a particle emitter. On a shape: births scattered over its surface, leaving along the normals — the shape needn't be drawn, its transform applies live, and its .noise() carries through, so births land on the deformed surface. On a texture: births on the bright pixels of the live image, mapped onto a world plane, each particle keeping the color of the pixel it was born from (.color() overrides)."],
@@ -535,6 +551,9 @@ const GLOBAL_KEY_DOCS = {
     freq: 'How fast the value wanders. Default 1.',
     seed: 'Picks an independent stream. Default 0 — rand({ seed: i }) inside .instance() gives every copy its own wander.',
   },
+  gamepad: {
+    deadzone: 'How far a stick must leave center before it reads at all, 0..1. Default 0.08, which covers the drift on a worn stick; the travel past it is rescaled so the full reach is still there.',
+  },
 };
 
 const METHOD_KEY_DOCS = {
@@ -749,6 +768,8 @@ const globalKinds = {
   light: 'ambient directional point spot hemi',
   texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text',
   signal: 'beat audio audiofile rand select sig T mouse',
+  midi: 'midi',
+  gamepad: 'gamepad',
 };
 
 const methodKinds = {
@@ -765,6 +786,12 @@ const methodKinds = {
         remap lookup tint alpha displace comp mask blur bloom delay feedback when tile particles out`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
+  // what a midi()/gamepad() handle carries — signals, plus the two calls that
+  // take a number. midikey is what .key(38) narrows to: the same key signals,
+  // minus the device-wide ones.
+  midi: 'cc key note vel gate touch bend',
+  midikey: 'note vel gate touch',
+  gamepad: 'lx ly rx ry lt rt btn',
 };
 
 export const GLOBAL_KIND = {};

@@ -1886,6 +1886,147 @@ It's the one signal that isn't 0..1, so `.range()` needs telling:
 `mouse('x').range(0, 10, { from: [-1, 1] })`. `.smooth(0.08)` on the way in
 takes the stutter out of a hand-held move.
 
+## midi
+
+`midi()` is a controller as signals. `.cc(num)` is one knob or fader, 0..1, so
+it goes straight into a parameter:
+
+```js
+const m = midi()
+
+bg('#06060c')
+ambient({ intensity: 0.25 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+icosa({ radius: 1.2, res: 96 })
+  .noise({ amp: m.cc(74).range(0.05, 0.9), period: 0.5, speed: 0.4 })
+  .material({ color: '#4fd1c5', roughness: m.cc(71).range(0.9, 0.05) })
+  .out()
+```
+
+### learn
+
+You don't have to know the numbers. Leave the call empty, run, then move the
+control you want:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+sphere({ radius: 1, res: 64 }).scale(midi().cc().range(0.5, 2)).color('#ff5f9e').out()
+```
+
+The next knob you turn writes itself in (`cc(74, 1)`) and the sketch re-runs
+bound to it. The numbers end up in the code rather than in a settings file, so
+the binding is visible, editable, and still there when you send the sketch to
+someone else.
+
+Empty `.key()` learns the same way from the next key or pad you play. One
+empty call is learned per run; with several, run again after each one and work
+down the sketch. Deleting the empty call and running is how you cancel.
+
+### keys
+
+`.note`, `.vel`, `.gate` and `.touch` follow the keyboard or the pads:
+
+| signal | is |
+|---|---|
+| `.note` | pitch of the last key played, 0..1 across the MIDI range |
+| `.vel` | how hard it was struck, 0..1 |
+| `.gate` | 1 while any key is held, 0 when none is |
+| `.touch` | aftertouch: pressure on a key already down, 0..1 |
+| `.bend` | the pitch wheel, -1..1 with 0 centered |
+
+`.note` and `.vel` latch, so they hold their value after the release. `.gate`
+is the one that drops.
+
+`.bend` is the one here that isn't 0..1, so `.range()` has to be told what
+it's reading: `m.bend.range(-Math.PI, Math.PI, { from: [-1, 1] })` is a half
+turn either side of the wheel's rest position.
+
+```js
+const m = midi()
+
+ambient({ intensity: 0.2 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+
+torusKnot({ radius: 1, tube: 0.3, res: 128 })
+  // higher notes ride higher and shift toward red, harder hits swell it
+  .position(0, m.note.range(-1.5, 1.5), 0)
+  .scale(m.vel.smooth(0.01, 0.4).range(0.7, 1.5))
+  .color([m.note, 0.45, m.note.sub(1).abs()])
+  .rotation(0, t => t * 0.4, 0)
+  .out()
+```
+
+`.key(38)` narrows all four to one pad, which is what a drum controller wants:
+one pad per parameter, each with its own gate.
+
+```js
+const pad = midi().key(38)
+scene().feedback(pad.gate.smooth(0.02, 0.5).range(0, 0.9)).out()
+```
+
+### devices
+
+Bare `midi()` reads every connected device at once, which is what one
+controller on the desk wants. A name picks one input by case-insensitive
+substring, so two of them can drive different things:
+
+```js
+const knobs = midi('launchkey')
+const pads = midi('maschine')
+```
+
+Typing a quote inside `midi('')` completes on the devices actually plugged in.
+The console lists them on the first run.
+
+Safari has no Web MIDI at all. The calls still work there, they just read 0.
+
+## gamepads
+
+`gamepad()` is an Xbox, PlayStation or generic controller as signals. Sticks
+are -1..1 with up positive, triggers and buttons are 0..1:
+
+```js
+const g = gamepad()
+
+bg('#04060a')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+sphere({ radius: 0.8, res: 96 })
+  .position(g.lx.mul(4), g.ly.mul(2.4), 0)
+  .noise({ amp: g.rt.range(0.02, 0.7), period: 0.4, speed: 0.6 })
+  .color(g.btn('a').counter().select(['#4fd1c5', '#ff5f9e', '#ffd166']))
+  .out()
+```
+
+| signal | is |
+|---|---|
+| `.lx` `.ly` | left stick, -1..1, y up |
+| `.rx` `.ry` | right stick |
+| `.lt` `.rt` | triggers, 0..1 through their travel |
+| `.btn('a')` | a button as a 1/0 gate |
+
+Sticks are the signals that aren't 0..1, so `.range()` needs the input span
+named: `g.lx.range(0, 10, { from: [-1, 1] })`. Often `.mul()` is all you want,
+since it keeps the sign and the center where they are.
+
+Buttons answer to either brand's names, since the standard mapping puts them
+at the same place: `'a'`/`'cross'`, `'b'`/`'circle'`, `'x'`/`'square'`,
+`'y'`/`'triangle'`. The d-pad is `'up'`, `'down'`, `'left'`, `'right'`, the
+shoulders `'lb'`/`'rb'`, and `'start'`, `'back'`, `'l3'`, `'r3'` are there too.
+
+Empty `.btn()` learns, exactly like `.cc()`: run it, press the button you want,
+and the name is written into the call.
+
+Sticks get a small deadzone (0.08) so a worn stick doesn't drift, with the
+travel past it rescaled to keep the full reach. `gamepad({ deadzone: 0 })`
+turns that off; `gamepad(1)` picks a second pad by slot.
+
+Browsers hide a controller until it sends something, so if nothing reads,
+press a button.
+
 ## escape hatches
 
 - `THREE` — the full three.js namespace is in scope for anything the API

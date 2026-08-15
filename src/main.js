@@ -1,13 +1,14 @@
 import { Transaction } from '@codemirror/state';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
-import { makeEditor, foldLists } from './editor.js';
+import { makeEditor, foldLists, fillCall } from './editor.js';
 import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
+import { learnMidi, learnPad } from './control.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
 
 // the welcome sketch's header comes in a desktop and a touch version
@@ -75,32 +76,13 @@ function run(code, push = false) {
   // has to be told about the ones nobody pressed it for
   touchbar?.refresh();
   handleMediaPick();
+  handleLearn();
 }
 
-// Fill the arguments of the first naked `fn()` in the editor and re-run — so
-// the name is in the code afterwards, and deleting back down to `fn()` asks
-// again. The lookbehind keeps `material()` from matching the tail of someone's
-// `myMaterial()`, while still allowing the dot of a chained call; commented-out
-// calls are skipped, since a sketch that explains itself ("run videofile() to
-// pick a clip") would otherwise have the prose eat the fill and never fill the
-// real call at all.
-// `suffix` is chained onto the filled call — a model that came down with its
-// own maps gets the .material() naming them.
-function fillCall(fn, args, suffix = '') {
-  const doc = view.state.doc.toString();
-  for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${fn}\\(\\s*\\)`, 'g'))) {
-    const lineStart = doc.lastIndexOf('\n', m.index) + 1;
-    if (doc.slice(lineStart, m.index).includes('//')) continue;
-    // a filled-in list is several lines; it keeps the indentation of the call
-    // it's landing in, which the args themselves know nothing about
-    const indent = /^[ \t]*/.exec(doc.slice(lineStart))[0];
-    const insert = `${fn}(${args.replaceAll('\n', `\n${indent}`)})${suffix}`;
-    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert } });
-    foldLists(view, m.index, m.index + insert.length);
-    run(view.state.doc.toString(), true);
-    return;
-  }
-  // nothing left to fill: edited away while the picker was open
+// Write what was picked or learned into the empty call that asked for it, then
+// run the result — the sketch the user is looking at is the one that's playing.
+function fillAndRun(fn, args, suffix = '') {
+  if (fillCall(view, fn, args, suffix)) run(view.state.doc.toString(), true);
 }
 
 // an empty videofile()/imagefile()/imageseq()/audiofile()/model() in the run
@@ -167,8 +149,43 @@ async function handleMediaPick() {
     picking = false;
   }
   if (!pick) return;
-  fillCall(req.fn, pick.args, pick.suffix);
+  fillAndRun(req.fn, pick.args, pick.suffix);
   flash(`imported ${pick.label}`); // after the re-run, so it isn't overwritten
+}
+
+// MIDI / gamepad learn: an empty cc(), key() or btn() in the run means "the one
+// I'm about to touch". Wait for it, write its numbers into that call, and
+// re-run — so the binding lives in the sketch, visible and shareable, and the
+// waiting is over the moment it's bound.
+//
+// Nothing is armed for longer than a run: the next ctrl+enter disarms this,
+// which is also how you call the whole thing off (delete the empty call, run).
+let disarmLearn = null;
+
+function handleLearn() {
+  disarmLearn?.();
+  disarmLearn = null;
+  const req = engine.pendingLearn;
+  engine.pendingLearn = null;
+  if (!req) return;
+
+  const bind = (args, label) => {
+    disarmLearn?.();
+    disarmLearn = null;
+    fillAndRun(req.call, args);
+    flash(`bound to ${label}`); // after the re-run, so it isn't overwritten
+  };
+  const prompt = {
+    cc: 'move a knob or fader to bind it',
+    key: 'play a key or pad to bind it',
+    btn: 'press a button on the controller to bind it',
+  }[req.call];
+
+  disarmLearn = req.call === 'btn'
+    ? learnPad(req.pad, bind)
+    : learnMidi(req.call, req.device, bind);
+  status.textContent = `${req.call}() — ${prompt}`;
+  status.className = 'show';
 }
 
 // F1: a second window with only the visuals and the code, for the projector

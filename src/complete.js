@@ -22,6 +22,7 @@ import { hoverTooltip } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import { MAP_SLOTS, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { mediaList } from './media.js';
+import { midiPortNames } from './control.js';
 import {
   GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
   GLOBAL_ARGS, METHOD_ARGS,
@@ -33,20 +34,35 @@ import {
 const globalOptions = Object.entries(GLOBALS).map(([label, entry]) => ({
   label, type: 'function', info: () => docDom(entry),
 }));
+// a midi()/gamepad() member that takes no argument is a signal you read, not a
+// call — the signature says which, and the icon in the list should agree
 const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
-  label, type: 'method', info: () => docDom(entry),
+  label, type: entry[0].includes('(') ? 'method' : 'property', info: () => docDom(entry),
 }));
 
 // one filtered method list per chain kind, built once
 const methodsByKind = {};
-for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'midi', 'midikey', 'gamepad']) {
   methodsByKind[kind] = methodOptions.filter((o) => METHOD_KINDS[o.label]?.has(kind));
 }
 
 // globals grouped by what they produce, for boosting at a value position
 const kindGlobals = (kind) => globalOptions.filter((o) => GLOBAL_KIND[o.label] === kind);
 const TEXTURE_GLOBALS = kindGlobals('texture');
-const SIGNAL_GLOBALS = kindGlobals('signal');
+// midi() and gamepad() aren't signals themselves, but what a parameter wants
+// from them is — so they belong in the same nudge
+const SIGNAL_GLOBALS = [...kindGlobals('signal'), ...kindGlobals('midi'), ...kindGlobals('gamepad')];
+
+// A member whose kind doesn't depend on what it was called on: the signals a
+// controller handle carries, and .particles(). .key(38) keeps a handle, but a
+// narrower one — only the four key signals are on it.
+const MEMBER_KIND = {
+  particles: 'particle',
+  key: 'midikey',
+  ...Object.fromEntries(
+    'cc note vel gate touch bend lx ly rx ry lt rt btn'.split(' ').map((n) => [n, 'signal'])
+  ),
+};
 
 // --- tree helpers ----------------------------------------------------------
 
@@ -69,11 +85,13 @@ function chainKind(state, node, depth = 0) {
     case 'CallExpression':
       return chainKind(state, node.firstChild, depth + 1);
     case 'MemberExpression': {
-      // .particles() changes what the chain is mid-spine: whatever it was
-      // called on, what comes back is a particle system — the walk stops here
-      // instead of running on down to the shape that started it
+      // Some members change what the chain is mid-spine: .particles() turns
+      // whatever it was called on into a particle system, and a midi() or
+      // gamepad() member is where the handle ends and a signal begins. The
+      // walk stops at those instead of running on down to what started it.
       const prop = node.lastChild;
-      if (prop?.name === 'PropertyName' && textOf(state, prop) === 'particles') return 'particle';
+      const kind = prop?.name === 'PropertyName' ? MEMBER_KIND[textOf(state, prop)] : null;
+      if (kind) return kind;
       return chainKind(state, node.firstChild, depth + 1);
     }
     case 'ParenthesizedExpression':
@@ -234,7 +252,11 @@ export function apiCompletions(context) {
 
   // a slot whose values are known answers straight away; only the file lists
   // behind mediaList() are worth waiting on
-  if (node.name === 'String') return stringValues(state, node, pos) ?? mediaCompletions(context, node);
+  if (node.name === 'String') {
+    return stringValues(state, node, pos)
+      ?? deviceValues(state, node, pos)
+      ?? mediaCompletions(context, node);
+  }
 
   // before the config check, so a chain started inside a value
   // (`{ map: video().` ) still completes as a chain
@@ -338,6 +360,21 @@ function stringValues(state, node, pos) {
     return values ? valueResult(state, pos, node, values) : null;
   }
   return null;
+}
+
+// Inside midi('…'): the controllers actually plugged in. Asking is what
+// requests MIDI access, which is the right moment for it — typing a device
+// name into midi() is as clear a statement of intent as running the sketch.
+// Before access lands there's nothing to offer, and typing the name by hand
+// works the same as picking it.
+function deviceValues(state, node, pos) {
+  const parent = node.parent;
+  if (parent?.name !== 'ArgList') return null;
+  const callee = calleeName(state, parent.parent);
+  if (!callee || callee.method || callee.name !== 'midi') return null;
+  if (argIndex(parent, node) !== 0) return null;
+  const names = midiPortNames();
+  return names.length ? valueResult(state, pos, node, names) : null;
 }
 
 // Inside quotes: the imported files this slot can use.

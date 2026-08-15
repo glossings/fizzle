@@ -22,6 +22,33 @@ export function foldLists(view, from, to) {
   if (effects.length) view.dispatch({ effects });
 }
 
+// Fill the arguments of the first naked `fn()` in the document — so what was
+// picked or learned ends up in the code, and deleting back down to `fn()` asks
+// again. The lookbehind keeps `material()` from matching the tail of someone's
+// `myMaterial()`, while still allowing the dot of a chained call; commented-out
+// calls are skipped, since a sketch that explains itself ("run videofile() to
+// pick a clip") would otherwise have the prose eat the fill and never reach the
+// real call at all.
+//
+// `suffix` is chained onto the filled call — a model that came down with its
+// own maps gets the .material() naming them. Returns false when there's nothing
+// left to fill: edited away while the picker was open. The caller re-runs.
+export function fillCall(view, fn, args, suffix = '') {
+  const doc = view.state.doc.toString();
+  for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${fn}\\(\\s*\\)`, 'g'))) {
+    const lineStart = doc.lastIndexOf('\n', m.index) + 1;
+    if (doc.slice(lineStart, m.index).includes('//')) continue;
+    // a filled-in list is several lines; it keeps the indentation of the call
+    // it's landing in, which the args themselves know nothing about
+    const indent = /^[ \t]*/.exec(doc.slice(lineStart))[0];
+    const insert = `${fn}(${args.replaceAll('\n', `\n${indent}`)})${suffix}`;
+    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert } });
+    foldLists(view, m.index, m.index + insert.length);
+    return true;
+  }
+  return false;
+}
+
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
 //   this window's code · ctrl+p sidebar · ctrl+r restart · ctrl+[ / ctrl+]

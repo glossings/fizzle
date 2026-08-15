@@ -1,6 +1,7 @@
 // depth haze — depth() reads the render's depth buffer: black up close, white
 // far away. Used as a mask, that makes depth of field (mask a blur) and
 // atmospheric haze (mask a color) one-liners.
+// Commented-out lines are extras: uncomment one to try it.
 
 bg('#06060b')
 fog({ color: '#06060b', near: 5, far: 34 })          // depth() picks this range up automatically
@@ -46,13 +47,13 @@ camera(0, 0.3, 7, [0, 0.2, -14])
 // middle of the corridor stays sharp and both ends go soft.
 scene()
   .mask(depth({ focus: t => 14 + Math.sin(t * 0.2) * 8, range: 12 }), s => s.blur(7))
+  // other jobs the same map does, in place of the line above:
+  // .mask(depth(), s => s.blur(10))                            // sharp near, soft far
+  // .mask(depth(), s => s.comp(constant('#7d88a6'), 'over'))   // haze
+  // .mask(depth().invert(), s => s.mul(0))                     // silhouette the far end
   .levels({ contrast: 1.08, saturation: 0.85 })
   .bloom({ threshold: 0.55, strength: 0.9, radius: 1.2 })
   .comp(noise({ freq: 260, speed: 40 }), 'overlay', 0.06)
   .out()
 
-// more to try:
-// .mask(depth(), s => s.blur(10))                         // sharp near, soft far
-// .mask(depth(), s => s.comp(constant('#7d88a6'), 'over'))  // haze
-// .mask(depth().invert(), s => s.mul(0))                  // silhouette the far end
-// depth({ near: 2, far: 12 }).out()                       // just look at the map
+// depth({ near: 2, far: 12 }).out()   // swap for the chain above to see the map itself

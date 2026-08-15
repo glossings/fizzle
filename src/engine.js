@@ -100,6 +100,7 @@ export class Engine {
     this.pbrSets = new Map();       // prefix -> { slot: filename }, shared across re-runs
     this.hdris = new Map();         // loaded HDRIs + their prefiltered env, shared across re-runs
     this.pendingPick = null;        // an empty videofile()/... asked for a file picker
+    this.pendingLearn = null;       // an empty cc()/key()/btn() asked to be bound
 
     this.cameraProgrammed = false;     // a camera(fn...) call disables orbit controls
     // Whether the camera is anyone's to move at all. False while a touch
@@ -756,6 +757,15 @@ export class Engine {
     this.pendingPick ??= { fn, kind, multiple };
   }
 
+  // An empty cc() / key() / btn(): the sketch is asking to be told which
+  // control it means. main.js listens for the next one that moves and writes
+  // the numbers into the call, so the binding ends up in the sketch rather
+  // than in a preferences file nobody can see. First empty call wins — the
+  // rest are learned one re-run at a time, in the order they're written.
+  requestLearn(req) {
+    this.pendingLearn ??= req;
+  }
+
   // Same deal for an empty hdri() / .material() / model(), except what opens is
   // the Poly Haven browser rather than a file picker — there's no local file to
   // point at yet, which is the whole reason the call is empty.
@@ -832,6 +842,9 @@ export class Engine {
     // and a request left over from a run whose empty call has since been filled
     // in would pop the picker straight back open
     this.pendingPick = null;
+    // same for a learn, which also disarms it: a run with no empty call left is
+    // how you cancel one you didn't mean to start
+    this.pendingLearn = null;
 
     // media that wasn't found gets another lookup next run — a file dropped
     // in since then resolves it
@@ -898,6 +911,7 @@ export class Engine {
           // picker on its own run and would get one now — over an editor
           // holding the broken code its pick would be written into
           this.pendingPick = null;
+          this.pendingLearn = null;
         } catch {
           // the old sketch depended on state that's gone — nothing to show
           this._lastGood = null;

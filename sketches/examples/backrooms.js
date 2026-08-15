@@ -1,4 +1,6 @@
 // backrooms — a generated maze, walked on a loop by a camcorder
+// The constants carry their own alternatives; commented-out lines are extras:
+// uncomment one to try it.
 
 // --- maze ---
 
@@ -7,7 +9,7 @@ const C = 3.4                 // cell size
 const WALL_H = 2.7
 const TH = 0.26               // wall thickness
 
-let seed = 8087
+let seed = 8087               // any other number is a different maze
 const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
 
 // vw[i + j*(W+1)]: wall between cells (i-1,j) and (i,j), running along z at
@@ -33,7 +35,8 @@ while (stack.length) {
   stack.push([i + di, j + dj])
 }
 
-// Braiding: knock out interior walls to turn the tree into loops
+// Braiding: knock out interior walls to turn the tree into loops.
+// The 0.25 is how many: 0.05 is claustrophobic, 0.8 an empty hall.
 const braids = []
 for (let k = 0; k < W * H * 0.25; k++) {
   const i = 1 + Math.floor(rnd() * (W - 1)), j = Math.floor(rnd() * H)
@@ -110,7 +113,7 @@ route.arcLengthDivisions = pts.length * 6   // default 200 is far too coarse her
 route.updateArcLengths()
 
 const LEN = route.getLength()
-const LOOP = LEN / 2.3          // seconds per lap
+const LOOP = LEN / 2.3          // seconds per lap; a smaller divisor walks slower
 
 // Cached per t — camera() and the lights each ask for this separately
 const along = (meters) => {
@@ -122,6 +125,8 @@ const along = (meters) => {
   }
 }
 const eye = along(0), aim = along(2.6), ahead = along(9)
+// route.getTangentAt(u) is the other way to aim: the curve knows which way
+// you're facing, without a second point further along it
 
 camera(
   (t) => eye(t).x,
@@ -134,8 +139,9 @@ camera(
 
 // Fluorescent light is flat, so most of it is ambient. Two points shape the
 // corridor: one at the camera, one further along the route.
-ambient({ intensity: 0.58, color: '#d8c98f' })
+ambient({ intensity: 0.58, color: '#d8c98f' })   // the main dial for how lit the place is
 
+// The 12 and the 9 trade the two off: higher is more torch beam, less office
 const buzz = rand(13, 4)
 point({ color: '#fff6d6', intensity: (t) => 12 * (0.82 + 0.24 * buzz(t)), distance: 26, decay: 1.3 })
   .position((t) => eye(t).x, WALL_H - 0.35, (t) => eye(t).z).out()
@@ -155,13 +161,5 @@ scene()
   .warp({ barrel: 0.11 })
   .mask(ramp({ type: 'radial', a: '#ffffff', b: '#b4b4b4', phase: -0.15 }))   // vignette
   .bloom({ threshold: 0.78, strength: 0.6, radius: 1.2 })
+  // .comp(text('CAM 01', { size: 26, pos: [0.08, 0.92], align: 'left', bg: '#000000' }), 'screen')
   .out()
-
-// more to try:
-// seed = 4211                       // any other number is a different maze
-// W * H * 0.25 in the braid loop    // 0.05 = claustrophobic, 0.8 = an empty hall
-// LEN / 2.3                         // smaller = faster walk
-// ambient({ intensity: 0.58 })      // the main dial for how lit the place is
-// point intensity 12 / 9            // higher = more torch beam, less office
-// .comp(text('CAM 01', { size: 26, pos: [0.08, 0.92], align: 'left', bg: '#000000' }), 'screen')
-// route.getTangentAt(u)             // the curve knows which way you're facing

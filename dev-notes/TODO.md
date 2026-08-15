@@ -568,11 +568,11 @@ toggle would return the same results. More assets means a second provider.
   the actual design question, not the API work: a `polyhaven:`-style tag says
   where a file came from, but not who must be credited for it.
 
-## Someday: external control
+## Someday: OSC input
 
-MIDI and OSC input as signals — a `midi(cc)` / `osc('/path')` alongside
-`audio()` and `beat()`, so hardware can drive parameters directly. Big enough
-to need its own design pass; noting it here so it isn't forgotten.
+`midi()` and `gamepad()` landed; OSC didn't, because a browser can't receive
+UDP and so it needs a bridge process running outside the page. Scoped in
+[OSC.md](OSC.md) — the sketch-side API is the easy half.
 
 ## Cutout alpha on materials
 

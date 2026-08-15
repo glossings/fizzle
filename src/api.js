@@ -12,6 +12,7 @@ import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { warn } from './warn.js';
 import { sig, valueNoise, barPhase, setBpmSource } from './audio.js';
+import { midiHandle, gamepadHandle } from './control.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -1443,6 +1444,26 @@ export function makeApi(engine) {
         return sig(() => engine.pointer.x);
       }
       return sig(() => engine.pointer[key]);
+    },
+    // A MIDI controller's knobs, pads and keys as signals. midi() reads every
+    // connected device at once; midi('launchkey') one of them by name
+    // (case-insensitive substring), so two controllers can drive different
+    // parameters. .cc(num, channel?) is a knob or fader, 0..1 — an empty cc()
+    // learns instead, binding to the next control you move and writing its
+    // numbers into the call. .note/.vel/.gate/.touch follow the keys (see
+    // keyHandle), .key(38) narrows them to one pad, .bend is -1..1.
+    // No Web MIDI in Safari; the signals read 0 there.
+    midi(name) {
+      return midiHandle(name, (call) => engine.requestLearn({ call, device: name }));
+    },
+    // A game controller as signals: .lx/.ly/.rx/.ry sticks (-1..1, y up),
+    // .lt/.rt analog triggers, .btn('a') a 1/0 gate — and an empty .btn()
+    // learns, writing in whichever button you press next. gamepad() is the
+    // first pad connected, gamepad(1) one by slot. Browsers hide a pad until
+    // it sends something, so press a button if nothing is reading.
+    gamepad(index, o = {}) {
+      if (index !== null && typeof index === 'object') { o = index; index = undefined; }
+      return gamepadHandle(index, o, (call) => engine.requestLearn({ call, pad: index }));
     },
     // lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth().
     // Bare sig() is t itself — the seconds-based phase source, so

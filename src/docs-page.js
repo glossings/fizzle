@@ -16,7 +16,8 @@ import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { initPolyhaven } from './polyhaven.js';
 import { mediaPut, pickFiles, nameList } from './media.js';
-import { foldLists } from './editor.js';
+import { fillCall } from './editor.js';
+import { learnMidi, learnPad } from './control.js';
 import CONTENT from './docs-content.md?raw';
 
 // --- preview engine --------------------------------------------------------
@@ -68,6 +69,7 @@ function runExample(code, exEl, ctx) {
     statusEl.className = 'ok';
   }
   if (!err && engine.pendingPick && ctx) handlePick(ctx);
+  if (!err && ctx) handleLearn(ctx);
 }
 
 // An empty videofile()/imagefile()/… asks for a file picker, an empty
@@ -113,17 +115,40 @@ async function handlePick({ view, rerun }) {
   }
   if (pick == null) return;
   // fill the arguments into the empty call that asked, then run it again
-  const doc = view.state.doc.toString();
-  for (const m of doc.matchAll(new RegExp(`(?<![\\w$])${req.fn}\\(\\s*\\)`, 'g'))) {
-    const lineStart = doc.lastIndexOf('\n', m.index) + 1;
-    if (doc.slice(lineStart, m.index).includes('//')) continue;
-    const indent = /^[ \t]*/.exec(doc.slice(lineStart))[0];
-    const insert = `${req.fn}(${pick.replaceAll('\n', `\n${indent}`)})${suffix}`;
-    view.dispatch({ changes: { from: m.index, to: m.index + m[0].length, insert } });
-    foldLists(view, m.index, m.index + insert.length);
-    rerun();
-    return;
-  }
+  if (fillCall(view, req.fn, pick, suffix)) rerun();
+}
+
+// An empty cc() / key() / btn() asks to be bound to whatever moves next —
+// same deal as a picker, and served the same way here: wait for the control,
+// write its numbers into the block, run it again. The learn section of the
+// docs is a live block like any other, so it should actually learn.
+let disarmLearn = null;
+
+function handleLearn({ view, rerun }) {
+  disarmLearn?.();
+  disarmLearn = null;
+  const req = engine.pendingLearn;
+  engine.pendingLearn = null;
+  if (!req) return;
+
+  const bind = (args, label) => {
+    disarmLearn?.();
+    disarmLearn = null;
+    if (fillCall(view, req.call, args)) rerun();
+    statusEl.textContent = `✓ bound to ${label}`;
+    statusEl.className = 'ok';
+  };
+  const prompt = {
+    cc: 'move a knob or fader to bind it',
+    key: 'play a key or pad to bind it',
+    btn: 'press a button on the controller to bind it',
+  }[req.call];
+
+  disarmLearn = req.call === 'btn'
+    ? learnPad(req.pad, bind)
+    : learnMidi(req.call, req.device, bind);
+  statusEl.textContent = `${req.call}() — ${prompt}`;
+  statusEl.className = '';
 }
 
 function togglePause() {
