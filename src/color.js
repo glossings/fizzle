@@ -36,6 +36,48 @@ export function setColor(target, v, t = 0, space = THREE.SRGBColorSpace) {
 export const makeColor = (v, t = 0, space = THREE.SRGBColorSpace) =>
   setColor(new THREE.Color(), v, t, space);
 
+// hsl() builds one of those [r, g, b] arrays from the wheel instead of from
+// channels: hue in turns (the unit .hue() already rotates by), saturation and
+// lightness 0..1. What that buys is a color whose brightness you set and whose
+// hue you don't — hsl(rand(), 0.7, 0.5) is a random color at a fixed
+// lightness, which per-channel randomness can't express.
+const clamp01 = (v) => (v > 1 ? 1 : v < 0 ? 0 : v || 0);
+
+// standard hsl -> rgb, written out rather than borrowed from THREE.Color:
+// setHSL() converts into the working space on the way in, and what belongs in
+// a color array is the sRGB numbers a hex would have given.
+function toRgb(h, s, l, out) {
+  h = h - Math.floor(h);                    // wrap, so a hue that counts up spins
+  s = clamp01(s);
+  l = clamp01(l);
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h * 6) % 2) - 1));
+  const m = l - c / 2;
+  const seg = Math.floor(h * 6) % 6;
+  const [r, g, b] = seg === 0 ? [c, x, 0] : seg === 1 ? [x, c, 0] : seg === 2 ? [0, c, x]
+    : seg === 3 ? [0, x, c] : seg === 4 ? [x, 0, c] : [c, 0, x];
+  out[0] = r + m; out[1] = g + m; out[2] = b + m;
+  return out;
+}
+
+export function hsl(h = 0, s = 0.7, l = 0.5, a) {
+  const rgb = [0, 0, 0];
+  const dyn = [h, s, l].some((v) => typeof v === 'function');
+  if (!dyn) {
+    toRgb(h, s, l, rgb);
+    return a == null ? rgb : [...rgb, a];
+  }
+  // One conversion per t however many channels ask — the array is read
+  // component by component, and all three come out of the same math.
+  let lastT = NaN;
+  const at = (t) => {
+    if (t !== lastT) { lastT = t; toRgb(resolve(h, t), resolve(s, t), resolve(l, t), rgb); }
+    return rgb;
+  };
+  const out = [(t) => at(t)[0], (t) => at(t)[1], (t) => at(t)[2]];
+  return a == null ? out : [...out, a];
+}
+
 // A CSS string, for the color that ends up on a 2D canvas rather than in a
 // uniform (the text() texture). Goes through THREE.Color so an [r, g, b] and a
 // hex reach the canvas as the same pixels — hence the linear space, which is

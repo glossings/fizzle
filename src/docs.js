@@ -33,7 +33,8 @@ export const GLOBALS = {
 
   hdri: ['hdri(name?, { background, intensity, blur, rotation, backgroundRotation, backgroundIntensity })', "Image-based lighting from an imported .hdr/.exr: lights every material and shows behind the scene — metal has nothing to reflect without one. Empty hdri() opens the Poly Haven browser; drag a file in to import. Every option but background takes a fn of t."],
 
-  camera: ['camera(x, y, z, [tx, ty, tz])', 'Puts the camera at x, y, z looking at the point [tx, ty, tz] — the origin without one. Static numbers: orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.'],
+  camera: ['camera(x, y, z, [tx, ty, tz]) | camera({ pad, fly, speed, look, lift, recenter, deadzone, x, y, z, target })', "Puts the camera at x, y, z looking at the point [tx, ty, tz] — the origin without one. Static numbers: orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.\ncamera({ pad: true }) hands the orbit rig to a game controller — right stick orbits, left stick moves in and out along the view, triggers and bumpers pan — with the mouse still live. camera({ fly: true }) flies instead: left stick moves where you're looking, right stick looks, triggers rise and fall. Negative speed or look inverts an axis."],
+  hsl: ['hsl(h, s, l, a?)', 'A color from hue (in turns, 0..1 around the wheel), saturation and lightness — usable in any color slot. Each takes a fn of t or a signal, so hsl(rand(), 0.7, 0.5) is a random hue at a brightness you set, and hsl(rand().beat(1), 0.7, 0.5) re-rolls it every bar.'],
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
   resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again. The sidebar's fixed resolution overrides this."],
   tempo: ['tempo(bpm)', "Tempo for beat() and .beat(), overriding the sidebar's for this sketch. Drop the call to hand it back."],
@@ -415,6 +416,19 @@ const GLOBAL_KEY_DOCS = {
   resolution: {
     width: 'Render width in pixels. No call at all = the browser window.',
     height: 'Render height in pixels. Defaults to width, i.e. a square.',
+  },
+  camera: {
+    pad: 'Give the camera to a game controller: right stick orbits, left stick moves in and out, triggers and bumpers pan (d-pad too, for a controller without them). The mouse still works. A number picks a pad by slot.',
+    fly: 'Navigate instead of orbiting: left stick moves where you look, right stick looks, triggers rise and fall. Orbiting is off while a sketch flies.',
+    speed: "How fast the left stick moves the camera. Default 5 units/sec flying, 0.7 for the orbit rig, where it scales the in-and-out and the pan together. Negative inverts.",
+    look: 'How fast the right stick turns, in radians/sec. Default 0.9 flying, 1.6 on the orbit rig. Negative inverts.',
+    lift: 'How fast the triggers rise and fall, in units/sec. Flying only. Default 3, under the travel speed, since altitude is usually the finer adjustment.',
+    recenter: "Button that puts the pan back to the center, undoing it without moving the view off its angle. Default 'r3', the right stick clicked in; false turns it off. Orbit rig only.",
+    deadzone: "How far a stick must leave center before it reads. Default 0.12, wider than gamepad()'s, since a drifting camera shows.",
+    x: 'Starting position along X, before the pad takes over. Left where it is without one.',
+    y: 'Starting position along Y.',
+    z: 'Starting position along Z.',
+    target: 'Starting point to look at, [x, y, z].',
   },
   fog: {
     color: 'What distant geometry fades to. Default #0a0a0f. Usually the same as bg().',

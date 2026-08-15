@@ -126,6 +126,25 @@ sphere({ radius: 1.4, res: 96 })
   .out()
 ```
 
+`hsl(h, s, l)` builds the same array from the wheel instead of from channels.
+Hue is in turns, so `rand()` covers the whole circle while the brightness you
+picked stays put:
+
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+sphere({ radius: 1.4, res: 96 })
+  .color(hsl(rand(0.2), 0.8, 0.5))   // random hue, lightness fixed at 0.5
+  .material({ roughness: 0.35 })
+  .out()
+```
+
+Every argument takes a signal, so the timing is whatever you drive it with:
+`hsl(rand().beat(1), 0.8, 0.5)` re-rolls the color once a bar,
+`hsl(t => t * 0.05, 0.8, 0.5)` walks the wheel, and a static
+`hsl(0.55, 0.4, 0.15)` is just a color. A fourth argument is alpha.
+
 **Texture** color slots take three more forms that carry transparency: `null`
 (nothing at all), `[r, g, b, a]`, and `'#rrggbbaa'`. See **compositing**. 3D
 colors stay opaque; a material's transparency is its `opacity`.
@@ -742,7 +761,8 @@ plane({ width: 24, height: 24, res: 128 })
   the target point `[tx, ty, tz]`, the origin without one. Static numbers leave
   orbit controls live. If **any** argument is a function of time the sketch
   drives the camera and orbiting is off; drop the call and the next run hands
-  back the view you last orbited to.
+  back the view you last orbited to. A game controller can steer it instead:
+  see **gamepads**.
 - `bg(color)` and `fog({ color, near, far })` set the scene backdrop. `bg()`
   sits under the texture stack too, so a chain with transparency in it shows
   the background through the gaps rather than black.
@@ -2026,6 +2046,80 @@ turns that off; `gamepad(1)` picks a second pad by slot.
 
 Browsers hide a controller until it sends something, so if nothing reads,
 press a button.
+
+### driving the camera
+
+`camera({ pad: true })` hands the orbit rig to the controller. The mouse keeps
+working next to it:
+
+```js
+camera({ pad: true, x: 0, y: 3, z: 9 })
+
+bg('#04060a')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+torusKnot({ radius: 1.2, tube: 0.34, res: 220 })
+  .material({ color: '#4fd1c5', roughness: 0.3, metalness: 0.5 })
+  .out()
+```
+
+| control | does |
+|---|---|
+| right stick | orbits, the way a click-drag does |
+| left stick | up and down moves in and out along the view |
+| triggers | pan down and up, through their travel |
+| bumpers | pan left and right |
+| d-pad | pans either way, for a controller with no shoulders |
+| right stick click | puts the pan back to the center |
+
+The two pan sources add up rather than one replacing the other, so nothing has
+to work out which controller you are holding: a pad without shoulder buttons
+reads 0 there and pans on the d-pad alone, and a pad with them gets the
+triggers' analog travel, which the d-pad can't give.
+
+Panning is easy to lose your place in, so `r3` undoes it in one press. It moves
+the camera along with the target, leaving the angle and the distance where you
+had them. `recenter: 'y'` puts it on another button and `recenter: false` turns
+it off. Center means the point the call named, not wherever you panned to, so
+it keeps meaning the same thing however far you get.
+
+`camera({ fly: true })` navigates instead of orbiting. The left stick moves you
+where you are looking, the right stick looks around, and the triggers rise and
+fall:
+
+```js
+camera({ fly: true, speed: 8 })
+
+bg('#04060a')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+// something to fly through: a grid of pillars, 12 by 12
+box({ width: 0.8, height: 6, depth: 0.8 })
+  .instance(144, (x, i) => {
+    x.position(((i % 12) - 5.5) * 6, 0, (Math.floor(i / 12) - 5.5) * 6)
+  })
+  .material({ color: '#8d879b', roughness: 0.6 })
+  .out()
+```
+
+Orbiting is off while a sketch flies. Flight picks up from wherever the camera
+already is, so re-running mid-flight carries on rather than starting over, and
+the view you flew to is where the next run without `fly` begins.
+
+`speed` is units per second (default 5), `look` is radians per second (default
+0.9 flying, 1.6 on the orbit rig), and either one takes a negative to invert
+that axis: `camera({ fly: true, look: -2 })`. `lift` is the triggers on their
+own (default 3), sitting under the travel speed because altitude is usually the
+finer adjustment:
+
+```js static
+camera({ fly: true, speed: 12, lift: 5 })
+```
+
+`pad: 1` picks a second controller by slot, and `deadzone` works as it does on
+`gamepad()`.
 
 ## escape hatches
 

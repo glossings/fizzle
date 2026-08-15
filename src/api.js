@@ -9,7 +9,8 @@ import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPh
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { ParticleOp } from './particles.js';
 import { makePointSet } from './sample.js';
-import { setColor, makeColor, isDynamicColor } from './color.js';
+import { setColor, makeColor, isDynamicColor, hsl } from './color.js';
+import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
 import { sig, valueNoise, barPhase, setBpmSource } from './audio.js';
 import { midiHandle, gamepadHandle } from './control.js';
@@ -1157,7 +1158,26 @@ export function makeApi(engine) {
     // static args: place the camera, orbit controls stay live.
     // any function arg: the sketch drives the camera and orbiting is disabled
     // until the next re-run without a programmed camera.
+    //
+    // The config form is the third way to move it: a game controller, either
+    // feeding the orbit rig (pad) or flying free (fly) — see camera-pad.js. It
+    // takes x/y/z/target too, so one call can place the camera and then hand
+    // it over.
     camera(x = 0, y = 2, z = 8, target = [0, 0, 0]) {
+      if (x !== null && typeof x === 'object' && !Array.isArray(x)) {
+        const o = x;
+        engine.cameraTouched = true;
+        if (o.x != null || o.y != null || o.z != null || o.target) {
+          engine.camera.position.set(o.x ?? engine.camera.position.x,
+            o.y ?? engine.camera.position.y, o.z ?? engine.camera.position.z);
+          engine.controls.target.set(...(o.target ?? engine.controls.target.toArray()));
+        }
+        // no pad asked for = the config form of the plain call, already done
+        if (o.pad == null && !o.fly) return;
+        if (o.pad === false) return;
+        engine.updaters.push(cameraPad(engine, o));
+        return;
+      }
       const dynamic = [x, y, z, ...target].some((v) => typeof v === 'function');
       engine.cameraTouched = true;
       if (!dynamic) {
@@ -1200,6 +1220,13 @@ export function makeApi(engine) {
       else h.pending.then(attach);
       engine.updaters.push((t) => tick?.(t, resolve));
     },
+    // A color from hue/saturation/lightness, for every slot that takes one —
+    // the [r, g, b] form spelled the way a palette is picked. Any argument
+    // takes a fn of t or a signal, so hsl(rand(), 0.7, 0.5) is a random hue at
+    // a brightness you chose. Optional fourth argument is alpha, which the
+    // texture color slots read.
+    hsl,
+
     // The updater writes into the Color, not into scene.background — so an
     // hdri() that takes the background slot afterwards keeps it, and this
     // quietly animates a color nothing is showing.
