@@ -10,6 +10,7 @@
 // first frames after a fresh import and the maps appear when they land. On a
 // re-run they come from the engine's cache and are there on the first frame.
 
+import * as THREE from 'three';
 import { MAP_SLOTS, SRGB_SLOTS, ARM_SLOTS } from './pbr.js';
 import { TextureOp } from './textures.js';
 import { setColor, isDynamicColor } from './color.js';
@@ -60,7 +61,7 @@ const BASE_KEYS = ['color', 'roughness', 'metalness', 'emissive', 'emissiveInten
 const RENDER_KEYS = ['flatShading', 'wireframe', 'doubleSide'];
 const MAP_KEYS = [
   'pbr', 'arm',
-  'repeat', 'offset', 'uvRotate',
+  'repeat', 'offset', 'uvRotate', 'tileSize',
   'normalScale', 'aoIntensity', 'envIntensity',
   'displaceScale', 'displaceBias',
 ];
@@ -76,7 +77,7 @@ export const MATERIAL_DOCS = {
   emissive: 'Color the surface gives off on its own — unlit, so it glows in shadow.',
   emissiveIntensity: 'How hard emissive glows. Push past 1 to feed bloom().',
 
-  map: 'Base color texture: an imported image name, a live texture chain, or a THREE.Texture.',
+  map: 'Base color texture: an imported image name, a live texture chain, or a THREE.Texture. A list of them is a set the copies of an .instance() pick from with x.tile(n).',
   normalMap: 'Tangent-space normals (OpenGL convention) — surface detail without geometry.',
   roughnessMap: 'Per-pixel roughness, read from green. roughness multiplies it.',
   metalnessMap: 'Per-pixel metalness, read from blue. metalness multiplies it.',
@@ -87,6 +88,7 @@ export const MATERIAL_DOCS = {
   repeat: 'Tile every map. A number, or [x, y].',
   offset: 'Shift every map in UV space. A number, or [x, y].',
   uvRotate: 'Rotate every map about its center, in radians.',
+  tileSize: 'Pixels a map: [a, b, c] set draws each of its pictures at. A number, or [w, h]. Default 256, square.',
   normalScale: 'Strength of normalMap. A number, or [x, y] to skew the relief.',
   aoIntensity: 'Strength of aoMap.',
   envIntensity: 'How hard the hdri() environment hits this surface. Works with no maps at all.',
@@ -256,10 +258,99 @@ export function applySurface(material, m) {
 // pushing the whole shape outwards.
 const DISPLACE_SCALE = 0.1;
 
+// ---------------------------------------------------------------------------
+// a set of pictures in the map slot: .material({ map: [a, b, c] })
+
+// The set a map slot names, or null for the ordinary one-picture slot. Only the
+// color map takes a set: one draw call binds one set of samplers, and the rest
+// of the slots have nothing to pick with.
+export function tileSources(m) {
+  for (const slot of MAP_SLOTS) {
+    if (slot !== 'map' && Array.isArray(m[slot])) {
+      warn(`material: ${slot} is one map for the whole batch — a set to pick from goes in map:`);
+    }
+  }
+  if (!Array.isArray(m.map)) return null;
+  if (!m.map.length) {
+    warn('material: map: [] is an empty set — nothing to pick from');
+    return null;
+  }
+  return m.map;
+}
+
+// Every picture in the set is drawn at this one size, since they share a
+// texture. The sources render into it at its aspect rather than the frame's, so
+// a square tile gets a square text() instead of a widescreen one cropped down.
+const TILE_MIN = 8, TILE_LIMIT = 1024;
+function tileDims(m) {
+  const [w, h] = m.tileSize != null ? pair(m.tileSize) : [256, 256];
+  const fit = (v) => Math.min(TILE_LIMIT, Math.max(TILE_MIN, Math.round(v) || 256));
+  return { w: fit(w), h: fit(h) };
+}
+
+// GLSL can't index a set of samplers per instance, but it can index the layers
+// of one — so the set becomes a 2D array texture and each copy carries the
+// layer it wants as an instanced attribute (written in api.js's updater).
+//
+// Layered on top of whatever else patched this material: .noise() and
+// .displace() replace chunks of their own and have to survive, so the previous
+// hook is called rather than dropped.
+export function applyTileMap(material, m) {
+  const uniforms = {
+    tdTiles: { value: null },
+    tdTileRepeat: { value: new THREE.Vector2(...pair(m.repeat ?? 1)) },
+    tdTileOffset: { value: new THREE.Vector2(...pair(m.offset ?? 0)) },
+  };
+  const prevCompile = material.onBeforeCompile;
+  const prevKey = material.customProgramCacheKey;
+  // no slot is filled, so nothing else asks for the uv varying this reads
+  material.defines = { ...material.defines, USE_UV: '' };
+  material.onBeforeCompile = (shader, renderer) => {
+    prevCompile?.call(material, shader, renderer);
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <uv_pars_vertex>', `#include <uv_pars_vertex>
+        attribute float tdTile;
+        varying float vTdTile;`)
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        vTdTile = tdTile;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <uv_pars_fragment>', `#include <uv_pars_fragment>
+        uniform sampler2DArray tdTiles;
+        uniform vec2 tdTileRepeat;
+        uniform vec2 tdTileOffset;
+        varying float vTdTile;`)
+      // the slot is empty, so map_fragment itself expands to nothing
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        diffuseColor *= texture(tdTiles, vec3(vUv * tdTileRepeat + tdTileOffset, vTdTile));`);
+  };
+  material.customProgramCacheKey = () => `${prevKey ? prevKey.call(material) : ''}-tdtiles`;
+  material.needsUpdate = true;
+  return uniforms;
+}
+
 // Attach every map named on `m` to `material`. `isAlive` is checked before an
 // async load assigns anything, so a texture that arrives after its patch was
 // cleared is dropped instead of mutating a disposed material.
-export function applyMaps(engine, material, m, isAlive) {
+export function applyMaps(engine, material, m, isAlive, tileUniforms) {
+  // a set of pictures rather than one: the layers are rendered elsewhere (see
+  // renderTileSets), and the slot itself stays empty — .tile() reads them
+  if (tileUniforms) {
+    engine.textureTiles.push({
+      nodes: tileSources(m).map((s) => {
+        if (s instanceof TextureOp) return s;
+        // a name is the imported image of that name, like any other slot; an
+        // empty one is the black a missing picture already renders as
+        if (typeof s === 'string') return new TextureOp(engine, 'imagefile', { name: s });
+        warn('material: a set of maps takes texture chains or imported image names — that entry comes out black');
+        return new TextureOp(engine, 'imagefile', { name: null });
+      }),
+      uniform: tileUniforms.tdTiles,
+      ...tileDims(m),
+      rt: null,
+      isAlive,
+    });
+  }
   const repeat = m.repeat != null ? pair(m.repeat) : null;
   const offset = m.offset != null ? pair(m.offset) : null;
   const uvRotation = m.uvRotate ?? null;
@@ -336,7 +427,7 @@ export function applyMaps(engine, material, m, isAlive) {
 
   // slots named outright — these win over anything pbr: resolves
   const explicit = {};
-  for (const slot of MAP_SLOTS) if (m[slot] != null) explicit[slot] = m[slot];
+  for (const slot of MAP_SLOTS) if (m[slot] != null && !Array.isArray(m[slot])) explicit[slot] = m[slot];
   // arm: one packed AO/Rough/Metal image standing in for three slots
   if (m.arm != null) for (const slot of ARM_SLOTS) explicit[slot] ??= m.arm;
   for (const [slot, spec] of Object.entries(explicit)) setSlot(slot, spec);

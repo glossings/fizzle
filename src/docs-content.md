@@ -145,6 +145,11 @@ Every argument takes a signal, so the timing is whatever you drive it with:
 `hsl(t => t * 0.05, 0.8, 0.5)` walks the wheel, and a static
 `hsl(0.55, 0.4, 0.15)` is just a color. A fourth argument is alpha.
 
+`hsv(h, s, v)` is the same wheel measured the way a paint program measures it:
+`v` is the brightest channel rather than the midpoint, so `hsv(0.55)` on its
+own is the vivid hue, `hsv(0.55, 0, 1)` is white and `hsv(0.55, 1, 0.4)` is a
+dark version of the same color. Reach for whichever axis you think in.
+
 **Texture** color slots take three more forms that carry transparency: `null`
 (nothing at all), `[r, g, b, a]`, and `'#rrggbbaa'`. See **compositing**. 3D
 colors stay opaque; a material's transparency is its `opacity`.
@@ -314,6 +319,35 @@ The batch is one mesh with one material, so `.noise()`, the rest of
 
 A texture can drive the layout: `.field()` reads a chain back as numbers the
 fn can sample. See **a texture read back as numbers**.
+
+### a picture per copy
+
+`map:` also takes a list. Every entry renders into one layer of a texture the
+whole batch shares, and `x.tile(n)` picks the layer a copy wears. Counts round,
+so `.tile(i)` across more copies than there are pictures repeats the set.
+
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.4 }).position(3, 5, 4).out()
+
+const cards = 'FIZZLE'.split('').map((c) => text(c, { size: 0.7, bg: '#1b1b22' }))
+
+plane({ width: 0.9, height: 0.9, res: 1 })
+  .instance(24, (x, i, n, t) => {
+    x.position((i % 6) * 1.1 - 2.75, ((i / 6) | 0) * 1.1 - 1.65, 0)
+      .rotation(0, Math.sin(t + i * 0.3) * 0.5, 0)
+      .tile(i)
+  })
+  .material({ map: cards, roughness: 0.6 })
+  .out()
+```
+
+Entries are ordinary sources: `text()`, an imported image by name, `imagefile()`,
+or any chain, and a live one keeps moving in the slot. They share one size,
+`tileSize: 256` square by default, and draw at that size's aspect rather than
+the frame's, so a square tile gets a square `text()` instead of a widescreen one.
+
+Only `map:` takes a list. The other slots are one texture for the whole batch.
 
 ### a shape as a function — copies that differ
 
@@ -1292,41 +1326,51 @@ glass at the center melting to wax at the rim.
 `(u, v) => 0..1` reading the chain's luma at that point (`v = 0` at the
 bottom, like a geometry uv). The chain renders to a small buffer once a frame
 and is read back on the CPU, one frame behind, so any texture can drive plain
-sketch code. `.instance()` layouts are the natural customer. Here radial
-waves flip a grid of tiles to their dark face, split-flap style. Two grids
-share each cell, one facing away, so a half turn swaps which face shows:
+sketch code. `.instance()` layouts are the natural customer. Here a wave rolls
+out from the center and every tile it crosses turns over to its blank back,
+timetable style. Two grids share each cell, one facing away, so a half turn
+swaps which face shows. Spelling is a lookup: the set of cards is a string, so
+a character's place in it is the number `.tile()` wants:
 
 ```js
 resolution(1280, 720)
-bg('#0b0b0d')
-camera(0, 0, 11)
+bg('#08080a')
+camera(0, 0, 8.5)
 
-ambient({ intensity: 0.55 })
-directional({ intensity: 1.5 }).position(2, 4, 6).out()
+ambient({ intensity: 0.5 })
+directional({ intensity: 1.6 }).position(2, 4, 6).out()
 
-const wave = ramp({ type: 'radial', freq: 2.5, shape: 'sin', phase: t => -t * 0.6 })
-  .threshold(0.5, { soft: 0.3 })
+// well under one cycle across the board, so it sweeps rather than ripples
+const wave = ramp({ type: 'radial', freq: 0.12, shape: 'sin', phase: t => -t * 0.07 })
+  .threshold(0.5, { soft: 0.15 })
   .field()
 
-const COLS = 24, ROWS = 13, PITCH = 0.62
-const grid = (turn) => (x, i) => {
+const COLS = 16, ROWS = 7, PITCH = 0.62
+
+const GLYPHS = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+const cards = GLYPHS.split('').map(c => text(c, { size: 0.7, color: '#14110d', bg: '#e8e4dc' }))
+
+const lines = ['   DEPARTURES', '', 'BERLIN     1405', 'LISBON     1420', 'TOKYO      1512']
+
+// lines run top down, row 0 is the bottom row, anything unlisted comes out blank
+const glyph = (col, row) => Math.max(0, GLYPHS.indexOf((lines[ROWS - 1 - row] ?? '')[col] ?? ' '))
+
+const board = (turn, lettered) => (x, i) => {
   const col = i % COLS, row = (i / COLS) | 0
   const flip = wave(col / (COLS - 1), row / (ROWS - 1))
   x.position((col - (COLS - 1) / 2) * PITCH, (row - (ROWS - 1) / 2) * PITCH, 0)
     .rotation(flip * Math.PI + turn, 0, 0)
+  if (lettered) x.tile(glyph(col, row))
 }
 
-// text() fills the 16:9 frame; crop the map back to its middle square
-const face = (ink, paper) => ({
-  map: text('A', { size: 0.8, color: ink, bg: paper }),
-  repeat: [9 / 16, 1],
-  offset: [(1 - 9 / 16) / 2, 0],
-  roughness: 0.85,
-})
+const card = () => plane({ width: 0.55, height: 0.55, res: 1 })
 
-const tile = () => plane({ width: 0.55, height: 0.55, res: 1 })
-tile().instance(COLS * ROWS, grid(0)).material(face('#111111', '#e8e4dc')).out()
-tile().instance(COLS * ROWS, grid(Math.PI)).material(face('#e8e4dc', '#111111')).out()
+card().material({ map: cards, roughness: 0.8, doubleSide: false })
+  .instance(COLS * ROWS, board(0, true)).out()
+
+// every back is the same, so it needs no set — just a color
+card().material({ color: '#14110d', roughness: 0.8, doubleSide: false })
+  .instance(COLS * ROWS, board(Math.PI)).out()
 ```
 
 The sampler is just a function, so it drops into a `.position()`, an

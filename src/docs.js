@@ -35,6 +35,7 @@ export const GLOBALS = {
 
   camera: ['camera(x, y, z, [tx, ty, tz]) | camera({ pad, fly, speed, look, lift, recenter, deadzone, x, y, z, target })', "Puts the camera at x, y, z looking at the point [tx, ty, tz] — the origin without one. Static numbers: orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.\ncamera({ pad: true }) hands the orbit rig to a game controller — right stick orbits, left stick moves in and out along the view, triggers and bumpers pan — with the mouse still live. camera({ fly: true }) flies instead: left stick moves where you're looking, right stick looks, triggers rise and fall. Negative speed or look inverts an axis."],
   hsl: ['hsl(h, s, l, a?)', 'A color from hue (in turns, 0..1 around the wheel), saturation and lightness — usable in any color slot. Each takes a fn of t or a signal, so hsl(rand(), 0.7, 0.5) is a random hue at a brightness you set, and hsl(rand().beat(1), 0.7, 0.5) re-rolls it every bar.'],
+  hsv: ['hsv(h, s, v, a?)', 'The same wheel measured the way a paint program does: v is the brightest channel, so hsv(h) is the vivid hue, hsv(h, 0, 1) is white and hsv(h, 1, 0.5) is a dark version of the hue. Every argument takes a fn of t or a signal.'],
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
   resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again. The sidebar's fixed resolution overrides this."],
   tempo: ['tempo(bpm)', "Tempo for beat() and .beat(), overriding the sidebar's for this sketch. Drop the call to hand it back."],
@@ -184,7 +185,7 @@ export const METHODS = {
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
   feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). Default mode is 'add'; 'under' leaves the trail behind whatever is drawn this frame. A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
-  tile: ['.tile(nx, ny, (src, i, x, y) => variant)', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.'],
+  tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.\nInstance copy: which picture this copy wears, out of the set in .material({ map: [a, b, c] }). Counts round, so .tile(i) over a longer grid repeats the set.'],
 };
 
 // --- config keys -----------------------------------------------------------
@@ -796,7 +797,7 @@ const methodKinds = {
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
   light: 'position target out',
-  inst: 'position rotation scale align color material',
+  inst: 'position rotation scale align color tile material',
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue

@@ -244,9 +244,11 @@ on that: buses and feedback allocate by frame size
 cover the frame. One model is per-operator resolution with inheritance, and
 three current items are this feature in disguise:
 
-- A texture as a **tile face** wants the face's aspect — the split-flap example
-  crops full-frame `text()` with hand-rolled `repeat`/`offset`, and any square
-  material map on a square surface has the same problem.
+- A texture as a **tile face** wants the face's aspect. A `map: [...]` set
+  already gets this: `renderTileSets` renders its sources in a context sized to
+  the tile, which is why the train-departures example needs no crop. That's the
+  model working, in one private corner — any *ordinary* square material map on
+  a square surface still has the problem.
 - **`.field()`** renders full-frame and downsamples by point sampling (section
   above). A chain rendering *at* 64×64 needs no copy pass, and for generator
   sources no mip fix either — the shader evaluated at 64×64 is the right
@@ -267,8 +269,9 @@ three current items are this feature in disguise:
     buses and delay rings all allocate at frame size, keyed by name — size has
     to travel with the publish, and a re-run that resizes a bus must realloc
     without blanking unrelated loops.
-  - `text()` needs its canvas to follow the target size, which then replaces
-    the split-flap crop outright.
+  - `text()` already sizes its canvas from the context it renders in, so it
+    needs nothing new — what it needs is for that size to be something a chain
+    can ask for rather than something only a tile set can arrange.
 
 ## New texture generators
 
@@ -702,26 +705,28 @@ Euler by hand inside a sketch is miserable.
   for `x.position()`) and `.uv(i)` (0..1 — the coordinates a `.field()` sampler
   wants). Every grid sketch re-derives `(col - (cols - 1) / 2) * pitch` and the
   uv normalization by hand — see
-  [sketches/examples/split-flap.js](../sketches/examples/split-flap.js), which
+  [sketches/examples/train-departures.js](../sketches/examples/train-departures.js), which
   spends half its layout fn on it. Rings and lines are the same item with a
   different shape; decide whether they're options or siblings before building.
 
-[ ] **Per-instance map selection.** One material per batch means every copy
-  shows the same picture. The API to want: a *collection* in the map slot —
-  `.material({ map: [text('A'), text('B'), …] })` — plus `x.tile(j)` on the
-  handle ([src/api.js:320](../src/api.js#L320)) picking per copy, per frame,
-  the way `x.color()` already does. No user-facing atlas.
-  The implementation can't stay a collection: one instanced draw call means
-  one bound sampler set, and GLSL can't index a sampler per instance — so the
-  engine consolidates the sources into a 2D **array texture** (dynamic layer
-  index is legal, per-layer mips, no atlas bleed; all layers one size, each
-  source drawn into its cell) and `j` rides an instanced float attribute into
-  a patched map lookup (same onBeforeCompile surgery class as
-  [src/noise.js](../src/noise.js)). `text()`/`imagefile()` sources re-upload
-  only on change; *live* chains as variants cost a copy per variant per
-  frame — v1 should take static-ish sources and warn on live chains.
-  What lets a split-flap board spell words, with a `.field()` picking the
-  letter per cell.
+[ ] **A tile set redraws every layer, every frame.** `.material({ map: [...] })`
+  renders each source into its layer of the array texture on every frame
+  ([src/textures.js](../src/textures.js), `renderTileSets`), because nothing in
+  the graph says whether a source moved. A set of 26 letters is 26 passes and a
+  pyramid rebuild for a picture that hasn't changed since the sketch ran. A
+  source that can say so — `text()` already knows when its canvas is stale,
+  `imagefile()` after the first upload — should skip its layer, leaving live
+  chains as the only per-frame cost. The dirty bit has to be per node, not per
+  set: one moving chain in a set of stills should redraw only itself.
+
+[ ] **Only render targets follow the context a node is rendered in.** A tile set
+  renders its sources at the tile's size, so a chain shared with the main graph
+  now draws once per size, into a target set per size (`ctx.rtKey`,
+  [src/textures.js](../src/textures.js) `_rt`/`renderNode`). The state that
+  *isn't* keyed that way is still single: `.delay()`'s ring, `ascii()`'s atlas,
+  `text()`'s canvas. Sharing one of those between a tile set and an `.out()`
+  rebuilds it twice a frame. Per-chain resolution (below) is where this gets
+  settled for good; until then the honest stopgap is a warning naming the node.
 
 ## `box().noise()` comes apart at the edges
 

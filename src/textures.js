@@ -1007,9 +1007,11 @@ export class Quad {
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
   }
-  render(renderer, material, target) {
+  // `layer` picks the slice of an array target (see renderTileSets); three
+  // takes it in the same argument a cube target's face goes in
+  render(renderer, material, target, layer = 0) {
     this.mesh.material = material;
-    renderer.setRenderTarget(target);
+    renderer.setRenderTarget(target, layer);
     renderer.render(this.scene, this.cam);
   }
 }
@@ -1228,9 +1230,12 @@ function delayFit(frames, scale, w, h) {
 }
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
-let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE;
+let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE, MAT_TOLINEAR;
 function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
+  // the decode a chain feeding a color map slot ends on — here it's the pass
+  // that writes a tile set's layers, which are read as a map (see SPECS.toLinear)
+  MAT_TOLINEAR ??= makeMaterial(SPECS.toLinear);
   // premultiplied source-over, for stacking several naked .out()s
   MAT_OVER ??= makeMaterial({
     frag: `
@@ -1322,7 +1327,7 @@ function ensurePassMaterials() {
   });
 }
 
-function runPass(ctx, material, tex0, tex1, target, setup) {
+function runPass(ctx, material, tex0, tex1, target, setup, layer = 0) {
   const u = material.uniforms;
   u.tex0.value = tex0 ?? null;
   u.tex1.value = tex1 ?? null;
@@ -1331,7 +1336,7 @@ function runPass(ctx, material, tex0, tex1, target, setup) {
   u.uAspect.value = ctx.aspect;
   u.uTime.value = ctx.t;
   setup?.(u);
-  ctx.quad.render(ctx.renderer, material, target);
+  ctx.quad.render(ctx.renderer, material, target, layer);
 }
 
 // Font files for the 2D text generator: a .ttf/.otf/.woff/.woff2 URL is
@@ -1534,6 +1539,7 @@ export class TextureOp {
     this.inputs = bound.inputs;
     this.texBinds = bound.binds;
     this.lastFrame = -1;
+    this.lastCtx = '';        // which context that frame was rendered in (see renderNode)
     engine.textureNodes.push(this);
   }
 
@@ -1834,18 +1840,27 @@ export class TextureOp {
   _rt(ctx, key = 'main', scale = 1) {
     const w = Math.max(1, Math.round(ctx.w * scale));
     const h = Math.max(1, Math.round(ctx.h * scale));
-    let rt = this[`_tgt_${key}`];
+    // a target per context as well as per slot, so a chain rendered at two
+    // sizes in one frame doesn't reallocate one target back and forth
+    const slot = `_tgt_${key}${ctx.rtKey ?? ''}`;
+    let rt = this[slot];
     if (!rt || rt.width !== w || rt.height !== h
         || (this._needsMips && !rt.texture.generateMipmaps)) {
       rt?.dispose();
-      rt = this[`_tgt_${key}`] = this._wrap(makeRT(w, h));
+      rt = this[slot] = this._wrap(makeRT(w, h));
     }
     return rt;
   }
 
   renderNode(ctx) {
-    if (this.lastFrame === ctx.frame) return this._outTex;
+    // Once a frame — and once per context, since a tile set renders its sources
+    // at the tile's size rather than the frame's. A chain used both ways draws
+    // twice, into two sets of targets, instead of handing one size's picture to
+    // the other.
+    const key = ctx.rtKey ?? '';
+    if (this.lastFrame === ctx.frame && this.lastCtx === key) return this._outTex;
     this.lastFrame = ctx.frame;
+    this.lastCtx = key;
     // _evaluating marks this node's subtree as in progress, so an input() of a
     // buffer we're currently producing falls back to last frame's snapshot
     this._evaluating = true;
@@ -2227,7 +2242,9 @@ export class TextureOp {
   dispose() {
     // .delay()'s ring is deliberately not here — it outlives the patch, and
     // carry.js frees it when the call it belongs to is gone from the sketch
-    for (const key of ['_tgt_main', '_tgt_auxA', '_tgt_auxB']) this[key]?.dispose();
+    // every context this node rendered in has a target set of its own, hence
+    // the scan rather than the three names (see _rt)
+    for (const key in this) if (key.startsWith('_tgt_')) this[key]?.dispose();
     this._lut?.dispose();
     this._ctex?.dispose();
     this._atlas?.tex.dispose();
@@ -2248,6 +2265,48 @@ TextureOp.prototype.rot = TextureOp.prototype.rotate;
 // current texture is written into the slot. A geometry .displace() registers
 // { node, uniform } here too: same timing, same liveness, but the texture goes
 // into a uniform the vertex shader reads rather than into a material slot.
+
+// A set of pictures in a map slot — .material({ map: [a, b, c] }) — as one 2D
+// array texture, a layer per source, so a copy of an instanced mesh can pick
+// among them with x.tile(n). The layers are rendered here, every frame, so a
+// live chain in the set animates like any other map.
+//
+// The sources render in a context of their own, sized to the tile rather than
+// the frame: text() then draws at the tile's aspect instead of a widescreen
+// glyph waiting to be cropped, and the intermediate targets of a chain in the
+// set are tile-sized too. That context has a name (rtKey), which is what lets a
+// chain used here *and* in the main graph keep a target set of either size.
+function renderTileSets(engine, ctx) {
+  const sets = engine.textureTiles;
+  if (!sets.length) return;
+  let live = 0;
+  for (const s of sets) {
+    if (!s.isAlive()) {
+      s.rt?.dispose();
+      continue;
+    }
+    sets[live++] = s;
+    const n = s.nodes.length;
+    if (!s.rt) {
+      s.rt = new THREE.WebGLArrayRenderTarget(s.w, s.h, n, {
+        type: THREE.HalfFloatType,
+        depthBuffer: false,
+      });
+      s.rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
+      s.uniform.value = s.rt.texture;
+    }
+    // rtKey names this context: a source shared with the main graph keeps a set
+    // of targets per size instead of reallocating one every frame
+    const sub = { ...ctx, w: s.w, h: s.h, res: [s.w, s.h], aspect: s.w / s.h, rtKey: `_tile${s.w}x${s.h}` };
+    for (let i = 0; i < n; i++) {
+      // three regenerates the pyramid after every render to the target, so only
+      // the last layer of the frame asks for one
+      s.rt.texture.generateMipmaps = i === n - 1;
+      runPass(sub, MAT_TOLINEAR, s.nodes[i].renderNode(sub), null, s.rt, null, i);
+    }
+  }
+  sets.length = live;
+}
 
 function renderMaterialMaps(engine, ctx) {
   const binds = engine.textureMaps;
@@ -2418,6 +2477,7 @@ export function renderTextures(engine) {
   // here — a chain that maps scene() onto geometry inside that same scene is a
   // one-frame feedback loop, for the same reason input() is.
   renderMaterialMaps(engine, ctx);
+  renderTileSets(engine, ctx);
 
   if (needsScene) {
     renderer.setRenderTarget(st.sceneRT);

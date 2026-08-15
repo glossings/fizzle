@@ -60,23 +60,42 @@ function toRgb(h, s, l, out) {
   return out;
 }
 
-export function hsl(h = 0, s = 0.7, l = 0.5, a) {
+// The same wheel with the other vertical axis: v is how bright the *most* lit
+// channel gets, so hsv(h, 1, 1) is the vivid hue and white is s = 0 rather than
+// l = 1. It's the spelling paint programs use; hsl's is the
+// symmetric one, where the vivid hue lives halfway up at l = 0.5. Converted
+// rather than written out again — the two describe the same colors.
+function toRgbV(h, s, v, out) {
+  s = clamp01(s);
+  v = clamp01(v);
+  const l = v * (1 - s / 2);
+  const m = Math.min(l, 1 - l);
+  return toRgb(h, m === 0 ? 0 : (v - l) / m, l, out);
+}
+
+// Both wheels resolve the same way: a plain array when nothing moves, and one
+// fn per channel when something does.
+const wheel = (conv, dflt) => (h = 0, s = 0.7, y = dflt, a) => {
   const rgb = [0, 0, 0];
-  const dyn = [h, s, l].some((v) => typeof v === 'function');
+  const dyn = [h, s, y].some((v) => typeof v === 'function');
   if (!dyn) {
-    toRgb(h, s, l, rgb);
+    conv(h, s, y, rgb);
     return a == null ? rgb : [...rgb, a];
   }
   // One conversion per t however many channels ask — the array is read
   // component by component, and all three come out of the same math.
   let lastT = NaN;
   const at = (t) => {
-    if (t !== lastT) { lastT = t; toRgb(resolve(h, t), resolve(s, t), resolve(l, t), rgb); }
+    if (t !== lastT) { lastT = t; conv(resolve(h, t), resolve(s, t), resolve(y, t), rgb); }
     return rgb;
   };
   const out = [(t) => at(t)[0], (t) => at(t)[1], (t) => at(t)[2]];
   return a == null ? out : [...out, a];
-}
+};
+
+export const hsl = wheel(toRgb, 0.5);
+// full value by default: the vivid hue is what hsv(h) should hand back
+export const hsv = wheel(toRgbV, 1);
 
 // A CSS string, for the color that ends up on a 2D canvas rather than in a
 // uniform (the text() texture). Goes through THREE.Color so an [r, g, b] and a

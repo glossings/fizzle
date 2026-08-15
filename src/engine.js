@@ -119,6 +119,7 @@ export class Engine {
     this.textureBuffers = new Map();   // name -> node published with .out(name)
     this.textureMaps = [];             // texture chains bound to a material map slot
     this.textureFields = [];           // .field() readbacks: texture chains sampled by CPU code
+    this.textureTiles = [];            // map: [a, b, c] sets, one array texture each
     this.geoLayers = new Map();        // name -> three.js layer bit, geometry .out(name)
     this._textureState = {};           // persistent RTs/quad (feedback survives re-runs)
 
@@ -242,9 +243,10 @@ export class Engine {
     }
     // camera stays interactive while paused (unless the sketch drives it)
     if (!this.cameraProgrammed) this.controls.update();
-    // textures feeding a material map or a .field() need the graph running
-    // even with no .out()
-    if (this.textureOutputs.length || this.textureMaps.length || this.textureFields.length) {
+    // textures feeding a material map, a tile set or a .field() need the graph
+    // running even with no .out()
+    if (this.textureOutputs.length || this.textureMaps.length || this.textureFields.length
+        || this.textureTiles.length) {
       try {
         renderTextures(this);
       } catch (e) {
@@ -833,6 +835,8 @@ export class Engine {
     this.textureMaps = [];
     for (const f of this.textureFields) f.rt?.dispose();
     this.textureFields = [];
+    for (const s of this.textureTiles) s.rt?.dispose();
+    this.textureTiles = [];
     this.geoLayers.clear();
 
     this.cameraProgrammed = false;

@@ -5,11 +5,11 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
-import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys } from './materials.js';
+import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, tileSources, applyTileMap } from './materials.js';
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { ParticleOp } from './particles.js';
 import { makePointSet } from './sample.js';
-import { setColor, makeColor, isDynamicColor, hsl } from './color.js';
+import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
 import { sig, valueNoise, barPhase, setBpmSource } from './audio.js';
@@ -333,6 +333,7 @@ class InstanceHandle {
     this.sx = this.sy = this.sz = 1;
     this.col = null;
     this.dir = null;
+    this.tileIdx = null;
   }
 
   position(x = 0, y = 0, z = 0) {
@@ -356,6 +357,15 @@ class InstanceHandle {
   align(v) { this.dir = v; return this; }
   // tints this copy: multiplied with the chain's .material() color
   color(c) { this.col = c; return this; }
+  // which picture this copy wears, out of the set in .material({ map: [...] }).
+  // Counts round like select() does, so .tile(i) over a long grid cycles.
+  tile(n) {
+    if (!this._tiles) {
+      warn('instance: .tile() picks out of a set of maps — .material({ map: [a, b, ...] }) on the chain is what it picks from');
+    }
+    this.tileIdx = n;
+    return this;
+  }
 
   // The verbs a copy hasn't got say where the real one lives and carry on —
   // this fn runs every frame, so throwing here would take the video down for a
@@ -739,6 +749,17 @@ class GeoOp {
     applyMaterialScalars(material, m);
     const surfaceUpdate = applySurface(material, m);
 
+    // .material({ map: [a, b, c] }): one array texture the copies pick out of.
+    // Nothing to pick with on a single mesh, so there it's the first picture and
+    // a word about how to get the rest.
+    let tiles = tileSources(m);
+    if (tiles && !this._instance) {
+      warn('material: a set of maps is picked from per copy, by .instance(n, (x, i) => x.tile(i)) — on one mesh it takes select(i, a, b) to choose a picture, so the first of the set is used here');
+      m.map = tiles[0];
+      tiles = null;
+    }
+    const tileUniforms = tiles ? applyTileMap(material, m) : null;
+
     // One vertex patch carries every deformer, since they replace the same two
     // shader chunks — a chain with .noise().displace(a).displace(b) gets the sum.
     const dispFlags = { noise: !!this._noise, displace: this._displaces.length };
@@ -801,6 +822,18 @@ class GeoOp {
     const dummy = new THREE.Object3D();
     const handle = inst ? new InstanceHandle() : null;
     const instColor = inst ? new THREE.Color() : null;
+    // the layer of the map set each copy reads, written per frame like the
+    // matrix. It rides on the geometry, so a swapped-in one takes it along.
+    const tileAttr = tiles ? new THREE.InstancedBufferAttribute(new Float32Array(inst.count), 1) : null;
+    const attachTile = (g) => {
+      if (tileAttr) g.setAttribute('tdTile', tileAttr);
+      return g;
+    };
+    if (handle) handle._tiles = !!tiles;
+    if (tileAttr) {
+      tileAttr.setUsage(THREE.DynamicDrawUsage);
+      attachTile(geometry);
+    }
     // Replace a live mesh's geometry (async font/model, changed text3d
     // string). An InstancedMesh caches bounds of its own for frustum culling,
     // which have to be invalidated or the mesh stays culled at the old size —
@@ -810,7 +843,7 @@ class GeoOp {
     // sends it down a branch calling a method it doesn't have.
     const swapGeometry = (g) => {
       mesh.geometry.dispose();
-      mesh.geometry = prepare(g);
+      mesh.geometry = attachTile(prepare(g));
       if (mesh.isInstancedMesh) {
         mesh.boundingSphere = null;
         mesh.boundingBox = null;
@@ -899,9 +932,17 @@ class GeoOp {
           // frame would stick around after it stops being set.
           if (handle.col !== null) mesh.setColorAt(i, setColor(instColor, handle.col, t));
           else if (mesh.instanceColor) mesh.setColorAt(i, instColor.setRGB(1, 1, 1));
+          // counts round rather than clamp, so .tile(i) over more copies than
+          // there are pictures repeats the set; a NaN would sample nothing at
+          // all, so it holds on the first
+          if (tileAttr) {
+            const raw = Math.floor(resolve(handle.tileIdx ?? 0, t));
+            tileAttr.array[i] = Number.isFinite(raw) ? ((raw % tiles.length) + tiles.length) % tiles.length : 0;
+          }
         }
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        if (tileAttr) tileAttr.needsUpdate = true;
       }
     };
 
@@ -913,7 +954,7 @@ class GeoOp {
     // after add(), so mesh.parent is already set: a cached map attaches on the
     // spot, and mesh.parent is also the liveness test for one that arrives
     // later — a patch cleared in the meantime has nowhere to put it
-    if (textured) applyMaps(this.engine, material, m, () => !!mesh.parent);
+    if (textured) applyMaps(this.engine, material, m, () => !!mesh.parent, tileUniforms);
     this._displaces.forEach((d, i) => this._bindDisplaceMap(d.map, dispUniforms[`uDispMap${i}`], () => !!mesh.parent));
     return this;
   }
@@ -1226,6 +1267,9 @@ export function makeApi(engine) {
     // a brightness you chose. Optional fourth argument is alpha, which the
     // texture color slots read.
     hsl,
+    // The same wheel measured the other way: s and v as a paint program spells
+    // them, so hsv(h) alone is the vivid hue and hsv(h, 0, 1) is white.
+    hsv,
 
     // The updater writes into the Color, not into scene.background — so an
     // hdri() that takes the background slot afterwards keeps it, and this
