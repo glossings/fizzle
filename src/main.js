@@ -7,6 +7,7 @@ import { syncHash, adoptHash, codeFromHash } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
+import { initRecorder } from './record.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import { learnMidi, learnPad } from './control.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
@@ -14,8 +15,10 @@ import WELCOME from '../sketches/examples/welcome.js?raw';
 // the welcome sketch's header comes in a desktop and a touch version
 const DEFAULT_SKETCH = forPlatform(WELCOME);
 
-const engine = new Engine(document.getElementById('gl'));
-const projector = initProjector(document.getElementById('gl'), () => engine.resolution, {
+const glCanvas = document.getElementById('gl');
+const editorEl = document.getElementById('editor');
+const engine = new Engine(glCanvas);
+const projector = initProjector(glCanvas, () => engine.resolution, {
   move: (x, y, rect) => engine.setPointer(x, y, rect),
   down: (v) => { engine.pointer.down = v; },
 });
@@ -206,6 +209,43 @@ function toggleProjectorCode() {
   return !!state;
 }
 
+// What a recording lays over the picture: the code, exactly when it's on
+// screen. With a projector up that's the audience's copy, hidden or not by
+// ctrl+h — your own editor doesn't reach them and doesn't belong in the file.
+// Without one it's this window's, which ctrl+m hides.
+//
+// #editor is fixed at inset: 0, so its own box *is* the window, and the canvas
+// is a letterboxed rectangle somewhere inside it. What gets recorded is a
+// picture-sized region of the editor anchored at the editor's *own* top left,
+// not at the canvas's — the code starts at the edge of the window, so taking
+// the region under the canvas would cut the first line-and-a-bit off every
+// line, by however wide the bars happen to be. Anchoring here is what the
+// projector does by construction: its code pane is the size of the picture.
+function codeLayer() {
+  if (projector.isOpen()) return projector.codeLayer();
+  if (editorEl.classList.contains('hidden')) return null;
+  const box = glCanvas.getBoundingClientRect();
+  return { el: editorEl, clip: { x: 0, y: 0, w: box.width, h: box.height } };
+}
+
+// filled in once the sidebar has booted: the file is named after what's
+// loaded, and the container is a setting in there
+let sketchName = () => 'untitled';
+let recFormat = () => (isTouch ? 'mp4' : 'mkv');
+let recScale = () => 1;
+
+const recorder = initRecorder({
+  canvas: glCanvas,
+  getSize: () => engine.outputSize,
+  getName: () => sketchName(),
+  getFormat: () => recFormat(),
+  getScale: () => recScale(),
+  codeLayer,
+  flash,
+  onChange: () => touchbar?.refresh(),
+});
+engine.onFrame = recorder.frame;
+
 function togglePause() {
   if (engine.togglePause()) {
     status.textContent = `⏸ paused — ${PLAY_HINT} to resume`;
@@ -355,6 +395,9 @@ initDrop();
     setCode,
     run: runResume,
   });
+  sketchName = sidebar.sketchName;
+  recFormat = () => sidebar.settings.recFormat;
+  recScale = () => sidebar.settings.recScale;
 
   // "open in editor" from the docs page hands a sketch over via localStorage
   let handoff = null;
@@ -366,7 +409,6 @@ initDrop();
   // a shared link's hash beats everything; docs handoff beats the last sketch
   const fromUrl = await codeFromHash();
   const initial = fromUrl ?? handoff ?? sidebar.initialCode ?? DEFAULT_SKETCH;
-  const editorEl = document.getElementById('editor');
   editor = makeEditor(editorEl, initial, {
     onRun: runResume,
     onTogglePause: togglePause,
@@ -383,6 +425,7 @@ initDrop();
     },
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
+    onRecord: () => recorder.toggle(),
     // ctrl+[ / ctrl+]: the next sketch in the playlist, or in the list the
     // sidebar is showing. The sidebar knows which and says what it moved to.
     onStep: async (delta) => {
@@ -409,6 +452,9 @@ initDrop();
     touchbar = initTouchBar({
       playing: () => !engine.paused,
       codeHidden,
+      // no onRecord: recording is built and working on a phone, and what it
+      // produces isn't worth having next to the screen recorder the phone
+      // already ships. Pass it to put the button back.
       onPlay: togglePause,
       onRun: () => runResume(view.state.doc.toString()),
       // hiding the code puts the zoom back to 1× — the code you bring back is

@@ -98,6 +98,61 @@ html, body {
 #status.ok { color: #7ee787; }
 #status.err { color: #ff7b72; }
 
+/* Recording indicator. Lives in this window's DOM only: the projector mirrors
+   the framebuffer and its own code pane, and the file is composited from the
+   same two — so neither the audience nor the recording ever sees this. */
+#rec-dot {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  z-index: 60;
+  display: none;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ff9d96;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+#rec-dot.show { display: flex; }
+#rec-dot::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff5f56;
+  animation: rec-blink 1.6s ease-in-out infinite;
+}
+@keyframes rec-blink { 50% { opacity: 0.2; } }
+
+/* The finished take, waiting for the tap that opens the share sheet — the
+   sheet needs a live gesture and the one that stopped the recording is spent
+   by then. Same corner as the indicator it replaces. */
+#rec-save {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  z-index: 60;
+  padding: 9px 15px;
+  font: inherit;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+#rec-save[hidden] { display: none; }
+#rec-save:active { background: rgba(255, 255, 255, 0.24); transform: scale(0.96); }
+
 /* drag-drop media import */
 #drop-overlay {
   position: fixed;
@@ -211,6 +266,7 @@ html, body {
 .tb-btn svg { display: block; width: 22px; height: 22px; }
 .tb-btn:active { background: rgba(255, 255, 255, 0.24); transform: scale(0.93); }
 .tb-btn.flash { color: #7ee787; border-color: rgba(126, 231, 135, 0.6); }
+.tb-btn.rec { color: #ff5f56; border-color: rgba(255, 95, 86, 0.65); }
 
 @media (pointer: coarse) {
   /* One surface at a time. With the code up the whole screen is the editor —

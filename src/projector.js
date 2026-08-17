@@ -326,6 +326,19 @@ export function initProjector(canvas, getResolution, onPointer) {
 
     scrollTo,
 
+    isOpen,
+
+    // What a recording should lay over the picture, or null when this window's
+    // code is hidden. #proj-code fills the stage, and the stage is the picture
+    // and nothing else, so the whole element maps onto the frame.
+    codeLayer() {
+      if (!isOpen() || !codeEl || codeEl.classList.contains('hidden')) return null;
+      return {
+        el: codeEl,
+        clip: { x: 0, y: 0, w: codeEl.clientWidth, h: codeEl.clientHeight },
+      };
+    },
+
     // ctrl+h from the main window lands here first: with a projector up it's
     // the audience's copy of the code you mean to hide, not your own. False
     // hands the key back so it toggles the local editor instead.

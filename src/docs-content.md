@@ -52,6 +52,7 @@ a chain ends in `.out()`.
 | `ctrl + ]` / `ctrl + [` | next / previous sketch in the playlist |
 | `ctrl + hover` | pop docs for the API name under the cursor |
 | `F1` | open / close the projector window |
+| `ctrl + e` | start / stop recording |
 | `ctrl + r` | restart media and accumulated state |
 | drag / scroll | orbit / zoom the camera |
 
@@ -61,6 +62,39 @@ On a phone, the cameras are `video('front')` / `video('back')`.
 in it, mirroring your typing. Press **`f`** in it (or double-click) for
 fullscreen. While it's open `ctrl + h` hides the code **on the projector**;
 `ctrl + m` always means your own window.
+
+**Recording (`ctrl + e`)** asks where to put the file and starts rolling; the
+same key stops it. Chrome and Edge write to the file as it goes, so a ten
+minute take never sits in the tab.
+
+The sidebar's **recording** setting picks the container, and the save dialog's
+own format menu opens on it — so change it there for one take, or in the
+sidebar for every take after. `.mkv` and `.webm` stay playable even if the
+recording is cut off part way, which is what you want mid-set; `.mp4` needs a
+clean stop but opens in anything, QuickTime and Premiere included.
+
+Where there's no save dialog the take is held in memory until you stop, and
+comes out as a download instead. The counter in the corner shows how much of
+the tab it's using, and recording stops on its own before it's enough to lose.
+
+The file is the picture at full size, whatever the window is doing:
+`resolution(1920, 1080)` records 1920×1080 from a half-size window, and the
+letterbox bars never make it in. Without a `resolution()` there's no size to
+hold to, so the file is what the window is really rendering, quality included.
+
+The code is in the recording exactly when it's on screen, so `ctrl + h` (or
+`ctrl + m` with no projector) takes it out of the file too — decided when you
+press record, so a take that starts with the code hidden stays that way, and
+the status line says so if you show it part way through. Hiding it first also
+costs the sketch nothing at all: with nothing to draw over the picture the
+canvas is recorded straight. **rec. scale** trades size for speed on the takes
+that do carry code.
+
+The `● 0:42` in the corner is yours alone — it's not in the file and not on the
+projector.
+
+Recording is desktop-only for now: a phone's own screen recorder does a better
+job of a phone than this can.
 
 **Playlists.** The sidebar's **sketches** tab searches names and tags. Every
 sketch tags itself with what it uses (`3d`, `2d`, `fx`, `particles`, `audio`,

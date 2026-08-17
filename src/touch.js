@@ -63,15 +63,24 @@ const ICON = {
   run: svg('<polyline points="21.5 4.5 21.5 10 16 10"/><polyline points="2.5 19.5 2.5 14 8 14"/><path d="M4.6 9.2a8 8 0 0 1 13.2-3L21.5 10M2.5 14l3.7 3.8a8 8 0 0 0 13.2-3"/>'),
   code: svg('<polyline points="15.5 17.5 21 12 15.5 6.5"/><polyline points="8.5 6.5 3 12 8.5 17.5"/>'),
   codeOff: svg('<polyline points="15.5 17.5 21 12 15.5 6.5"/><polyline points="8.5 6.5 3 12 8.5 17.5"/><line x1="3.5" y1="20.5" x2="20.5" y2="3.5"/>'),
+  rec: svg('<circle cx="12" cy="12" r="6.5"/>', false),
+  recStop: svg('<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>', false),
 };
 
-// The three controls, bottom right, over whichever corner of the picture is
-// there — always, since they're the only way to run, pause or get the code
-// back, and hunting for a control that faded out is worse than the pixels it
-// was covering. `playing`/`codeHidden` are read back after every press rather
+// The controls, bottom right, over whichever corner of the picture is there —
+// always, since they're the only way to run, pause or get the code back, and
+// hunting for a control that faded out is worse than the pixels it was
+// covering.
+//
+// A record button is built only if `onRecord` is passed, which it currently
+// isn't: recording a phone's own screen is something the phone already does
+// better than this can (see dev-notes/RECORDING.md). Left wired rather than
+// deleted — nothing about it is wrong except what it produces.
+//
+// `playing`/`codeHidden`/`recording` are read back after every press rather
 // than tracked here: pausing and hiding both have other ways in (a run resumes
 // playback), and a button showing the wrong glyph is worse than no button.
-export function initTouchBar({ playing, codeHidden, onPlay, onRun, onToggleCode }) {
+export function initTouchBar({ playing, codeHidden, recording, onPlay, onRun, onToggleCode, onRecord }) {
   const bar = document.createElement('div');
   bar.id = 'touchbar';
 
@@ -85,6 +94,9 @@ export function initTouchBar({ playing, codeHidden, onPlay, onRun, onToggleCode 
     return b;
   };
 
+  const recBtn = onRecord
+    ? make('record', ICON.rec, async () => { await onRecord(); refresh(); })
+    : null;
   const playBtn = make('play / pause', ICON.play, () => { onPlay(); refresh(); });
   const runBtn = make('run the sketch', ICON.run, () => {
     onRun();
@@ -99,13 +111,20 @@ export function initTouchBar({ playing, codeHidden, onPlay, onRun, onToggleCode 
   // button is how a press goes missing.
   let wasPlaying = false;
   let wasHidden = false;
+  let wasRec = false;
   function refresh() {
     const nowPlaying = playing();
     const nowHidden = codeHidden();
+    const nowRec = !!recording?.();
     if (nowPlaying !== wasPlaying) playBtn.innerHTML = nowPlaying ? ICON.pause : ICON.play;
     if (nowHidden !== wasHidden) codeBtn.innerHTML = nowHidden ? ICON.codeOff : ICON.code;
+    if (recBtn && nowRec !== wasRec) {
+      recBtn.innerHTML = nowRec ? ICON.recStop : ICON.rec;
+      recBtn.classList.toggle('rec', nowRec);
+    }
     wasPlaying = nowPlaying;
     wasHidden = nowHidden;
+    wasRec = nowRec;
   }
 
   document.body.appendChild(bar);

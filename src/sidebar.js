@@ -6,6 +6,7 @@
 import { syncHash } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
 import { isTouch, forPlatform, exampleApplies } from './touch.js';
+import { recordable } from './record.js';
 import { initOrganize } from './organize.js';
 import {
   autoTags, autoTagsFor, forgetSketch, isoDay, keyOf, loadLibrary, manualTags, matches,
@@ -83,8 +84,16 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     // It also opens at 0.75×, which on a 3× display is still more pixels than
     // a laptop renders and is the difference between the heavier examples
     // playing and stuttering. Both are only defaults; the sidebar owns them.
+    // recFormat: mp4 on a phone, where the recording's destination is the
+    // share sheet and nothing else there will reach the camera roll. On a
+    // laptop a container that survives an interrupted take is worth more.
     { quality: isTouch ? 0.75 : 1, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120,
-      resFixed: false, resWidth: 1920, resHeight: 1080, sort: 'name' },
+      resFixed: false, resWidth: 1920, resHeight: 1080, sort: 'name',
+      // recScale: only takes with the code in them are composited, and only
+      // those pay for it. Full size costs a phone two thirds of its frame rate
+      // doing that; half costs it nothing measurable. A laptop doesn't notice
+      // either way, so it keeps every pixel.
+      recFormat: isTouch ? 'mp4' : 'mkv', recScale: isTouch ? 0.5 : 1 },
     JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
   );
   const persist = () => localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
@@ -111,6 +120,15 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       <label>audio in <select id="sb-audio"></select></label>
       <label>audio out <select id="sb-audio-out"></select></label>
       <label>tempo <input id="sb-tempo" type="number" min="20" max="300" step="1"> bpm</label>
+      <label class="sb-rec">recording <select id="sb-recfmt"></select></label>
+      <label class="sb-rec">rec. scale
+        <select id="sb-recscale">
+          <option value="1">full</option>
+          <option value="0.75">¾</option>
+          <option value="0.5">half</option>
+          <option value="0.25">quarter</option>
+        </select>
+      </label>
       <label><input id="sb-live" type="checkbox"> live color updates</label>
       <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
       <a id="sb-docs" href="docs.html" target="_blank">docs &amp; reference ↗</a>
@@ -176,6 +194,23 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   // typed into the box, is brought up to it too.
   const MIN_FONT = isTouch ? 16 : 9;
   const dim = (n, fallback) => Math.min(7680, Math.max(1, Math.round(Number(n) || fallback)));
+
+  // Only what this browser can actually record — offering mp4 where the
+  // recorder can't write one is a setting that silently does nothing. On a
+  // desktop this is the *default* the save dialog opens on, since the dialog
+  // has a format menu of its own; where there's no dialog it's the whole
+  // answer. The note is why you'd pick the other one.
+  const REC_NOTE = { mkv: 'survives a crash', webm: 'survives a crash', mp4: 'opens anywhere' };
+  const formats = recordable();
+  // there's no way to start a recording on a touch screen, so there's nothing
+  // for these to configure — see initTouchBar
+  if (isTouch) for (const row of el.querySelectorAll('.sb-rec')) row.remove();
+  else {
+    $('#sb-recfmt').innerHTML = formats.length
+      ? formats.map((f) => `<option value="${f}">.${f} — ${REC_NOTE[f]}</option>`).join('')
+      : '<option value="">not supported here</option>';
+  }
+
   const applySettings = () => {
     settings.fontSize = Math.min(40, Math.max(MIN_FONT, settings.fontSize || 15));
     settings.resWidth = dim(settings.resWidth, 1920);
@@ -195,6 +230,13 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     $('#sb-res-w').value = settings.resWidth;
     $('#sb-res-h').value = settings.resHeight;
     el.querySelector('.sb-res').classList.toggle('sb-off', !settings.resFixed);
+    // a format saved on another machine may not be recordable on this one
+    if (formats.length && !formats.includes(settings.recFormat)) [settings.recFormat] = formats;
+    const fmt = $('#sb-recfmt'); // gone on a touch screen
+    if (fmt) {
+      fmt.value = settings.recFormat ?? '';
+      $('#sb-recscale').value = String(settings.recScale ?? 1);
+    }
   };
   const setFontSize = (px) => {
     settings.fontSize = Math.round(px);
@@ -213,6 +255,8 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       persist();
     });
   }
+  $('#sb-recfmt')?.addEventListener('change', (e) => { settings.recFormat = e.target.value; persist(); });
+  $('#sb-recscale')?.addEventListener('change', (e) => { settings.recScale = Number(e.target.value) || 1; persist(); });
   $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
   $('#sb-tempo').addEventListener('change', (e) => { settings.bpm = Math.max(1, Number(e.target.value) || 120); applySettings(); persist(); });
   applySettings();
@@ -617,5 +661,6 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   else if (active) openList = active.id;
   render();
 
-  return { initialCode, toggle, settings, step };
+  // sketchName: what's loaded, which is what a recording names its file after
+  return { initialCode, toggle, settings, step, sketchName: () => current.name };
 }

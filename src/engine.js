@@ -77,6 +77,10 @@ export class Engine {
     this.patch = [];      // objects added by the current sketch
     this.updaters = [];   // fns called every frame with (t, dt)
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
+    // Called at the end of every frame, while the drawing buffer still holds
+    // it — a WebGL canvas can't be read back from a later task. The recorder
+    // composites here.
+    this.onFrame = null;
 
     this.sketchBpm = null;          // tempo() in the sketch; null = the sidebar's
     this.defaultBpm = 120;          // the sidebar's tempo, which tempo() outranks
@@ -156,6 +160,23 @@ export class Engine {
   // if one is set, otherwise whatever the sketch asked for.
   get resolution() {
     return this.resOverride ?? this.sketchRes;
+  }
+
+  // The size a recording is made at.
+  //
+  // A resolution() — or the sidebar's fixed size — is a declared output
+  // format, so that's what comes out, whatever quality is doing to the buffer
+  // underneath: 1920×1080 asked for is 1920×1080 recorded.
+  //
+  // Without one there's nothing declared, and the buffer already *is* the
+  // window at its true size. Recording above it would be upscaling nothing
+  // into something — and on a phone, where the buffer is deliberately smaller
+  // than the screen's 3× pixels, it's a lot of nothing to push through an
+  // encoder every frame.
+  get outputSize() {
+    if (this.resolution) return this.resolution;
+    const canvas = this.renderer.domElement;
+    return [canvas.width, canvas.height];
   }
 
   // beat()'s tempo: the sketch's tempo() if it set one, else the sidebar's.
@@ -260,6 +281,7 @@ export class Engine {
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
     }
+    this.onFrame?.();
   }
 
   togglePause() {
