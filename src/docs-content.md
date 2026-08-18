@@ -82,6 +82,11 @@ The file is the picture at full size, whatever the window is doing:
 letterbox bars never make it in. Without a `resolution()` there's no size to
 hold to, so the file is what the window is really rendering, quality included.
 
+**rec. audio** puts the sound in the file: the audio input as it arrives, plus
+any `audiofile()` at the volume you set. It's on by default, and the track is
+there from the first frame whether anything is making noise yet or not, so a
+take started before the music still gets it.
+
 The code is in the recording exactly when it's on screen, so `ctrl + h` (or
 `ctrl + m` with no projector) takes it out of the file too — decided when you
 press record, so a take that starts with the code hidden stays that way, and
@@ -1872,8 +1877,9 @@ icosa({ radius: 1 })
   `.range(0, 10, { from: [-1, 1] })`.
 
 The sidebar's **audio out** passes the captured input through to an output
-device, handy for monitoring an interface channel. Mind the feedback: mic →
-speakers will howl.
+device, handy for monitoring an interface channel. It's where `audiofile()`
+plays too, so picking a device moves all of fizzle's sound at once. Mind the
+feedback: mic → speakers will howl.
 
 ## tempo & sequencing
 

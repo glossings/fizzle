@@ -1,5 +1,6 @@
 import { warn } from './warn.js';
 import { isTouch } from './touch.js';
+import { audioTap } from './audio.js';
 
 // Recording a set to a file.
 //
@@ -11,16 +12,33 @@ import { isTouch } from './touch.js';
 //
 // A WebGL drawing buffer can't be read from a later task, so the composite runs
 // inside the render loop (engine.onFrame), with this frame still in the buffer.
+//
+// The sound needs none of that: audio.js keeps one tap node that every source
+// feeds, and its track goes into the same stream as the picture.
 
 // The containers worth offering, each with the codec strings to try for it.
 // mkv and webm stay playable if the writing stops mid-take; mp4 needs a
 // trailer, so a take that's cut off is a lost one — but it's the one every
 // player opens and the only one a phone will put in the camera roll. Which
 // trade is the right one is the user's, so it's a setting.
+//
+// Two lists per container, because a codec string that names only a video
+// codec is one some browsers refuse outright when the stream has audio in it.
+// The bare container ends both lists: it means "you choose", which is the
+// right last resort either way.
 const CONTAINERS = {
-  mkv: ['video/x-matroska;codecs=avc1', 'video/x-matroska;codecs=vp9', 'video/x-matroska'],
-  webm: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'],
-  mp4: ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'],
+  mkv: {
+    sound: ['video/x-matroska;codecs=avc1,opus', 'video/x-matroska;codecs=vp9,opus', 'video/x-matroska'],
+    mute: ['video/x-matroska;codecs=avc1', 'video/x-matroska;codecs=vp9', 'video/x-matroska'],
+  },
+  webm: {
+    sound: ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'],
+    mute: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'],
+  },
+  mp4: {
+    sound: ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4'],
+    mute: ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'],
+  },
 };
 
 const LABEL = { mkv: 'Matroska video', webm: 'WebM video', mp4: 'MP4 video' };
@@ -31,18 +49,26 @@ const supported = (mime) => {
 };
 
 // how to record into that container here, or null if this browser can't
-const mimeFor = (ext) =>
-  (typeof MediaRecorder === 'undefined' ? null : CONTAINERS[ext]?.find(supported)) ?? null;
+const mimeFor = (ext, sound) =>
+  (typeof MediaRecorder === 'undefined'
+    ? null
+    : CONTAINERS[ext]?.[sound ? 'sound' : 'mute'].find(supported)) ?? null;
 
-// What this browser can actually record, for the sidebar to offer.
-export const recordable = () => Object.keys(CONTAINERS).filter(mimeFor);
+// What this browser can actually record, for the sidebar to offer. A container
+// it can only record silent is still a container it can record.
+export const recordable = () => Object.keys(CONTAINERS).filter((e) => mimeFor(e, false));
 
 // [ext, mime] for everything available, with the one asked for first — the
 // rest follow so a browser that can't do the chosen container still records,
-// and so the save dialog can list the alternatives.
-function formats(want) {
+// and so the save dialog can list the alternatives. With sound wanted each
+// container is taken at its best: the codec string that carries audio where
+// there is one, the silent string where there isn't, rather than dropping the
+// container from the list over it.
+function formats(want, sound) {
   const order = [...new Set([want, ...Object.keys(CONTAINERS)])];
-  return order.map((ext) => [ext, mimeFor(ext)]).filter(([, mime]) => mime);
+  return order
+    .map((ext) => [ext, (sound && mimeFor(ext, true)) || mimeFor(ext, false)])
+    .filter(([, mime]) => mime);
 }
 
 // What the recorder actually produced, which is not always what it was asked
@@ -240,7 +266,9 @@ function isClean(src) {
 //   which part of it the picture occupies, in the element's own coordinates.
 // getFormat: the container the sidebar is set to — the default the save
 //   dialog opens on, and the whole answer where there's no dialog.
-export function initRecorder({ canvas, getSize, getName, getFormat, getScale, codeLayer, flash, onChange }) {
+// getAudio: whether the file gets a sound track. What's on it is everything
+//   audio.js is carrying: the input, and audiofile() playback at its volume.
+export function initRecorder({ canvas, getSize, getName, getFormat, getScale, getAudio, codeLayer, flash, onChange }) {
   let rec = null;          // the live MediaRecorder, or null
   let out = null, ctx = null, stream = null, track = null;
   let outW = 0, outH = 0;  // the frame size, with or without a compositing canvas
@@ -449,8 +477,8 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, co
   // stream into; everywhere else the take is held in memory and handed over at
   // the end. Returns the [ext, mime] to record in, or null if it isn't going
   // to happen.
-  async function openFile(want) {
-    const avail = formats(want);
+  async function openFile(want, sound) {
+    const avail = formats(want, sound);
     if (!avail.length) {
       warn('recording: this browser has no video recorder');
       return null;
@@ -497,6 +525,19 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, co
     return [ext, mime];
   }
 
+  // Only the video tracks are ours to end. The audio one is the tap's, shared
+  // by every take there will be, and a stopped track never comes back.
+  const release = () => stream?.getVideoTracks().forEach((t) => t.stop());
+
+  // Couldn't start: hand back everything start() had already taken.
+  async function fail(e) {
+    release();
+    chunks = null;
+    await writable?.abort().catch(() => {});
+    writable = null;
+    warn(`recording: ${e.message ?? e}`);
+  }
+
   async function start() {
     // a take left un-tapped isn't a take meant to be thrown away; put it
     // somewhere before this one starts piling up behind it
@@ -506,10 +547,27 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, co
       saveBtn.hidden = true;
     }
     // inside the gesture that asked for it — a file picker needs one
-    const picked = await openFile(getFormat?.() ?? 'mkv');
+    const wantSound = getAudio?.() ?? false;
+    const picked = await openFile(getFormat?.() ?? 'mkv', wantSound);
     if (!picked) return;
-    const [, mime] = picked;
+    const [ext] = picked;
+    let [, mime] = picked;
     recMime = mime;
+
+    // The tap's own track, which lives as long as the page does: every source
+    // is already feeding it, including ones that start after this take does.
+    // Not stopped with the rest at the end, since stopping it would end it for
+    // every take after this one too.
+    let audioTrack = null;
+    if (wantSound) {
+      if (!mimeFor(ext, true)) {
+        warn(`recording: this browser can't put audio in .${ext} — recording silent`);
+      } else {
+        // opening the audio graph is not a reason to lose the picture
+        try { audioTrack = audioTap().getAudioTracks()[0] ?? null; }
+        catch (e) { warn(`recording: no audio in this one (${e.message ?? e})`); }
+      }
+    }
 
     // Compositing exists to put the code over the picture. With no code to put
     // there, and a frame that's the drawing buffer at its own size, the copy
@@ -548,25 +606,34 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, co
       stream = out.captureStream(0);
       track = stream.getVideoTracks()[0];
       if (!track?.requestFrame) {
-        stream.getTracks().forEach((t) => t.stop());
+        release();
         stream = out.captureStream(MAX_FPS);
         track = stream.getVideoTracks()[0];
       }
     }
+    if (audioTrack) stream.addTrack(audioTrack);
 
     lastFrame = lastSnap = 0;
-    try {
-      rec = new MediaRecorder(stream, {
+    const video = bitrate(outW, outH, MAX_FPS);
+    const make = () =>
+      new MediaRecorder(stream, {
         mimeType: mime,
-        videoBitsPerSecond: bitrate(outW, outH, MAX_FPS),
+        videoBitsPerSecond: video,
+        ...(audioTrack ? { audioBitsPerSecond: 128e3 } : {}),
       });
+    try {
+      rec = make();
     } catch (e) {
-      stream.getTracks().forEach((t) => t.stop());
-      chunks = null;
-      await writable?.abort().catch(() => {});
-      writable = null;
-      warn(`recording: ${e.message ?? e}`);
-      return;
+      // Which pairs of codecs a container will actually take is a matrix
+      // nothing here can predict, and isTypeSupported answers for the string
+      // rather than for the stream it's about to be handed. Where that lands
+      // wrong, drop the audio: a take of the picture beats no take at all.
+      if (!audioTrack) return fail(e);
+      warn(`recording: no audio in this one (${e.message ?? e})`);
+      stream.removeTrack(audioTrack);
+      audioTrack = null;
+      recMime = mime = mimeFor(ext, false) ?? mime;
+      try { rec = make(); } catch (e2) { return fail(e2); }
     }
     writeError = null;
     held = 0;
@@ -603,7 +670,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, co
     dot.classList.add('show');
     tickDot();
     timer = setInterval(tickDot, 500);
-    flash?.(`● recording ${outW}×${outH} → ${saveName}`);
+    flash?.(`● recording ${outW}×${outH}${audioTrack ? ' + audio' : ''} → ${saveName}`);
     onChange?.();
   }
 
@@ -657,7 +724,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, co
       r.onstop = done;
       try { r.stop(); } catch { done(); }
     });
-    stream.getTracks().forEach((t) => t.stop());
+    release();
     const secs = Math.round((performance.now() - startedAt) / 1000);
     const dur = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
     let msg;

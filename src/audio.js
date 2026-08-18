@@ -9,6 +9,26 @@ import { carried } from './carry.js';
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
+// One context for every source. Nodes can't be connected across contexts, so
+// this is what lets a recording take all of them through a single tap; and
+// setSinkId being per-context is what makes the sidebar's output device mean
+// where all of fizzle's sound goes rather than the mic passthrough alone.
+let ctx = null;
+const context = () => (ctx ??= new AudioContext());
+
+// The recording tap. Every source feeds it whether anything is recording or
+// not: a MediaRecorder fixes its tracks when it's constructed, so a take that
+// started before the sketch called audio() can only pick that audio up if the
+// track was already there, silent, waiting for something to arrive on it.
+let tapNode = null;
+const tap = () => (tapNode ??= context().createMediaStreamDestination());
+
+export function audioTap() {
+  const stream = tap().stream;
+  context().resume(); // called from the gesture that started the take
+  return stream;
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -41,13 +61,17 @@ export class AudioEngine {
         },
       });
       this.stream = stream;
-      this.ctx ??= new AudioContext();
+      this.ctx = context();
       this.ctx.resume(); // suspended until the page has had a user gesture
       this.source?.disconnect();
       const src = (this.source = this.ctx.createMediaStreamSource(stream));
       const n =
         stream.getAudioTracks()[0]?.getSettings().channelCount ?? src.channelCount ?? 2;
       this._wire(src, n);
+      // the input as it arrives, not the analysis mono-mix. More than two
+      // channels in and the tap takes the first pair, which on an interface is
+      // the main output pair.
+      src.connect(tap());
       if (this.outputId != null) this.setOutput(this.outputId); // rewire passthrough
       window.dispatchEvent(new Event('td-audio-started')); // sidebar refreshes labels
     } catch (e) {
@@ -90,13 +114,14 @@ export class AudioEngine {
   // Analyze (and play) a media element — the audiofile() path. The element
   // routes through the analyser graph and a gain to the speakers.
   startMedia(el, volume = 1) {
-    this.ctx ??= new AudioContext();
+    this.ctx = context();
     this.ctx.resume();
     const src = (this.source = this.ctx.createMediaElementSource(el));
     const out = (this.mediaGain = this.ctx.createGain());
     out.gain.value = volume;
     src.connect(out);
     out.connect(this.ctx.destination);
+    out.connect(tap()); // after the gain, so the file gets what you hear
     this._wire(src, 2);
   }
 
@@ -106,7 +131,8 @@ export class AudioEngine {
 
   // Pass the input through to an output device (null disables). Device
   // selection uses AudioContext.setSinkId — Chrome/Edge; elsewhere the
-  // passthrough still works but only to the default output.
+  // passthrough still works but only to the default output. The context is
+  // shared, so the device chosen here is also where audiofile() plays.
   async setOutput(deviceId) {
     this.outputId = deviceId;
     if (!this.ctx || !this.source) return; // applied when capture starts

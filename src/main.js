@@ -233,6 +233,7 @@ function codeLayer() {
 let sketchName = () => 'untitled';
 let recFormat = () => (isTouch ? 'mp4' : 'mkv');
 let recScale = () => 1;
+let recAudio = () => true;
 
 const recorder = initRecorder({
   canvas: glCanvas,
@@ -240,6 +241,7 @@ const recorder = initRecorder({
   getName: () => sketchName(),
   getFormat: () => recFormat(),
   getScale: () => recScale(),
+  getAudio: () => recAudio(),
   codeLayer,
   flash,
   onChange: () => touchbar?.refresh(),
@@ -398,6 +400,7 @@ initDrop();
   sketchName = sidebar.sketchName;
   recFormat = () => sidebar.settings.recFormat;
   recScale = () => sidebar.settings.recScale;
+  recAudio = () => sidebar.settings.recAudio;
 
   // "open in editor" from the docs page hands a sketch over via localStorage
   let handoff = null;

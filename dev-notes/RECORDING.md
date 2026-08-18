@@ -32,6 +32,8 @@ canvas whose `captureStream` feeds a `MediaRecorder`.
 - **Frames are pushed, not sampled** — `captureStream(0)` plus
   `track.requestFrame()`, so the file gets exactly the frames the sketch drew.
   Falls back to `captureStream(60)` where `requestFrame` is missing.
+- **Sound** is one tap node every audio source feeds, added to the stream as a
+  second track. `rec. audio` in the sidebar; see [Audio](#audio) below.
 - **The code overlay** is the projector's `#proj-code` while a projector is
   open, otherwise `#editor`, and null when whichever one applies is hidden.
   `main.js:codeLayer()` picks; each hands back the element plus the rect of it
@@ -357,20 +359,69 @@ by renaming, and being matroska they play. There is no API that writes in place
 to a user-chosen path; OPFS `createSyncAccessHandle` does, but only inside
 origin-private storage, which is not a location anyone can pick.
 
-## Not done: audio
+## Audio
 
-The one part of the original scope left out, and the reason is the one the
-scoping doc named. Every `AudioEngine` builds its own `AudioContext`
-([audio.js:44](../src/audio.js#L44), [audio.js:93](../src/audio.js#L93)), nodes
-can't be mixed across contexts, and capturing the lot means hoisting one shared
-module-level context. That's cheap to do and it changes behaviour:
-`setSinkId` is per-context, so the output-device select would start moving
-`audiofile()` playback along with the mic passthrough. Arguably right, but it's
-a decision about how the audio graph behaves during a set, not a detail of
-recording — worth taking on purpose rather than discovering.
+Held back from the first version because the blocker wasn't in the recorder: a
+`MediaRecorder` takes a stream and doesn't care what's on it, but every
+`AudioEngine` built its own `AudioContext` and nodes can't be connected across
+contexts.
 
-Once that's done it's one `MediaStreamAudioDestinationNode` fed by every source,
-and its track handed to `MediaRecorder` alongside the video one.
+**One shared context now** ([audio.js:17](../src/audio.js#L17)), which is the
+decision that was worth taking on purpose. `setSinkId` is per-context, so the
+sidebar's **audio out** went from meaning *where the mic passthrough goes* to
+meaning *where all of fizzle's sound goes*, `audiofile()` playback included.
+That's the more defensible reading of a select labelled "audio out" — the old
+one silently governed one of three sources — but it is a behaviour change, and
+the failure case is someone with that select pointed at a spare device finding
+their playback has followed it there.
+
+The alternative that avoids the hoist: a `MediaStreamAudioDestinationNode` per
+context, pulled back into one mixer context through `createMediaStreamSource`.
+Legal, and it preserves per-source output devices, but the round trip through a
+MediaStream costs a jitter buffer — tens of ms of audio lag against picture,
+plus a resample where two contexts disagree on sample rate. Not worth it for a
+behaviour nobody asked to keep.
+
+So: one `MediaStreamAudioDestinationNode` fed by every source
+([audio.js:24](../src/audio.js#L24)), its track added to the same stream as the
+video one.
+
+- **The tap is fed always, not while recording.** A `MediaRecorder` fixes its
+  tracks at construction, so a track added later is a track the file never
+  sees. Attaching the silent tap to every take is what lets a take started
+  before `audio()` pick the sound up when it arrives, which is the order half
+  of a set happens in.
+- **The tap track is never stopped.** It belongs to the page, not the take, and
+  a stopped `MediaStreamTrack` doesn't come back — stopping it would leave
+  every later take silent. `release()` ends the video tracks only.
+- **Codec strings come in pairs.** `CONTAINERS` carries a `sound` list and a
+  `mute` list per container, because a string naming only a video codec is one
+  some browsers refuse when the stream has audio on it. `isTypeSupported`
+  answers for the string, not for the stream, so a failed construction retries
+  once without the audio track rather than losing the take.
+- **The input goes in as it arrives**, not the analysis mono-mix, which is
+  scaled by `1/n` and would record quiet. Past two channels the destination
+  node takes the first pair. `audiofile()` is tapped after its gain, so the
+  file gets what the room got.
+
+### Measured
+
+Headless Chrome over CDP, a 3s take of a pushed canvas stream plus an
+oscillator on the tap, `ffprobe -count_frames`:
+
+| container | streams | video frames (91 pushed) | audio |
+|---|---|---|---|
+| `x-matroska;codecs=avc1,opus` | h264 + opus | 91 | 48 kHz, 48 pkt |
+| `mp4;codecs=avc1.42E01E,mp4a.40.2` | h264 + aac | 91 | 48 kHz, 137 pkt |
+
+Every string in `CONTAINERS` came back supported on this machine, mp4 with AAC
+included. Both tracks start at 0.000; audio runs 80ms shorter, which is the
+last partial packet at the stop rather than drift.
+
+What that doesn't answer is **drift over a set**. Audio runs on its own clock
+while video frames are pushed by `requestFrame`, so a render stall thins the
+video without touching the audio, and three seconds is too short to show it. A
+clap at the top and tail of a twenty minute take is the test.
 
 ## Also not done
 

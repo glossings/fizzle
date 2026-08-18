@@ -93,7 +93,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       // those pay for it. Full size costs a phone two thirds of its frame rate
       // doing that; half costs it nothing measurable. A laptop doesn't notice
       // either way, so it keeps every pixel.
-      recFormat: isTouch ? 'mp4' : 'mkv', recScale: isTouch ? 0.5 : 1 },
+      recFormat: isTouch ? 'mp4' : 'mkv', recScale: isTouch ? 0.5 : 1, recAudio: true },
     JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
   );
   const persist = () => localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
@@ -121,6 +121,12 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       <label>audio out <select id="sb-audio-out"></select></label>
       <label>tempo <input id="sb-tempo" type="number" min="20" max="300" step="1"> bpm</label>
       <label class="sb-rec">recording <select id="sb-recfmt"></select></label>
+      <label class="sb-rec">rec. audio
+        <select id="sb-recaudio">
+          <option value="1">on</option>
+          <option value="0">off</option>
+        </select>
+      </label>
       <label class="sb-rec">rec. scale
         <select id="sb-recscale">
           <option value="1">full</option>
@@ -236,6 +242,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     if (fmt) {
       fmt.value = settings.recFormat ?? '';
       $('#sb-recscale').value = String(settings.recScale ?? 1);
+      $('#sb-recaudio').value = settings.recAudio ? '1' : '0';
     }
   };
   const setFontSize = (px) => {
@@ -257,6 +264,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   }
   $('#sb-recfmt')?.addEventListener('change', (e) => { settings.recFormat = e.target.value; persist(); });
   $('#sb-recscale')?.addEventListener('change', (e) => { settings.recScale = Number(e.target.value) || 1; persist(); });
+  $('#sb-recaudio')?.addEventListener('change', (e) => { settings.recAudio = e.target.value === '1'; persist(); });
   $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
   $('#sb-tempo').addEventListener('change', (e) => { settings.bpm = Math.max(1, Number(e.target.value) || 120); applySettings(); persist(); });
   applySettings();
