@@ -538,7 +538,7 @@ const GLOBAL_KEY_DOCS = {
     res: 'Grid size along the long edge, 16..1024. Default 256. The short edge follows the window so cells stay square. Changing it starts the sim over.',
     speed: 'Multiplies the timestep. Default 1; 0 freezes the field without freezing the sketch.',
     fade: 'Dye lost per second, 0..1. Default 0.4. 0 never fades, so ink keeps building until the frame is solid.',
-    damping: 'Velocity lost per second, 0..1. Default 0.1. Raise it for a field that settles quickly once you stop pushing.',
+    damping: 'Velocity lost per second, 0..1. Default 0.3. Raise it for a field that settles quickly once you stop pushing.',
     vorticity: 'How much of the swirl the grid rounds off gets put back. Default 0.3. 0 is soupy, high is wispy and turbulent.',
     iterations: 'Pressure solve steps per frame, 1..120. Default 30. Fewer is cheaper and leaks; more is stiffer and slower.',
     wrap: "'repeat' (default) flows off one edge and back in the other, 'clamp' puts walls around the frame.",

@@ -299,17 +299,20 @@ export function renderFluid(node, ctx, ins) {
   const p = node.params;
   const s = node.sim;
   const m = mats();
-  ensure(ctx, s, resolve(p.res ?? 256, ctx.t), p.wrap ?? 'repeat');
+
+  // Sized and stepped once a frame, by the first context that asks. renderNode
+  // memoizes per frame *per context*, so a chain pulled at two sizes in one
+  // frame renders twice — for an op that integrates that would be two steps,
+  // at whichever aspect asked last, and `ensure` would reallocate the grid to
+  // that aspect and clear it on each pull, which leaves a fluid() inside
+  // .tile() black every frame rather than merely stepped twice.
+  const first = s.frame !== ctx.frame;
+  s.frame = ctx.frame;
+  if (first) ensure(ctx, s, resolve(p.res ?? 256, ctx.t), p.wrap ?? 'repeat');
 
   // Frozen like .delay()'s ring: pausing holds the picture, and stepping the
   // sim behind a still frame would land somewhere else when it resumes.
-  if (node.engine.paused) return s.dye.read.texture;
-
-  // renderNode memoizes per frame *per context*, so a chain pulled at two
-  // sizes in one frame renders twice — which for an op that integrates would
-  // be two steps, at whichever aspect asked last. The sim steps once.
-  if (s.frame === ctx.frame) return s.dye.read.texture;
-  s.frame = ctx.frame;
+  if (!first || node.engine.paused) return s.dye.read.texture;
 
   const dt = Math.min(ctx.dt ?? 0, DT_MAX) * resolve(p.speed ?? 1, ctx.t);
   if (dt <= 0) return s.dye.read.texture;

@@ -1715,12 +1715,19 @@ is lit and drifts once it goes dark. Several of either call stack.
 them, so flow goes around rather than being clipped afterwards.
 
 ```js
+const disc = circle({ radius: 0.12, center: [0.45, 0.5], bg: null })
+
 fluid({ res: 320, fade: 0.1 })
-  .obstacle(person())
+  .obstacle(disc)
   .push(constant('#ff8000'), 0.5)
   .ink(circle({ center: [0.05, t => 0.5 + Math.sin(t) * 0.3], radius: 0.03, color: '#7ee787', bg: null }), 6)
+  .comp(disc, 'over')
   .out()
 ```
+
+A mask only tells the solver where the solid is. Nothing puts it on screen, so
+that last `.comp()` draws the same disc back over the dye. Any chain works as
+one: `.obstacle(person())` parts the flow around whoever is on camera.
 
 ### the fields behind it
 
@@ -1729,6 +1736,9 @@ The sim carries more than the picture. `.velocity()`, `.curl()` and
 and drop into any slot that takes one.
 
 ```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 1.8 }).position(4, 6, 3).out()
+
 const flow = fluid({ res: 256 })
   .push(noise({ period: 0.35, channels: 2, speed: 0.35 }), 0.4)
 
