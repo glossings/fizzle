@@ -123,8 +123,7 @@ say, not a different shape.
   op rather than out of buses, which is why none of the three simulation items
   below blocked it: the Jacobi loop is a `for` around `runPass` like bloom's
   passes, and the grid is four small targets it owns rather than eighteen
-  full-frame ones. What it still wants is a look at whether half-float pressure
-  holds up at `res: 1024`, and free-slip walls (`wrap: 'clamp'` is no-slip).
+  full-frame ones. Open questions and how to probe them: `fluid()` below.
 
 ## `.blur(r)` is only a gaussian at r = 1
 
@@ -250,6 +249,180 @@ above is the first of them:
 [ ] Neither is blocked on the other, and `.glsl()` below is a third way to buy
   the same thing — worth deciding which one lands first rather than doing all
   three.
+
+## `fluid()` — what hasn't been looked at
+
+Every shader compiles, every uniform the JS writes exists in the shader it
+writes to, and the projection is checked numerically: `div(grad(p))` matches the
+five-point Laplacian to machine precision, and 30 Jacobi iterations from cold
+leave 7.6% of the initial divergence. What is *not* settled is how any of it
+looks, and three constants are estimates rather than measurements. Two probe
+sketches ask about them directly and should be deleted once answered:
+`fluid-probe-vorticity`, `fluid-probe-fields`.
+
+**Calibration.**
+
+[ ] The confinement force is `vorticity * 3` ([src/fluid.js](../src/fluid.js)).
+  It was 20, which measured out several times stronger than the forces actually
+  driving the sim: at `vorticity: 0.5` the confinement force came to ~0.5
+  heights/s² against a `.push()` of at most 0.2, so it supplied the motion
+  instead of correcting it and the field saturated into even foam a few cells
+  across. 3 is sized to make it a correction again and is still a guess.
+  `fluid-probe-vorticity` sweeps the knob to place it.
+[ ] `VIEW_SCALE` — velocity 2, curl 50, pressure 50 — was never tested against a
+  working field: every run of it happened while the curl was dominated first by
+  the null space and then by runaway confinement, both of which saturated the
+  view. Low stakes now that the fields are diagnostics rather than the thing
+  being judged, but the numbers are still guesses.
+[ ] `damping` moved from 0.1 to 0.3 so the steady speed lands near the `.push()`
+  amount, which is the only thing that makes the two numbers guessable together.
+  It also shortens how long an eddy survives once you stop pushing. Check that
+  a stir still coasts long enough to read as fluid rather than as friction.
+
+**Fixed, but worth knowing about.**
+
+[x] **The projection had a null space.** div and grad both used central
+  differences (straight out of GPU Gems 38), which compose to a stencil reaching
+  two cells, while the Jacobi pass inverts the compact five-point Laplacian.
+  Solving one operator and applying another leaves the difference in the
+  one-cell checkerboard mode, which the loop cannot observe and therefore never
+  removes — measured on a 32x32 periodic grid, 4000 Jacobi iterations removed
+  only 34% of the initial divergence and then stopped improving. Both operators
+  are now compact and adjoint (forward div, backward grad), which composes to
+  the Laplacian exactly and removes 98.9%. At the default 30 iterations from
+  cold the residual is 7.6%, better in practice because the solve warm-starts.
+  Found by `fluid-probe-fields`: the dye never showed it, because bilinear
+  advection smooths the mode away, but curl is a high-pass and displayed it at
+  full strength. `curl(grad(p))` is 0 for the same stencils, also to machine
+  precision, so the projection cannot disturb the curl — which is what makes it
+  legitimate for `.curl()` to display the field before the solve rather than
+  after.
+
+[ ] Confinement now reads a 3x3 tent-smoothed curl rather than the raw field,
+  since it pushes along the gradient of |curl| and that gradient is steepest at
+  single-cell noise — raw curl made the force chase the speckle it had just
+  created. The displayed `.curl()` stays raw.
+[ ] Judge the solver by the dye, not by `.curl()`. Curl is a high-pass with full
+  response at Nyquist, so it shows grid-scale content at full strength while the
+  dye smooths it away — three rounds of calibration went into an instrument that
+  exaggerates the one thing being calibrated. Keep it for diagnosis; use
+  `fluid` for whether it looks right.
+[x] The one-cell speckle was confinement dominance, not a numerical defect. With
+  that and the null space both fixed the dye reads as fluid, which is the bar
+  that matters. `fluid-probe-fields` is deleted; what it was measuring is
+  settled.
+
+[ ] Velocity is now read as living on each cell's low faces, which is what makes
+  the two operators adjoint, but advection still samples it as though it were
+  cell-centred. That is a half-cell offset in the lookup — below the bilinear
+  interpolation error already there, and it shifts rather than roughens, so it
+  is not urgent. Averaging adjacent faces would cost two taps.
+[ ] With velocity on faces, free-slip walls are now the natural thing to write
+  (zero the normal component at the boundary face, leave the tangential one)
+  rather than the special case they were. Folds into the `wrap: 'clamp'` item
+  above.
+
+**Correctness, in rough order of how likely it is to matter.**
+
+[ ] **Obstacle boundaries comb.** A disc obstacle frays into regular teeth
+  roughly three cells wide where flow grazes it. Two causes stacked:
+
+  - `solid()` is `step(0.5, luma)` ([src/fluid.js](../src/fluid.js)), so a cell
+    is either fully solid or fully fluid. A circle on the grid is a staircase
+    and flow separates off every step.
+  - The mask is resampled to the grid by one bilinear tap in the `m.copy` pass.
+    At `res: 320` against a 1500px frame that is a 5:1 minification through a
+    2x2 kernel, so `circle()`'s antialiased rim is discarded before the
+    threshold sees it. That is what makes the teeth ragged rather than a clean
+    stair.
+
+  `res: 640` halves the tooth size and the sim is nowhere near the frame cost,
+  so that is the lever in the meantime.
+
+  The cheap fix is to stop binarizing: have `solid()` return coverage rather
+  than 0 or 1, so a half-covered cell blocks half. In `FRAG_DIV` and
+  `FRAG_PROJECT` the existing `1.0 - solid(...)` already reads as a partial
+  damp on the face, and `FRAG_JACOBI`'s `mix(neighbour, centre, solid(...))`
+  already reads as a partial mirror, so the shaders barely change — it is the
+  threshold that has to go, together with a box-filtered downsample of the mask
+  so coverage means something. Cost is a slightly leaky obstacle: a mask thinner
+  than a cell would pass some flow rather than stopping it dead, which argues
+  for warning when someone hands `.obstacle()` something that thin.
+
+
+[ ] **Cut cells — the real answer to the above.** Coverage-as-damping is an
+  approximation that happens to look better; this is the thing that is actually
+  right, and it is what lets a boundary sit *between* grid lines instead of on
+  them. Each face carries an open fraction `a` in 0..1 — how much of that face
+  the fluid can pass through — and every pass that touches a face weights by it:
+
+  - **Divergence.** Each flux term scales by its face fraction:
+    `(a_r * xr - a_l * xl) + (a_t * yt - a_b * yb)`. Replaces the
+    `1.0 - max(sc, solid(...))` masking, which is the same idea at one bit.
+  - **Jacobi.** This is the part that is genuinely different rather than a
+    reweighting. The stencil stops being uniform: the equation becomes
+    `sum(a_k * (p_k - p_c)) = div`, so the denominator is `sum(a_k)` rather
+    than a hard 4, and each neighbour is weighted by its own face. A closed
+    face drops out on both sides, which is the Neumann condition falling out
+    of the algebra instead of being special-cased by the `mix(..., solid)`
+    trick. Watch for `sum(a_k)` at or near zero in an isolated cell — needs a
+    floor, or those cells excluded.
+  - **Projection.** The gradient subtracted at each face scales by whether that
+    face is open, so a fully closed face leaves its velocity component alone
+    rather than zeroing the whole vector per component the way it does now.
+
+  Where `a` comes from matters as much as the solver change. Computing it
+  properly means the distance field of the mask, not the mask: with a signed
+  distance you get the exact open fraction of each face by linear interpolation
+  along it, which is what makes the boundary sub-cell. Deriving it from the
+  binary mask instead gets you back roughly to coverage-as-damping. So this
+  probably wants `.obstacle()` to accept (or internally build) a distance field
+  — which is its own piece of work, and is also what moving obstacles want, so
+  the two items are worth planning together rather than in sequence.
+
+  Bonus once `a` exists: it subsumes the wall handling. `wrap: 'clamp'` becomes
+  a frame of closed faces rather than the separate `uWalls` branch in
+  `FRAG_PROJECT`, and free-slip falls out for free, since closing a face stops
+  the normal component and says nothing about the tangential one.
+
+  Not worth starting before the sim has been driven hard in a real set — the
+  current boundary is visibly stepped but it is stable, and everything above is
+  a solver rewrite in exchange for a look.
+
+[ ] **Moving obstacles drag nothing.** A solid cell that moves leaves the
+  velocity behind it exactly as it was, because the obstacle only ever *zeroes*
+  velocity — it never imparts its own. `.obstacle(person())` will part a flow
+  but won't push one. The fix is to write the mask's frame-to-frame motion into
+  the solid cells instead of zeroing them, which needs last frame's mask kept.
+[ ] **`wrap: 'clamp'` is no-slip**, not free-slip: the boundary cell holds still,
+  so flow sticks to the walls and a drift piles up against them. Free-slip
+  (keep the tangential component, zero the normal one) is almost certainly the
+  better default for a visual tool, and is a few lines in `FRAG_PROJECT`.
+[ ] **Pressure is warm-started and never cleared.** Last frame's solution is the
+  next frame's initial guess, which is worth several iterations — but if the
+  solve is under-converged the residual has nowhere to go and could accumulate
+  over a long set. Watch a sim run for twenty minutes and look for slow drift
+  or a creeping grid pattern. The standard hedge is decaying the guess (`× 0.95`)
+  before the loop.
+[ ] **Half-float pressure at high res.** Thirty Jacobi iterations at `res: 1024`
+  in half float is about three decimal digits of headroom. Look for banding or
+  a solve that stalls. If it does, only the pressure pair needs to be float32,
+  and only above some res.
+
+**Rough edges.**
+
+[ ] `res` as a fn of `t` reallocates the grid every frame, which blanks the sim
+  every frame. Either resolve it once at build time or warn.
+[ ] `DT_MAX` is 1/30, so below 30fps the sim runs in slow motion rather than
+  lurching. That's the right trade for a dropped frame; it may be the wrong one
+  for a sketch that simply runs at 24fps. Check on something heavy.
+[ ] `fluid()` inside `.tile()` is untested. Each cell claims its own carried
+  state and its own grid at the tile's aspect, so it should work, but nine
+  sims is nine sets of nine targets and there is no warning about it (compare
+  the one `bufferId()` prints past sixteen buffers).
+[ ] Once bus sub-stepping lands, build the same solver as a chain and diff it
+  against `fluid()`. That is the regression test the composed path otherwise
+  never gets, and the reason to have built the native op first.
 
 ## Per-chain resolution
 

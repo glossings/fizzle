@@ -75,11 +75,31 @@ void main() {
 
 const FRAG_CURL = /* glsl */ `
 void main() {
-  float r = texture2D(tex0, vUv + vec2(uTexel.x, 0.0)).g;
-  float l = texture2D(tex0, vUv - vec2(uTexel.x, 0.0)).g;
-  float t = texture2D(tex0, vUv + vec2(0.0, uTexel.y)).r;
-  float b = texture2D(tex0, vUv - vec2(0.0, uTexel.y)).r;
-  gl_FragColor = vec4(0.5 * ((r - l) - (t - b)), 0.0, 0.0, 1.0);
+  vec2 ex = vec2(uTexel.x, 0.0), ey = vec2(0.0, uTexel.y);
+  vec2 c = texture2D(tex0, vUv).rg;
+  float vyl = texture2D(tex0, vUv - ex).g;
+  float vxb = texture2D(tex0, vUv - ey).r;
+  // compact differences, matching the divergence. A central difference has a
+  // null at the one-cell wavelength, so it cannot see the mode most worth
+  // seeing — which made this the wrong instrument to debug the solve with.
+  gl_FragColor = vec4((c.y - vyl) - (c.x - vxb), 0.0, 0.0, 1.0);
+}
+`;
+
+// Confinement reads this rather than the raw curl. A 3x3 tent has zero
+// response at the one-cell wavelength, which is exactly the mode confinement
+// would otherwise amplify: it pushes along the gradient of |curl|, and that
+// gradient is steepest at single-cell noise, so raw curl makes the force chase
+// the speckle it just created. The displayed .curl() stays raw.
+const FRAG_SMOOTH = /* glsl */ `
+void main() {
+  vec2 e = uTexel;
+  float c = texture2D(tex0, vUv).r;
+  float n = texture2D(tex0, vUv + vec2(e.x, 0.0)).r + texture2D(tex0, vUv - vec2(e.x, 0.0)).r
+          + texture2D(tex0, vUv + vec2(0.0, e.y)).r + texture2D(tex0, vUv - vec2(0.0, e.y)).r;
+  float d = texture2D(tex0, vUv + e).r + texture2D(tex0, vUv - e).r
+          + texture2D(tex0, vUv + vec2(e.x, -e.y)).r + texture2D(tex0, vUv + vec2(-e.x, e.y)).r;
+  gl_FragColor = vec4((4.0 * c + 2.0 * n + d) * 0.0625, 0.0, 0.0, 1.0);
 }
 `;
 
@@ -104,11 +124,23 @@ const FRAG_DIV = /* glsl */ `
 ${SOLID}
 void main() {
   vec2 ex = vec2(uTexel.x, 0.0), ey = vec2(0.0, uTexel.y);
-  vec2 vl = texture2D(tex0, vUv - ex).rg, vr = texture2D(tex0, vUv + ex).rg;
-  vec2 vb = texture2D(tex0, vUv - ey).rg, vt = texture2D(tex0, vUv + ey).rg;
-  vl *= 1.0 - solid(vUv - ex);  vr *= 1.0 - solid(vUv + ex);
-  vb *= 1.0 - solid(vUv - ey);  vt *= 1.0 - solid(vUv + ey);
-  gl_FragColor = vec4(0.5 * ((vr.x - vl.x) + (vt.y - vb.y)), 0.0, 0.0, 1.0);
+  float sc = solid(vUv);
+  // Read the stored velocity as living on each cell's *low* faces, so this is
+  // the flux in through them minus the flux out through the next cell's. Paired
+  // with the backward gradient in FRAG_PROJECT it composes to exactly the
+  // five-point Laplacian the Jacobi pass inverts — which is the whole point.
+  // Central differences either side would compose to a stencil reaching two
+  // cells, splitting the grid into two sublattices that never see each other:
+  // the solve would then be inverting a different operator than the projection
+  // applies, and the leftover divergence would sit in the one-cell checkerboard
+  // mode forever, since nothing in the loop can observe it.
+  float xl = texture2D(tex0, vUv).r,      yb = texture2D(tex0, vUv).g;
+  float xr = texture2D(tex0, vUv + ex).r, yt = texture2D(tex0, vUv + ey).g;
+  xl *= 1.0 - max(sc, solid(vUv - ex));
+  yb *= 1.0 - max(sc, solid(vUv - ey));
+  xr *= 1.0 - max(sc, solid(vUv + ex));
+  yt *= 1.0 - max(sc, solid(vUv + ey));
+  gl_FragColor = vec4((xr - xl) + (yt - yb), 0.0, 0.0, 1.0);
 }
 `;
 
@@ -134,10 +166,15 @@ const FRAG_PROJECT = /* glsl */ `
 ${SOLID}
 void main() {
   vec2 ex = vec2(uTexel.x, 0.0), ey = vec2(0.0, uTexel.y);
-  float l = texture2D(tex1, vUv - ex).r, r = texture2D(tex1, vUv + ex).r;
-  float b = texture2D(tex1, vUv - ey).r, t = texture2D(tex1, vUv + ey).r;
-  vec2 v = texture2D(tex0, vUv).rg - 0.5 * vec2(r - l, t - b);
-  v *= 1.0 - solid(vUv);
+  float pc = texture2D(tex1, vUv).r;
+  float pl = texture2D(tex1, vUv - ex).r;
+  float pb = texture2D(tex1, vUv - ey).r;
+  // backward, the adjoint of the divergence above
+  vec2 v = texture2D(tex0, vUv).rg - vec2(pc - pl, pc - pb);
+  // a face with a solid on either side of it carries nothing
+  float sc = solid(vUv);
+  v.x *= 1.0 - max(sc, solid(vUv - ex));
+  v.y *= 1.0 - max(sc, solid(vUv - ey));
   if (uWalls > 0.5) {
     // the outermost cell is the wall itself, so it holds still
     vec2 edge = step(vUv, uTexel) + step(1.0 - uTexel, vUv);
@@ -172,6 +209,7 @@ function mats() {
     push: makeMaterial({ extras: { uMod: [1, 0], uDt: 0 }, frag: FRAG_PUSH }),
     ink: makeMaterial({ extras: { uAmount: 1, uDt: 0 }, frag: FRAG_INK }),
     curl: makeMaterial({ frag: FRAG_CURL }),
+    smooth: makeMaterial({ frag: FRAG_SMOOTH }),
     vort: makeMaterial({ extras: { uVort: 0, uDt: 0 }, frag: FRAG_VORT }),
     div: makeMaterial({ extras: obs, frag: FRAG_DIV }),
     jacobi: makeMaterial({ extras: obs, frag: FRAG_JACOBI }),
@@ -208,15 +246,16 @@ const pair = (w, h, wrap) => ({
 
 export function makeFluidState() {
   return { w: 0, h: 0, wrap: null, frame: -1,
-           vel: null, dye: null, prs: null, div: null, curl: null, obs: null };
+           vel: null, dye: null, prs: null, div: null, curl: null, curlS: null, obs: null };
 }
 
 export function disposeFluidState(s) {
   for (const f of [s.vel, s.dye, s.prs]) { f?.read.dispose(); f?.write.dispose(); }
   s.div?.dispose();
   s.curl?.dispose();
+  s.curlS?.dispose();
   s.obs?.dispose();
-  s.vel = s.dye = s.prs = s.div = s.curl = s.obs = null;
+  s.vel = s.dye = s.prs = s.div = s.curl = s.curlS = s.obs = null;
   s.w = s.h = 0;
 }
 
@@ -241,12 +280,13 @@ function ensure(ctx, s, res, wrapMode) {
   s.prs = pair(w, h, wrap);
   s.div = makeTarget(w, h, wrap);
   s.curl = makeTarget(w, h, wrap);
+  s.curlS = makeTarget(w, h, wrap);
   s.obs = makeTarget(w, h, wrap);
   // a target's contents are undefined until something renders into it, and the
   // first frame reads all of these before it writes them
   const m = mats();
   for (const rt of [s.vel.read, s.vel.write, s.dye.read, s.dye.write,
-                    s.prs.read, s.prs.write, s.div, s.curl, s.obs]) {
+                    s.prs.read, s.prs.write, s.div, s.curl, s.curlS, s.obs]) {
     runPass(ctx, m.clear, null, null, rt);
   }
   return true;
@@ -310,9 +350,15 @@ export function renderFluid(node, ctx, ins) {
   runPass(ctx, m.curl, s.vel.read.texture, null, s.curl);
   const vort = resolve(p.vorticity ?? 0.3, ctx.t);
   if (vort > 0) {
-    runPass(ctx, m.vort, s.vel.read.texture, s.curl.texture, s.vel.write, (u) => {
-      // the sketch's 0..1 knob against the scale the force actually wants
-      u.uVort.value = vort * 20;
+    runPass(ctx, m.smooth, s.curl.texture, null, s.curlS);
+    runPass(ctx, m.vort, s.vel.read.texture, s.curlS.texture, s.vel.write, (u) => {
+      // The sketch's 0..1 knob against the scale the force wants. At 20 this
+      // came out several times stronger than the forces driving the sim, so
+      // confinement stopped being a correction and became the flow: the field
+      // saturated into even foam a few cells across whatever else was set.
+      // Confinement should restore the swirl advection rounded off, not supply
+      // the motion.
+      u.uVort.value = vort * 3;
       u.uDt.value = dt;
     });
     s.vel.swap();
