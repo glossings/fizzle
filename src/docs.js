@@ -59,6 +59,8 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right' })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
+  layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
+
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
 
   beat: ['beat(perBar = 4)', 'Tempo-synced phase, counting up: perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) once a bar.\nWhole part = which cycle, fraction = where inside it, the way sig() counts seconds. Shapers take the fraction (.sin() .tri() .sqr(), and .saw() for the plain 0..1 ramp); anything that floors takes the count, so beat(1).select([...]) steps a list on the downbeat.'],
@@ -81,13 +83,26 @@ export const GLOBALS = {
 };
 
 export const METHODS = {
-  position: ['.position(x, y, z) | .position(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works.\nShort form: .pos().'],
+  position: ['.position(x, y, z) | .position(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works.\nShort form: .pos().\nLayout cursor: where the cursor stands, as [x, y, z] — read only, since .forward() is what moves it.'],
   rotation: ['.rotation(x, y, z) | .rotation(v)', 'Geometry: rotation in radians. Each component is a number or fn of t, or one vector in the first slot.\nShort form: .rot().'],
-  scale: ['.scale(x, y?, z?) | .scale(x, y?, { wrap })', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: zoom around center, one number = uniform, .scale(x, y) per-axis, negative flips that axis — .scale(-1, 1) mirrors left to right.'],
+  scale: ['.scale(x, y?, z?) | .scale(x, y?, { wrap })', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: zoom around center, one number = uniform, .scale(x, y) per-axis, negative flips that axis — .scale(-1, 1) mirrors left to right.\nLayout cursor: shrink by one number, compounding down the branch.'],
   rotate: ['.rotate(v, { wrap })', 'Texture: rotate the image around center, in radians. v takes a fn of t, or a texture to turn each pixel by its own angle.\nShort form: .rot().'],
   translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame); a map in the first slot shifts each pixel by its own R and G. Short form: .trans()."],
   noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.'],
   instance: ['.instance(count, (x, i, n, t) => x.position(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with .position/.rotation/.scale/.color; it runs every frame, so instances animate. i = copy index, n = count.'],
+  place: ['.place(label?, data?)', "Layout cursor: record a copy centered where the cursor stands, at its heading and scale, for a tip or a scatter rather than a segment (.span() is the one that runs between joints). The label names what goes there, picked out later by .filter(); data rides along per copy, for .data(i) to read."],
+  branch: ['.branch(x => x.turn(0.5), rule?)', "Layout cursor: grow a child. The step shapes it, then the rule runs again from there, one generation deeper. The parent's cursor stays put. A second argument hands the child a different rule."],
+  span: ['.span(dist = 1, label?, data?)', 'Layout cursor: lay a copy along the next step, then take it. The copy centers on the step rather than on the joint, so segments meet end to end where a branch forks; a shape one unit long spans the step exactly.'],
+  forward: ['.forward(dist = 1)', 'Layout cursor: step along the heading (+Y) without placing anything. The step scales with the cursor, so a shrunken branch takes shorter steps.'],
+  turn: ['.turn(angle, pitch?, roll?)', 'Layout cursor: rotate the heading, in radians. angle turns it flat, pitch tilts it out of that plane, roll spins it about the heading itself. A fn of t here sways everything grown past it.'],
+  distance: ['.distance', 'Layout cursor: how far it has walked from the root.'],
+  filter: [".filter('leaf') | .filter((p, i) => …)", "Layout: some of the copies, as a layout of its own, so each slice can take a shape of its own. A label keeps the copies placed under it; a function keeps the copies it says yes to, handed { label, data, depth } and the copy's index."],
+  grow: ['.grow(amount)', 'Layout: open the structure out from the root. amount is 0..1 in place order and takes any signal; copies past that front are scaled away.'],
+  apply: ['.apply(x, i)', 'Layout: place copy i on an instance handle and hand the handle back. .instance(l) is this call already made; the long form is for putting more on top of it.'],
+  age: ['.age(i)', 'Layout: where copy i falls in place order, 0..1, which runs outward a generation at a time. What .grow() measures against.'],
+  data: ['.data(i)', 'Layout: whatever .place() was handed alongside its label, for copy i.'],
+  count: ['.count', 'Layout: how many copies the rule placed.'],
+
   align: ['.align(v)', "Aim the shape's +Y axis along a direction vector. .rotation() still applies, in the shape's own frame before the aim; components take fns of t."],
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
   normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there.'],
@@ -95,6 +110,9 @@ export const METHODS = {
   color: ['.color(c) | .color(birth, death)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.\nOn particles a second color fades each particle from birth to death."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
   shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists.\nParticles: .shadow() makes the swarm cast — off by default, since it's a depth pass per shadow light. Receiving is .lit()'s side."],
+  depth: ['.depth · .depth(i)', 'Layout cursor: which generation the rule is running in. On the layout itself, which generation copy i was placed in.'],
+  rand: ['.rand(seed = 0)', "Layout cursor: a random 0..1 that holds still. The same node draws the same value on every re-run, so a random structure doesn't reshuffle while you edit. Different seeds are independent draws."],
+
   cc: ['.cc(num, channel?)', "midi: a knob, fader or button by its CC number, 0..1. Without a channel the number answers to whichever channel sent it last, which is what a controller on its factory setting wants.\nEmpty .cc() learns instead — move a control and the numbers are written into the call."],
   key: ['.key(num?)', 'midi: narrows .note .vel .gate .touch to one key or pad, so a drum pad drives one thing on its own. Empty .key() learns the next key played.'],
   note: ['.note', 'midi: the pitch last played, 0..1 across the MIDI range — .mul(127) for the note number back. Latched: it holds after the key is released.'],
@@ -116,7 +134,7 @@ export const METHODS = {
   turbulence: ['.turbulence({ amp, period, freq, speed, seed })', 'Particles: a curl-noise force field — the swirling, smokey drift. Divergence-free, so the swirl stirs the swarm without bunching it into clumps; several calls layer fields at different scales.'],
   attract: ['.attract([x, y, z], { strength, radius })', 'Particles: pull toward a point with inverse-square falloff — negative strength repels. Position components take fns of t, so the point can orbit, or follow mouse().'],
   drag: ['.drag(v = 1)', 'Particles: exponential velocity damping — higher settles the swarm sooner. Takes a fn of t.'],
-  size: ['.size(a, b?)', 'Particles: point size in world units, shrinking with distance — one value, or birth → death. Where a number goes, a [min, max] pair scatters it per particle. Default 0.05.'],
+  size: ['.size(a, b?) · .size · .size(i)', 'Particles: point size in world units, shrinking with distance — one value, or birth → death. Where a number goes, a [min, max] pair scatters it per particle. Default 0.05.\nLayout cursor: the scale it has accumulated — the reading a rule stops on, like if (e.size < 0.1) return. On the layout itself, .size(i) is the scale copy i was placed at, which a chain setting its own .scale() has to multiply by.'],
   opacity: ['.opacity(a, b?)', 'Particles: transparency 0..1 — one value, or birth → death. On top of the .fade() ramps; takes fns of t.'],
   fade: ['.fade(in, out) | .fade(false)', "Particles: fade each particle in when it's born and out before it dies, so they don't blink into existence. The numbers are how long each fade takes, as fractions of the lifespan — defaults 0.1 and 0.3. false turns both off."],
   blend: [".blend('over' | 'add' | 'solid')", "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up. 'solid' is opaque cutout dots that write depth and occlude each other — what a dense .lit() swarm needs, or the visible dots are a depth-scrambled mix instead of the lit skin. Solid dots pop in and out rather than fade, and depth() sees them."],
@@ -811,6 +829,7 @@ const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   particle: 'particles',
   light: 'ambient directional point spot hemi',
+  layout: 'layout',
   texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text fluid',
   signal: 'beat audio audiofile rand select sig T mouse',
   midi: 'midi',
@@ -824,6 +843,9 @@ const methodKinds = {
   evolve: 'size color opacity force',
   light: 'position target out',
   inst: 'position rotation scale align color tile material',
+  // the cursor a layout rule steers, and the structure it hands back
+  cursor: 'span forward turn scale place branch rand depth size distance position',
+  layout: 'filter grow apply age depth data size count',
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
@@ -854,6 +876,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 // .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
 export const CALLBACK_KIND = {
   instance: 'inst',
+  layout: 'cursor', branch: 'cursor',
   evolve: 'evolve',
   tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture',
   displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',

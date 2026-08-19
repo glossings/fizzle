@@ -580,6 +580,181 @@ icosa({ radius: 1.2, res: 6 })
 
 Prefiltering is cached per file, so only the first run after importing hitches.
 
+## layout
+
+`layout(depth, rule)` runs your rule with a cursor. `.span()` lays a copy along
+the cursor's next step, `.branch()` grows children that run the same rule again,
+and it keeps going until `depth` generations are up. `.instance()` draws the
+result.
+
+```js
+ambient({ intensity: 0.35 })
+directional({ intensity: 2.4 }).position(5, 8, 4).out()
+
+const tree = layout(12, (e) => {
+  e.span(1)
+  e.branch((x) => x.turn(0.5).scale(0.72))
+  e.branch((x) => x.turn(-0.5).scale(0.72))
+})
+
+box({ width: 0.16, height: 1, depth: 0.16 })
+  .instance(tree)
+  .material({ color: '#a8834f', roughness: 0.8 })
+  .out()
+
+camera(0, 2, 7, [0, 1.9, 0])
+```
+
+### the cursor
+
+The rule moves the cursor and asks it where it is. Heading is `+Y`, and a shape
+one unit long (`box({ height: 1 })`, `capsule()`) spans one `.span(1)` exactly.
+
+| verb | what it does |
+|---|---|
+| `.span(dist, label, data)` | lay a copy along the next step, then take it, so segments meet end to end |
+| `.forward(dist)` | step along the heading without placing anything, scaled by the cursor |
+| `.turn(angle, pitch, roll)` | radians: `angle` turns flat, `pitch` tilts out of that plane, `roll` spins about the heading |
+| `.scale(f)` | shrink, compounding down the branch |
+| `.place(label, data)` | record a copy centered on the cursor, for a tip or a scatter rather than a segment |
+| `.branch(step, rule)` | grow a child: `step` shapes it, then the rule runs again one generation deeper |
+| `.rand(seed)` | a random 0..1 that holds still |
+
+| read | what it says |
+|---|---|
+| `.size` | the scale it has accumulated |
+| `.depth` | which generation the rule is in |
+| `.distance` | how far it has walked from the root |
+| `.position` | `[x, y, z]`, where it stands |
+
+A rule can also end a limb by returning without branching, which is how a
+structure gets uneven. That is what the reads are for: `if (e.size < 0.3)
+return` stops thin twigs before fat ones; `if (e.position[1] < 0) return` keeps
+it above ground.
+
+`.rand()` gives each node its own value and keeps it, so a random structure
+holds still across re-runs instead of reshuffling while you edit.
+
+### labels — one structure, several shapes
+
+`.place(label)` names what belongs at a copy, and `.filter(label)` narrows the
+layout to those copies, a layout of its own with its own chain. `.depth(i)` and
+`.data(i)` say which generation a copy came from and whatever `.place()`
+recorded alongside its label.
+
+```js
+bg('#0a0d12')
+ambient({ intensity: 0.35 })
+directional({ color: '#ffe9c4', intensity: 2.6 }).position(5, 8, 4).out()
+
+const tree = layout((e) => {
+  e.span(1, 'wood')
+  if (e.size < 0.3) { e.place('leaf', { hue: e.rand() }); return }
+  const spin = e.rand(1) * 6.28
+  e.branch((x) => x.turn(0.55, 0, spin).scale(0.72))
+  e.branch((x) => x.turn(-0.5, 0, spin + 2.2).scale(0.78))
+})
+
+const wood = tree.filter('wood')
+const leaf = tree.filter('leaf')
+
+box({ width: 0.17, height: 1, depth: 0.17 })
+  .instance(wood, (x, i) => x.color(hsl(0.08, 0.4, 0.14 + wood.depth(i) * 0.035)))
+  .material({ roughness: 0.85 })
+  .out()
+
+icosa({ radius: 0.2, res: 1 })
+  .instance(leaf, (x, i) => x.color(hsl(0.24 + leaf.data(i).hue * 0.1, 0.65, 0.45)))
+  .material({ roughness: 0.5 })
+  .out()
+
+camera(0, 2, 6.5, [0.15, 1.85, 0])
+```
+
+`.instance(layout)` brings its own count. A function alongside it runs after the
+structure has placed the copy, which is where a tint or a wobble goes.
+
+`.filter()` also takes a function, handed `{ label, data, depth }` per copy:
+
+```js static
+const ripe = tree.filter((p) => p.label === 'leaf' && p.data.hue > 0.5)
+const crown = tree.filter((p) => p.depth > 3)
+```
+
+Filters compose: `tree.filter('leaf').filter(fn)` narrows the leaves.
+
+### moving
+
+The structure is fixed when the rule runs, but the steps stay live: any cursor
+argument takes a function of `t`. A `.turn()` that moves sways everything grown
+past it, compounding down the hierarchy.
+
+```js
+bg('#0a0d12')
+ambient({ intensity: 0.35 })
+directional({ intensity: 2.4 }).position(5, 8, 4).out()
+
+const sway = (a) => (t) => a + Math.sin(t * 0.6 + a * 6) * 0.08
+
+const tree = layout(10, (e) => {
+  e.span(1)
+  e.branch((x) => x.turn(sway(0.55)).scale(0.72))
+  e.branch((x) => x.turn(sway(-0.5)).scale(0.72))
+})
+
+capsule({ radius: 0.09, height: 0.8, res: 8 })
+  .instance(tree)
+  .material({ color: '#9fd67f', roughness: 0.6 })
+  .out()
+
+camera(0, 2, 6.5, [0, 1.9, 0])
+```
+
+Copies are numbered in the order they were placed, which runs outward a
+generation at a time. `.age(i)` is that order as 0..1, and `.grow(amount)` uses
+it to open the structure out from the root. `tree.grow(t => t * 0.3)` fills it
+in over about three seconds; any signal works, so `.grow(audio().smooth())`
+grows it on the music.
+
+`.size(i)` is the scale a copy was placed at. A chain that sets its own
+`.scale()` replaces that rather than compounding with it, so multiply it back in:
+
+```js static
+.instance(tree, (x, i, n, t) => x.scale(tree.size(i) * (1 + 0.2 * Math.sin(t * 3 + i))))
+```
+
+### without branching
+
+A loop walks the cursor just as well, which is where spirals, rings and
+scatters come from:
+
+```js
+bg('#06070d')
+ambient({ intensity: 0.3 })
+directional({ color: '#fff0d0', intensity: 2.2 }).position(4, 5, 6).out()
+
+const shell = layout((e) => {
+  for (let i = 0; i < 360; i++) {
+    e.turn(0.065, 0, 0.03)
+    e.forward(0.08)
+    e.scale(0.994)
+    e.place()
+  }
+})
+
+box({ width: 0.8, height: 0.1, depth: 0.45 })
+  .instance(shell, (x, i, n) => x.color(hsl(0.55 + (i / n) * 0.35, 0.7, 0.55)))
+  .position(0.9, -1.1, -2.2)
+  .rotation(0, (t) => t * 0.2, 0)
+  .material({ roughness: 0.3, metalness: 0.5 })
+  .out()
+
+camera(5, 2, 5.5)
+```
+
+A structure grows from the origin, so `.position()` recenters this one before
+`.rotation()` spins it in place.
+
 ## 3d text
 
 `text3d('hi', { size, depth, bevel, res, font, weight, align, center })` extrudes

@@ -1,7 +1,16 @@
 # layout() — generative structure (L-systems without the DSL)
 
-Design notes from an API discussion (2026-08-19). Not started; this records the
-agreed shape so it doesn't get lost.
+Design notes from an API discussion (2026-08-19), built the same day.
+Shipped in [src/layout.js](../src/layout.js), wired into `.instance()` in
+[api.js](../src/api.js), documented under "layout" in
+[docs-content.md](../src/docs-content.md), example in
+[layout-fern.js](../sketches/examples/layout-fern.js). (Tree and spiral
+example sketches shipped first and were then cut in favor of the fern — the
+docs section carries live tree and spiral snippets already, so standalone
+files added nothing.)
+
+What follows is the design discussion as it happened; **As built** at the
+bottom records where the implementation moved.
 
 ## Where it landed
 
@@ -26,7 +35,8 @@ The reasoning chain, in case it's revisited:
    rules terminate themselves (`if (e.scale < 0.15) return`), so depth is only
    a safety cap with a generous default, next to a hard node budget.
 5. `emit` renamed `place`, taking a label — the layout is a *plan*, geometry is
-   assigned per label at instancing time via `tree.only('leaf')`.
+   assigned per label at instancing time via `tree.filter('leaf')` (named
+   `only` at first; see **As built**).
 
 Precedents: Processing's pushMatrix/popMatrix (same muscle memory), Structure
 Synth / Context Free (same model, wrapped in DSLs because they predated
@@ -43,9 +53,9 @@ const tree = layout(e => {
   e.branch(x => x.turn(-0.5).scale(0.8))   // asymmetry → lopsided crowns, free
 })
 
-box({ width: 0.1, height: 1, depth: 0.1 }).instance(tree.only('wood')).out()
-sphere({ radius: 0.12 }).instance(tree.only('leaf')).out()
-sphere({ radius: 0.05 }).instance(tree.only('berry')).out()
+box({ width: 0.1, height: 1, depth: 0.1 }).instance(tree.filter('wood')).out()
+sphere({ radius: 0.12 }).instance(tree.filter('leaf')).out()
+sphere({ radius: 0.05 }).instance(tree.filter('berry')).out()
 ```
 
 One structure, several meshes, each still a single instanced draw.
@@ -65,10 +75,10 @@ Builder-side reads on `e` — keep it to four, each with a distinct idiom:
   research extension; here it's an `if`.
 
 Skipped deliberately: "overall angle" (not a scalar in 3D — `e.heading` as a
-unit vector if a need ever shows), label query semantics on `only()` (plain
-string lookup only, no wildcards/sets).
+unit vector if a need ever shows), label query semantics (no wildcard/set
+strings — superseded by the predicate form of `.filter()`, see **As built**).
 
-`place(label?, data?)`: label picked out by `.only()`, data rides along per
+`place(label?, data?)`: label picked out by `.filter()`, data rides along per
 copy. Unlabeled = the default group; unfiltered `tree` is everything.
 `only(label)` returns a **full sub-layout** (own count, apply, emit-order
 indices), so grow-in and per-copy color work on the slice.
@@ -114,9 +124,65 @@ Consumption: `.instance(layoutOrSub)` is the direct form; the explicit
 Examples to ship with it: swaying tree, spiral, recursive city block — the
 example is the documentation.
 
+## As built
+
+Four things the implementation settled that the design above left open or got wrong.
+
+**`e.scale` the read had to become `e.size`.** It collided head-on with
+`.scale(f)` the verb — one name can't be both a getter and a method. The verb
+kept its name (it matches GeoOp/InstanceHandle), and the read is `e.size`:
+`if (e.size < 0.3) return`. Cursor scale is a single number, which is what makes
+that read meaningful; `.scale(x, y, z)` warns and points at sizing the shape
+instead.
+
+**Node expansion is a FIFO queue, so place order is generation order.** This was
+listed as a semantic to preserve; it turned out to also be the simplest
+implementation (a flat array with a head index, no recursion, no stack depth
+limit) *and* the better one. Depth-first would make `.grow()` finish one limb
+before starting the next; breadth-first opens the whole structure outward at
+once, which is both what a plant does and what parallel L-system rewriting
+means. Replay relies on it too: children always have a higher index than their
+parent, so one linear pass over the node list fills every child's base
+transform before that child is walked.
+
+**`.size(i)` joined the metadata family.** Writing the spiral example exposed
+the gap: `.scale()` on an instance handle *replaces*, so any chain adding its
+own scale silently threw away the structure's taper. `.size(i)` (grow included)
+is what you multiply back in. It rounds out the set of things the structure
+knows about copy i: `.depth` `.age` `.data` `.size`.
+
+**`only()` became `filter(label | fn)`.** `only` was the one name in the API
+that's an adverb rather than a verb or noun; `select`/`pick` were rejected for
+colliding with fizzle's existing single-choice meanings. `filter` won *because*
+it promises a predicate: the design refused wildcard label strings (a
+mini-language), but a JS function is the opposite of a mini-language — it's the
+layout thesis applied to slicing. Both forms shipped together so the contract
+was settled before push: a string keeps a label's copies (cached per label on
+the root), a function keeps copies it says yes to, handed `{ label, data,
+depth }` and the copy's index. Filters compose; label views of views are built
+on the spot rather than cached.
+
+**`.span(dist, label?, data?)` had to be added.** The design had `.place()`
+(a copy here) and `.forward()` (move), and assumed a segment was the two in
+sequence. It isn't: `.place()` centers the copy on the cursor, so a segment
+straddles its joint instead of running from it, and at a fork both children
+straddle the same joint and cross each other. Aria caught it as "a bunch of Xs
+up the length of the tree". `.span()` is the turtle's `F`: center the copy on
+the step, then take the step. It needs no new op kind or replay case, being
+`forward(d/2).place().forward(d/2)`, and it closes every joint to zero gap.
+`.place()` stays for tips and scatters, where centering on the point is right.
+
+**`.instance(layout, fn)` is the general consumption form.** Cleaner than the
+`(sub.count, (x, i) => sub.apply(x, i))` spelling the note assumed: the layout
+brings its own count, and the fn runs after placement for the tint or wobble on
+top. `.apply()` stayed public for chains that want the call explicit.
+
+Budgets as shipped: 50 000 copies, 20 000 nodes, 12 generations by default.
+
 ## Drafted tooltips
 
-Ready to lift into docs.js when implementation starts (signature, then body):
+As lifted into docs.js (`e.scale` → `e.size` aside, these shipped close to
+verbatim):
 
 - `layout(depth?, rule)` — A set of placed copies, built by steering a cursor:
   the rule moves it (.forward .turn .scale), .place() records a copy,
@@ -131,8 +197,8 @@ Ready to lift into docs.js when implementation starts (signature, then body):
   (`x => x.turn(0.55).scale(0.75)`), then the rule runs again from there, one
   generation deeper. The parent's cursor stays put. A second argument hands
   the child a different rule.
-- `.only(label)` — The layout narrowed to one label's copies, a full layout of
-  its own: `box().instance(tree.only('wood'))` draws just the wood. Copies
+- `.only(label)` — (shipped as `.filter(label | fn)`, see **As built**) The
+  layout narrowed to one label's copies, a full layout of its own: copies
   keep their own count and order, so growth and per-copy color work on the
   slice.
 - `.forward(dist = 1)` — Step the cursor along its heading. The step scales

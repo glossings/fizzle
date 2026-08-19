@@ -10,6 +10,7 @@ import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
 import { makePointSet } from './sample.js';
+import { makeLayout, Layout } from './layout.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
@@ -653,7 +654,22 @@ class GeoOp {
   // instance(count, fn) — fn(x, i, count, t) transforms copy `i` through the
   // same verbs as the chain (x.position/.rotation/.scale/.color). It runs every
   // frame, so instances animate.
+  //
+  // instance(layout) instead takes the copies from a layout() (or one of its
+  // .filter() views), which brings its own count; a fn alongside it runs after the
+  // structure has placed the copy, for the tint or wobble on top of it.
   instance(count, fn) {
+    if (count instanceof Layout) {
+      const l = count;
+      if (!l.count) warn('instance: the layout placed no copies — a rule builds them with e.place()');
+      this._instance = {
+        count: l.count,
+        fn: fn
+          ? (x, i, n, t) => fn(l.apply(x, i, t), i, n, t)
+          : (x, i, n, t) => l.apply(x, i, t),
+      };
+      return this;
+    }
     this._instance = { count, fn: fn ?? ((x, i) => x.position(i * 2, 0, 0)) };
     return this;
   }
@@ -1138,6 +1154,12 @@ export function makeApi(engine) {
     icosa: geo('icosa'),
     text3d: (text, opts) => new GeoOp(engine, 'text3d', { ...opts, text }),
 
+    // Generative structure: a rule steering a cursor, placing copies as it goes
+    // (see layout.js). .branch() re-runs the rule one generation deeper, so a
+    // few lines make a tree; loops in the rule make spirals and scatters.
+    // .instance() draws the result: box().instance(l).out().
+    layout: (depth, rule) => makeLayout(engine, depth, rule),
+
     // A GPU particle system emitting from a point — see particles.js, and
     // GeoOp.particles() for the form that emits from a shape's surface.
     // The pool sizes itself from rate × life (capped by max); forces chain on
@@ -1569,6 +1591,7 @@ export function makeApi(engine) {
     // there, which is the point when the helper is the part you aren't editing.
     Texture: TextureOp,
     Geometry: GeoOp,
+    Layout,
 
     // A bus name nothing else will take, one per call site — what a helper
     // closing a feedback loop by hand needs, since a literal name would collide
