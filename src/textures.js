@@ -3,6 +3,7 @@ import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
 import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
+import { renderFluid, renderFluidView } from './fluid.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -1101,7 +1102,7 @@ function bindTexParams(kind, params, inputs) {
   return { params, inputs, binds };
 }
 
-function makeMaterial(spec, binds = []) {
+export function makeMaterial(spec, binds = []) {
   const uniforms = {
     tex0: { value: null },
     tex1: { value: null },
@@ -1344,7 +1345,7 @@ function ensurePassMaterials() {
   });
 }
 
-function runPass(ctx, material, tex0, tex1, target, setup, layer = 0) {
+export function runPass(ctx, material, tex0, tex1, target, setup, layer = 0) {
   const u = material.uniforms;
   u.tex0.value = tex0 ?? null;
   u.tex1.value = tex1 ?? null;
@@ -1735,6 +1736,69 @@ export class TextureOp {
     }
     return this.comp(prev, { mode: o.mode ?? 'add', opacity: amount, swap: o.swap }).out(name);
   }
+
+  // --- fluid ---------------------------------------------------------------
+  //
+  // The sources and the outputs of a fluid() sim. Each source call returns a
+  // *new* fluid node carrying one more input, so the chain reads the way every
+  // other chain here does — but all of them share the one carried sim, so
+  // .ink().push() is a single solver and not three.
+
+  _fluidSource(role, map, o) {
+    if (this.kind !== 'fluid') {
+      warn(`${role}: only a fluid() takes sources — .${role}() has to sit directly on the fluid(), before anything else in the chain`);
+      return this;
+    }
+    const src = this._texture(map, role);
+    if (!src) return this;
+    // a bare number (or fn of t) in the options slot is the amount, which is
+    // the only thing most calls want to say
+    if (typeof o === 'number' || typeof o === 'function') o = { amount: o };
+    o ??= {};
+    const node = new TextureOp(this.engine, 'fluid', {
+      ...this.params,
+      sources: [...(this.params.sources ?? []), {
+        role,
+        amount: o.amount ?? 1,
+        // unsigned maps push both ways around their midpoint, the same
+        // convention (and the same default) as .displace()
+        mid: o.mid ?? 0.5,
+      }],
+    }, [...this.inputs, src]);
+    node.sim = this.sim;
+    return node;
+  }
+
+  // .ink(chain, amount) — pour a chain in as dye. Added per second, so the
+  // amount is a rate: it builds while the source is bright and stops when it
+  // goes dark, rather than replacing what is already floating.
+  ink(map, o) { return this._fluidSource('ink', map, o); }
+
+  // .push(map, { amount, mid }) — drive the velocity field from a vec2 map,
+  // read R/G. This is the one that makes anything happen: dye with nothing
+  // pushing it just sits and fades.
+  push(map, o) { return this._fluidSource('push', map, o); }
+
+  // .obstacle(mask) — cells brighter than 0.5 are solid. The projection sees
+  // them, so flow goes *around* rather than being clipped by them.
+  obstacle(map) { return this._fluidSource('obstacle', map, {}); }
+
+  _fluidView(field, o = {}) {
+    if (this.kind !== 'fluid') {
+      warn(`${field}: only a fluid() has a ${field} field to read`);
+      return this;
+    }
+    const node = new TextureOp(this.engine, 'fluidView', { field, scale: o.scale }, [this]);
+    node.sim = this.sim;
+    return node;
+  }
+
+  // The sim's fields as pictures, centred on mid-grey like neighbor()'s slope
+  // map — so they read on screen and drop straight into any slot taking a
+  // { map, mid: 0.5 }: .displace(), transform({ translate }), .push().
+  velocity(o) { return this._fluidView('velocity', o); }
+  curl(o) { return this._fluidView('curl', o); }
+  pressure(o) { return this._fluidView('pressure', o); }
 
   // .when(cond, fn) — per-frame switch: while cond(t) >= 0.5 the chain
   // becomes fn(chain), otherwise it passes through untouched. Both branches
@@ -2241,6 +2305,14 @@ export class TextureOp {
       return out.texture;
     }
 
+    // The sim owns its own targets at its own grid size, so it neither uses
+    // _rt nor returns a frame-size texture — what comes back is the dye at
+    // sim resolution, which the next node upscales the way it samples anything.
+    if (this.kind === 'fluid') return renderFluid(this, ctx, ins);
+    // ins[0] is the sim node, already rendered: the graph's ordering is what
+    // guarantees the fields this reads are this frame's
+    if (this.kind === 'fluidView') return renderFluidView(this, ctx) ?? ins[0];
+
     const spec = SPECS[this.kind];
     // unreachable from a sketch — every kind here comes from a method above
     if (!spec) throw new Error(`unknown texture: ${this.kind}`);
@@ -2476,6 +2548,9 @@ export function renderTextures(engine) {
     quad: st.quad,
     frame: st.frame,
     t: engine.time,
+    // seconds since the last frame, for the ops that integrate rather than
+    // evaluate; 0 while paused, and clamped by whoever steps on it
+    dt: engine.dt ?? 0,
     w: size.x,
     h: size.y,
     // the grid a sketch counts in when it set one — the drawing buffer above is

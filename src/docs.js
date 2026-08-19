@@ -54,6 +54,7 @@ export const GLOBALS = {
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker), or an https:// URL, which downloads once. An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
+  fluid: ["fluid({ res, speed, fade, damping, vorticity, iterations, wrap })", "Texture generator: an incompressible fluid sim. .push(map) drives the field, .ink(chain) pours dye into it, .obstacle(mask) puts solids in its way; the chain itself is the dye, and .velocity()/.curl() read the fields behind it. Contents survive a re-run."],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
   text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right' })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
@@ -182,6 +183,12 @@ export const METHODS = {
   alpha: ['.alpha(v)', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
+  ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
+  push: ['.push(map, { amount, mid })', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades, so this is the call that makes anything happen. mid defaults to 0.5, so an unsigned map like noise({ channels: 2 }) pushes both ways."],
+  obstacle: ['.obstacle(mask)', 'Fluid: cells brighter than 0.5 are solid. The sim sees them, so flow goes around rather than being clipped by them.'],
+  velocity: ['.velocity({ scale })', "Fluid: the velocity field as a picture, centered on mid-grey. Drops into any slot taking a map: .displace(f.velocity()), .transform({ translate: { map: f.velocity(), mid: 0.5 } })."],
+  curl: ['.curl({ scale })', 'Fluid: how sharply the field is spinning at each point, centered on mid-grey.'],
+  pressure: ['.pressure({ scale })', 'Fluid: the pressure the solve landed on, centered on mid-grey. Mostly worth looking at when a sim is misbehaving.'],
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
   feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). Default mode is 'add'; 'under' leaves the trail behind whatever is drawn this frame. A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
@@ -527,6 +534,15 @@ const GLOBAL_KEY_DOCS = {
     a: 'Color the low end shades to. Default black; null shades from transparent, so the clouds float over whatever is under the comp.',
     b: 'Color the high end shades to. Default white; null shades to transparent.',
   },
+  fluid: {
+    res: 'Grid size along the long edge, 16..1024. Default 256. The short edge follows the window so cells stay square. Changing it starts the sim over.',
+    speed: 'Multiplies the timestep. Default 1; 0 freezes the field without freezing the sketch.',
+    fade: 'Dye lost per second, 0..1. Default 0.4. 0 never fades, so ink keeps building until the frame is solid.',
+    damping: 'Velocity lost per second, 0..1. Default 0.1. Raise it for a field that settles quickly once you stop pushing.',
+    vorticity: 'How much of the swirl the grid rounds off gets put back. Default 0.3. 0 is soupy, high is wispy and turbulent.',
+    iterations: 'Pressure solve steps per frame, 1..120. Default 30. Fewer is cheaper and leaks; more is stiffer and slower.',
+    wrap: "'repeat' (default) flows off one edge and back in the other, 'clamp' puts walls around the frame.",
+  },
   voronoi: {
     period: 'How much of the frame one cell spans. Default 1/6 — 0.5 is a few big plates, 0.025 is fine crazing. Same 0..1 range every period key has.',
     freq: 'How many cells span the frame — the reciprocal of period, and usually the easier of the two here, since cells are things you can count. Default 6: 2 is a few big plates, 40 is fine crazing. scale is the old name for this key and still works.',
@@ -573,6 +589,13 @@ const GLOBAL_KEY_DOCS = {
 };
 
 const METHOD_KEY_DOCS = {
+  push: {
+    amount: 'How hard the map pushes, in frame-heights per second. Default 1. Takes a fn of t.',
+    mid: 'The value in the map that means no push. Default 0.5, so an unsigned map pushes both ways around its midpoint; 0 for a map that is already signed.',
+  },
+  velocity: {
+    scale: 'Multiplies the field before it is centered on mid-grey. Default 1. Raise it to see a slow field, lower it when a fast one clips.',
+  },
   noise: {
     amp: 'How far vertices move along their normals, in world units. Default 0.3.',
     period: 'Size of the bumps, in world units between peaks — so unlike every other period this one is not a fraction of the frame, and it scales with the shape rather than the picture. Default 2/3. A short period with a low amp is crinkle, the reverse is a slow wobble.',
@@ -788,7 +811,7 @@ const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   particle: 'particles',
   light: 'ambient directional point spot hemi',
-  texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text',
+  texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text fluid',
   signal: 'beat audio audiofile rand select sig T mouse',
   midi: 'midi',
   gamepad: 'gamepad',
@@ -805,7 +828,8 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile particles out`,
+        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile particles out
+        ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that

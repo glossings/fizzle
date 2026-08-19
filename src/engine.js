@@ -252,6 +252,9 @@ export class Engine {
     const now = performance.now() / 1000;
     const dt = now - (this._lastT ?? now);
     this._lastT = now;
+    // what the texture graph's integrating ops step by (see fluid.js); frozen
+    // with the clock, so a paused sketch's sims hold rather than run on
+    this.dt = this.paused ? 0 : dt;
     if (!this.paused) {
       this.time += dt;
       this.audio?.update();

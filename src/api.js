@@ -7,6 +7,7 @@ import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.j
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, tileSources, applyTileMap } from './materials.js';
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
+import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
 import { makePointSet } from './sample.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
@@ -1363,6 +1364,16 @@ export function makeApi(engine) {
         // a fn either side means the width moves, so it stays a fn of t
         thickness: typeof outer === 'function' || typeof inner === 'function' ? width : width(0),
       });
+    },
+    // An incompressible fluid sim as a generator: dye poured in with .ink(),
+    // the field driven by .push(), solids marked by .obstacle(). The node
+    // itself is the dye; .velocity()/.curl() read the fields behind it.
+    //   fluid().push(noise({ period: 0.4 })).ink(text('hi'), 2).out()
+    // The sim carries across re-runs, so editing a knob doesn't blow it away.
+    fluid(o) {
+      const node = new TextureOp(engine, 'fluid', o ?? {});
+      node.sim = claimFluidState();
+      return node;
     },
     noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),
     voronoi: (o) => new TextureOp(engine, 'voronoi', o ?? {}),

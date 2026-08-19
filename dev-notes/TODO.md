@@ -119,7 +119,12 @@ say, not a different shape.
 
 [ ] L systems
 [ ] Hand tracking?
-[ ] Fluid solver
+[x] Fluid solver — `fluid()`, [src/fluid.js](../src/fluid.js). Built as a native
+  op rather than out of buses, which is why none of the three simulation items
+  below blocked it: the Jacobi loop is a `for` around `runPass` like bloom's
+  passes, and the grid is four small targets it owns rather than eighteen
+  full-frame ones. What it still wants is a look at whether half-float pressure
+  holds up at `res: 1024`, and free-slip walls (`wrap: 'clamp'` is no-slip).
 
 ## `.blur(r)` is only a gaussian at r = 1
 
@@ -222,6 +227,17 @@ above is the first of them:
   screensaver. Everything needed is already in the bus loop
   ([src/textures.js:2411](../src/textures.js#L2411)); the work is making
   `renderNode`'s per-frame memo advance per *step* instead.
+
+  Pin the nesting semantics first — advancing the memo per step is not enough
+  on its own. A solver's inner loop has to iterate against *frozen* upstream
+  state: pressure relaxes tens of times per frame while the velocity it was
+  computed from stands still. If stepping a bus re-evaluates its upstream, and
+  that upstream is itself a feedback bus, thirty pressure steps advance the
+  velocity thirty times — a sim that is wrong while still looking plausible,
+  which is the worst way to be wrong. So `steps` means "iterate this bus n
+  times against every other bus's frame-start snapshot", not "run the subgraph
+  n times". `fluid()` sidesteps all of this by keeping its loop in JS, and is
+  the reference to check a composed solver against once this lands.
 
 [ ] **Buffer cost.** One persistent full-frame target per node with no pooling
   ([src/textures.js:1803](../src/textures.js#L1803)) means an arithmetic-heavy

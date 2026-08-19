@@ -1688,6 +1688,77 @@ torus({ radius: 0.6, tube: 0.22, res: 48 })
 The screen needs something to show, hence the torus in front of it. A scene
 whose only object *is* the screen stays black forever.
 
+## fluid
+
+`fluid()` is an incompressible fluid sim. `.push()` drives the velocity field,
+`.ink()` pours dye into it, and the chain itself is the dye.
+
+```js
+fluid({ res: 320, fade: 0.12 })
+  .push(noise({ period: 0.4, channels: 2, speed: 0.3 }), 0.4)
+  .ink(circle({ radius: 0.03, soft: 0.02, color: '#4fd1ff', bg: null }), 6)
+  .out()
+```
+
+Dye with nothing pushing it only sits and fades, so `.push()` is the call that
+makes anything happen. It reads R and G of a map as a direction, around `mid`
+(0.5 by default, so an unsigned map like `noise({ channels: 2 })` pushes both
+ways). The amount is roughly the speed it settles at, in frame-heights per
+second.
+
+`.ink()` adds per second rather than replacing, so dye builds while the source
+is lit and drifts once it goes dark. Several of either call stack.
+
+### obstacles
+
+`.obstacle(mask)` makes every cell brighter than 0.5 solid. The solver sees
+them, so flow goes around rather than being clipped afterwards.
+
+```js
+fluid({ res: 320, fade: 0.1 })
+  .obstacle(person())
+  .push(constant('#ff8000'), 0.5)
+  .ink(circle({ center: [0.05, t => 0.5 + Math.sin(t) * 0.3], radius: 0.03, color: '#7ee787', bg: null }), 6)
+  .out()
+```
+
+### the fields behind it
+
+The sim carries more than the picture. `.velocity()`, `.curl()` and
+`.pressure()` come back as maps centered on mid-grey, so they read on screen
+and drop into any slot that takes one.
+
+```js
+const flow = fluid({ res: 256 })
+  .push(noise({ period: 0.35, channels: 2, speed: 0.35 }), 0.4)
+
+// the field as relief, with none of the fluid itself on screen
+plane({ width: 16, height: 16, res: 280 })
+  .rotation(-Math.PI / 2, 0, 0)
+  .displace(flow.curl(), { amount: 1.6 })
+  .material({ color: '#2a3a6b', roughness: 0.45 })
+  .out()
+```
+
+Hold the sim in a variable to read it more than once. Two separate `fluid()`
+calls are two separate sims.
+
+`{ scale }` on any of the three is the dial when a field looks flat: it
+multiplies the values before they are centered.
+
+### knobs
+
+`res` is the grid along the long edge (default 256, 16..1024); the short edge
+follows the window so cells stay square. `iterations` is how many pressure
+steps run per frame (default 30): fewer is cheaper and leaks, more is stiffer.
+`vorticity` puts back the swirl the grid rounds off, `fade` and `damping` are
+how fast dye and motion die away, and `speed` scales the timestep. `wrap`
+defaults to `'repeat'`, where flow leaving one edge returns at the other;
+`'clamp'` puts walls around the frame instead.
+
+The sim survives a re-run, so editing a knob does not blow the smoke away.
+Changing `res` or resizing the window starts it over.
+
 ## video input
 
 `video(name?)` is a live camera as a texture generator. No name is the default
