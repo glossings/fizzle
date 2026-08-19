@@ -1024,6 +1024,16 @@ geometry.
 - `.edge({ strength, spread })` · `.slope({...})` · `.normalMap({...})` — one
   Sobel pass, three encodings: edge magnitude (grayscale), centered gradient
   (RG, 0.5-neutral — a ready-made displace map), or tangent-space normal.
+- `mode: 'crisp'` on any of the three — the kernel runs hot by default, so edges
+  clip into thick stepped lines. Crisp normalizes it: thin antialiased lines
+  that keep their falloff, about four times dimmer, so raise `strength` to match.
+
+  ```js
+  scene()
+    .edge({ mode: 'crisp', strength: 4 })
+    .threshold(0.4)
+    .out()
+  ```
 
 ```js
 noise({ freq: 3, speed: 0.4 })

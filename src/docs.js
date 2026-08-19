@@ -127,9 +127,9 @@ export const METHODS = {
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
   radial: ['.radial(s => ...)', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam."],
   polar: ['.polar({ inverse })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
-  edge: ['.edge({ strength, spread })', 'Texture: Sobel edge magnitude (grayscale). Lines on nothing — the gaps are transparent, so edges comp without plating what they sit on.'],
-  slope: ['.slope({ strength, spread })', 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
-  normalMap: ['.normalMap({ strength, spread })', 'Texture: tangent-space normal map from luma height.'],
+  edge: [".edge({ strength, spread, mode: 'classic'|'crisp' })", 'Texture: Sobel edge magnitude (grayscale). Lines on nothing — the gaps are transparent, so edges comp without plating what they sit on. Thick and clipped by default; crisp mode gives thin antialiased ones.'],
+  slope: [".slope({ strength, spread, mode })", 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
+  normalMap: [".normalMap({ strength, spread, mode })", 'Texture: tangent-space normal map from luma height.'],
   levels: ['.levels({ contrast, saturation, gamma, hue })', 'Texture: combined tonal adjust. Every key takes a fn of t, or a texture for a value that varies across the frame.'],
   hue: ['.hue(v)', 'Texture: hue rotation in turns — 0.5 is opposite colors, 1 a full lap. Animate with a fn of t or a signal, or hand it a texture to rotate each pixel by what the map says there.'],
   add: ['.add(v)', 'Texture: add v to every pixel (scalar or [r, g, b]; negative darkens) · audio signal: plain addition/offset. A texture in place of v is read as RGB — per pixel, per channel.'],
@@ -603,16 +603,19 @@ const METHOD_KEY_DOCS = {
     inverse: 'false (default) unrolls the frame into angle × radius. true goes the other way, reading the image as angle × radius and wrapping it into a disc. Takes a fn of t, so it can flip mid-set.',
   },
   edge: {
-    strength: 'Multiplies the detected edges. Default 1. Push to 3-4 before .threshold() for clean line art.',
+    strength: "Multiplies the detected edges. Default 1. Push to 3-4 before .threshold() for clean line art. In 'crisp' mode 1 means a full black-to-white step reads as white, so the same look wants roughly 4x the number.",
     spread: 'How many pixels apart the samples sit. Default 1; larger finds chunkier, softer edges.',
+    mode: "'classic' (default) runs the kernel hot, so edges clip into thick stepped lines — the original look. 'crisp' normalizes it: thin antialiased lines that keep their falloff, at about a quarter the brightness.",
   },
   slope: {
     strength: 'Multiplies the gradient. Default 1.',
     spread: 'How many pixels apart the samples sit. Default 1.',
+    mode: "'classic' (default) or 'crisp', which normalizes the gradient and switches to a Scharr kernel — truer direction on smooth sources, at a quarter the amplitude.",
   },
   normalMap: {
     strength: 'How steep the generated normals are. Default 1 — this is the relief depth.',
     spread: 'How many pixels apart the samples sit. Default 1; larger reads bigger, softer forms.',
+    mode: "'classic' (default) or 'crisp', which normalizes the gradient and switches to a Scharr kernel — truer surface direction, at about a quarter the relief depth.",
   },
   levels: {
     contrast: 'Pushes values away from mid-gray. Default 1 unchanged, 0 flattens to gray, 2 is hard.',

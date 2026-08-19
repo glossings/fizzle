@@ -423,18 +423,30 @@ const SPECS = {
     },
   },
 
-  // edge / slope / normalMap share one Sobel pass; only the output encoding
+  // edge / slope / normalMap share one gradient pass; only the output encoding
   // differs (magnitude / centered gradient / tangent-space normal)
   neighbor: {
-    extras: { uMode: 0, uStrength: 1, uSpread: 1 },
+    extras: { uMode: 0, uStrength: 1, uSpread: 1, uCrisp: 0 },
     frag: `
       float lum(vec2 o) { return dot(texture2D(tex0, vUv + o * uTexel * uSpread).rgb, LUMA); }
       void main() {
         float tl = lum(vec2(-1.0,  1.0)), tc = lum(vec2(0.0,  1.0)), tr = lum(vec2(1.0,  1.0));
         float ml = lum(vec2(-1.0,  0.0)),                            mr = lum(vec2(1.0,  0.0));
         float bl = lum(vec2(-1.0, -1.0)), bc = lum(vec2(0.0, -1.0)), br = lum(vec2(1.0, -1.0));
-        float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
-        float gy = (tl + 2.0 * tc + tr) - (bl + 2.0 * bc + br);
+        // Sobel [1,2,1], except crisp slope/normal, which take Scharr's
+        // [3,10,3]: ~10x truer gradient *direction* on smooth sources, the only
+        // thing those two encode. edge() shows magnitude, where Scharr is the
+        // worse of the two (its peak varies twice as much with edge angle).
+        bool scharr = uCrisp > 0.5 && uMode > 0.5;
+        float kc = scharr ?  3.0 : 1.0;    // corner taps
+        float km = scharr ? 10.0 : 2.0;    // middle tap
+        float gx = (kc * tr + km * mr + kc * br) - (kc * tl + km * ml + kc * bl);
+        float gy = (kc * tl + km * tc + kc * tr) - (kc * bl + km * bc + kc * br);
+        // classic runs the kernel unnormalized — a ~4x-hot magnitude that clips
+        // across its whole 3-texel support, and that fat stepped line is the
+        // look. crisp divides by the positive weights, so strength 1 is a full
+        // black-to-white step and the source's antialiasing survives.
+        if (uCrisp > 0.5) { float n = 1.0 / (2.0 * kc + km); gx *= n; gy *= n; }
         if (uMode < 0.5) {
           float m = length(vec2(gx, gy)) * uStrength;
           // coverage is the edge, not the source's: no line, no image. The
@@ -453,7 +465,12 @@ const SPECS = {
         }
       }`,
     update(u, p, t) {
-      u.uMode.value = { edge: 0, slope: 1, normal: 2 }[p.mode] ?? 0;
+      u.uMode.value = { edge: 0, slope: 1, normal: 2 }[p.op] ?? 0;
+      const mode = p.mode ?? 'classic';
+      if (mode !== 'classic' && mode !== 'crisp') {
+        warn(`${p.op === 'normal' ? 'normalMap' : p.op}: no mode '${mode}' — classic or crisp; using classic`);
+      }
+      u.uCrisp.value = mode === 'crisp' ? 1 : 0;
       u.uStrength.value = resolve(p.strength ?? 1, t);
       u.uSpread.value = resolve(p.spread ?? 1, t);
     },
@@ -1579,9 +1596,9 @@ export class TextureOp {
   // frame into a ring chart, `inverse` wraps it into a disc (a horizon becomes
   // a little planet). The round trip is .radial().
   polar(o = {}) { return this._n('polar', o); }
-  edge(o = {}) { return this._n('neighbor', { mode: 'edge', ...o }); }
-  slope(o = {}) { return this._n('neighbor', { mode: 'slope', ...o }); }
-  normalMap(o = {}) { return this._n('neighbor', { mode: 'normal', ...o }); }
+  edge(o = {}) { return this._n('neighbor', { ...o, op: 'edge' }); }
+  slope(o = {}) { return this._n('neighbor', { ...o, op: 'slope' }); }
+  normalMap(o = {}) { return this._n('neighbor', { ...o, op: 'normal' }); }
   levels(o = {}) { return this._n('adjust', o); }
   add(v = 0) { return this._n('math', { add: v }); }
   sub(v = 0) { return this._n('math', { sub: v }); }
