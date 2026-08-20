@@ -2247,6 +2247,15 @@ frequencies it captures, then drag the two anchors on its meter to mark what
 reads as 0 and what reads as 1. Values below the low anchor clip to 0 and
 values above the high anchor clip to 1; in between you get a 0..1 ramp.
 
+Each meter also has a **smooth** box (seconds of lag, applied before the
+anchors, so the bar you see is the value your sketch gets) and an **auto**
+button that fits the anchors to the bounds of the whole song. Pressing it
+grabs the signal within a few seconds; from then on the anchors snap out the
+instant the signal passes them but only creep back in once the signal has
+stayed inside them for a minute or so. A quiet passage still reads quiet, and
+a new, quieter track re-fits on its own. Auto stays on while the manager is
+closed; dragging an anchor by hand turns it off.
+
 `band()` reads them in a sketch:
 
 ```js

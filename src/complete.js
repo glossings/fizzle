@@ -24,6 +24,7 @@ import { javascriptLanguage, localCompletionSource } from '@codemirror/lang-java
 import { MAP_SLOTS, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { mediaList } from './media.js';
 import { midiPortNames } from './control.js';
+import { bandStore } from './bands.js';
 import {
   GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
   GLOBAL_ARGS, METHOD_ARGS,
@@ -268,6 +269,7 @@ export function apiCompletions(context) {
   if (node.name === 'String') {
     return stringValues(state, node, pos)
       ?? deviceValues(state, node, pos)
+      ?? bandValues(state, node, pos)
       ?? mediaCompletions(context, node);
   }
 
@@ -388,6 +390,16 @@ function deviceValues(state, node, pos) {
   if (argIndex(parent, node) !== 0) return null;
   const names = midiPortNames();
   return names.length ? valueResult(state, pos, node, names) : null;
+}
+
+// Inside band('…'): what the audio manager has right now, 'level' first.
+function bandValues(state, node, pos) {
+  const parent = node.parent;
+  if (parent?.name !== 'ArgList') return null;
+  const callee = calleeName(state, parent.parent);
+  if (!callee || callee.method || callee.name !== 'band') return null;
+  if (argIndex(parent, node) !== 0) return null;
+  return valueResult(state, pos, node, ['level', ...bandStore.bands.map((b) => b.name)]);
 }
 
 // Inside quotes: the imported files this slot can use.

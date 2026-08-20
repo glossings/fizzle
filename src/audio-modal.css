@@ -151,6 +151,34 @@ input.au-name:hover, input.au-name:focus {
   color: rgba(255, 255, 255, 0.7);
   font-variant-numeric: tabular-nums;
 }
+.au-sm {
+  width: 44px;
+  flex: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfd4e0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 11px;
+}
+.au-sm:focus { outline: none; border-color: rgba(126, 231, 135, 0.5); }
+.au-auto {
+  flex: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.au-auto:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+.au-auto.on {
+  color: #7ee787;
+  border-color: rgba(126, 231, 135, 0.6);
+}
 .au-del {
   width: 20px;
   flex: none;

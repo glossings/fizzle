@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTextures, resetTextureBuffers } from './textures.js';
 import { AudioEngine } from './audio.js';
+import { updateBands } from './bands.js';
 import { mediaGet, mediaList, isPolyhaven, bareName } from './media.js';
 import { loadModelGeometry } from './models.js';
 import { fetchPolyhaven } from './polyhaven.js';
@@ -258,6 +259,7 @@ export class Engine {
     if (!this.paused) {
       this.time += dt;
       this.audio?.update();
+      updateBands(this.audio); // named bands: smoothing + auto anchors
       for (const ae of this.audios.values()) ae.update();
       for (const m of this.media.values()) m.ae?.update();
       for (const fn of this.updaters) {

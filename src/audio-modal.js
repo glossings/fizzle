@@ -9,7 +9,8 @@
 
 import './audio-modal.css';
 import {
-  addBand, bandNameOk, BAND_NAME_RULE, bandRaw, bandStore, normalize, removeBand, saveBands,
+  addBand, bandNameOk, BAND_NAME_RULE, bandStore, normalize, removeBand, saveBands,
+  smoothed, updateBands,
 } from './bands.js';
 
 const HZ_MIN = 20, HZ_MAX = 20000;
@@ -216,6 +217,8 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
       <span class="au-hz"></span>
       <canvas class="au-meter" height="26"></canvas>
       <span class="au-val">0.00</span>
+      <input class="au-sm" type="number" min="0" max="5" step="0.05" title="smoothing (seconds), applied before the anchors">
+      <button class="au-auto" title="keep fitting the anchors to the signal (stays on with the manager closed)">auto</button>
       ${band ? '<button class="au-del" title="remove band">✕</button>' : '<span class="au-del"></span>'}`;
 
     if (band) {
@@ -230,11 +233,30 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
 
     const meter = row.querySelector('.au-meter');
     const anchors = band ?? bandStore.level;
+
+    const sm = row.querySelector('.au-sm');
+    sm.value = anchors.sm || 0;
+    sm.addEventListener('change', () => {
+      anchors.sm = Math.min(5, Math.max(0, Number(sm.value) || 0));
+      sm.value = anchors.sm;
+      saveBands();
+    });
+
+    const auto = row.querySelector('.au-auto');
+    auto.classList.toggle('on', !!anchors.auto);
+    auto.addEventListener('click', () => {
+      anchors.auto = !anchors.auto;
+      auto.classList.toggle('on', anchors.auto);
+      saveBands();
+    });
+
     let drag = null; // 'lo' | 'hi'
     meter.addEventListener('pointerdown', (e) => {
       const r = meter.getBoundingClientRect();
       const u = (e.clientX - r.left) / r.width;
       drag = Math.abs(u - anchors.lo) < Math.abs(u - anchors.hi) ? 'lo' : 'hi';
+      // a hand on an anchor overrules auto, which would just move it back
+      if (anchors.auto) { anchors.auto = false; auto.classList.remove('on'); }
       meter.setPointerCapture(e.pointerId);
       move(e);
     });
@@ -271,7 +293,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
 
     const a = ae();
     const anchors = band ?? bandStore.level;
-    const raw = a?.running ? (band ? bandRaw(a, band) : a.level) : 0;
+    const raw = a?.running ? smoothed(band ?? 'level') : 0;
     const norm = normalize(raw, anchors);
     const x = (v) => v * w;
 
@@ -311,7 +333,10 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
   function loop() {
     if (!isOpen()) return;
     // the engine only analyzes while playing; keep the meters live regardless
-    if (engine.paused) ae()?.update();
+    if (engine.paused) {
+      ae()?.update();
+      updateBands(ae());
+    }
     drawSpectrum();
     for (const r of rows) drawMeter(r);
     raf = requestAnimationFrame(loop);
