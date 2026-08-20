@@ -1,5 +1,5 @@
 import { MATERIAL_GROUPS, MATERIAL_DOCS } from './materials.js';
-import { BLEND_MODE_NAMES, ASCII_SET_NAMES, WRAP_MODE_NAMES } from './textures.js';
+import { BLEND_MODE_NAMES, COPY_BLEND_NAMES, ASCII_SET_NAMES, WRAP_MODE_NAMES } from './textures.js';
 
 // One docs table drives both autocomplete and ctrl+hover tooltips.
 // [0] signature — shown next to the completion, and as the tooltip header
@@ -330,6 +330,11 @@ METHOD_CONFIG.feedback.get('mode').values = BLEND_MODE_NAMES;
 // .feedback()'s mode name, which stands in for the options in either slot
 METHOD_ARGS.comp = [null, BLEND_MODE_NAMES];
 METHOD_ARGS.feedback = [null, BLEND_MODE_NAMES, BLEND_MODE_NAMES];
+
+// Copies blend in one draw, so they get the four modes fixed-function blending
+// can express rather than .comp()'s eighteen — the list textures.js checks the
+// key against.
+METHOD_CONFIG.instance.get('blend').values = COPY_BLEND_NAMES;
 
 // These signatures spell `{ wrap }` bare — the value list lives in each key's
 // doc line, where completion can't parse it — so it's wired from the table

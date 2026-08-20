@@ -3,11 +3,10 @@ import { keymap, tooltips } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { acceptCompletion, completionStatus, closeCompletion } from '@codemirror/autocomplete';
 import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/commands';
-import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { codeFolding, foldEffect } from '@codemirror/language';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
-import { apiCompletions, apiHover } from './complete.js';
+import { sketchLanguage, apiHover } from './complete.js';
 import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 
 // Fold the bracketed lists inside a just-inserted range, so an import of forty
@@ -105,8 +104,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     extensions: [
       keys,
       basicSetup,
-      javascript(),
-      javascriptLanguage.data.of({ autocomplete: apiCompletions }),
+      sketchLanguage,
       apiHover,
       oneDark,
       EditorView.lineWrapping,

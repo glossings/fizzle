@@ -19,7 +19,8 @@
 // a wrong answer costs a re-run mid-set, a missing one costs a keystroke.
 
 import { hoverTooltip } from '@codemirror/view';
-import { syntaxTree } from '@codemirror/language';
+import { syntaxTree, LanguageSupport } from '@codemirror/language';
+import { javascriptLanguage, localCompletionSource } from '@codemirror/lang-javascript';
 import { MAP_SLOTS, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { mediaList } from './media.js';
 import { midiPortNames } from './control.js';
@@ -58,6 +59,9 @@ const SIGNAL_GLOBALS = [...kindGlobals('signal'), ...kindGlobals('midi'), ...kin
 // narrower one — only the four key signals are on it.
 const MEMBER_KIND = {
   particles: 'particle',
+  // .apply(x, i) hands the copy handle back, so the chain past it is the
+  // handle's — the layout is where it came from, not what it is now
+  apply: 'inst',
   key: 'midikey',
   ...Object.fromEntries(
     'cc note vel gate touch bend lx ly rx ry lt rt btn'.split(' ').map((n) => [n, 'signal'])
@@ -245,6 +249,15 @@ async function mediaOptions(kind) {
 }
 
 // --- completion source -----------------------------------------------------
+
+// javascript() ships its own completions — `break`, `case`, `const`, and a set
+// of snippets — which crowd the list with things you already know how to type.
+// The same language without that source: names declared in the sketch still
+// complete, the API list is the rest.
+export const sketchLanguage = new LanguageSupport(javascriptLanguage, [
+  javascriptLanguage.data.of({ autocomplete: localCompletionSource }),
+  javascriptLanguage.data.of({ autocomplete: apiCompletions }),
+]);
 
 export function apiCompletions(context) {
   const { state, pos } = context;

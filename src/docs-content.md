@@ -780,6 +780,10 @@ that is a fn of t still sways it.
 - The copy verbs are the flat ones: `.position(x, y)`, `.rotation(angle)`,
   `.scale(s)` or `(x, y)`, `.color(c)`, and `.alpha(v)`. A layout placing in 3D
   still lands; depth is dropped.
+- `.color(c)` multiplies with the stamp rather than replacing it, so a stamp
+  that already has a color can be filtered but not repainted. Draw it white
+  (`color: '#fff'`, or `.saturation(0)` on the chain) when each copy is to
+  carry its own hue.
 - A copy arrives at the structure's own scale already, so `.scale(l.size(i))`
   changes nothing. Multiply it — `l.size(i) * 0.4` — to keep the taper, or pass
   your own number to ignore it.

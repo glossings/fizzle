@@ -8,10 +8,9 @@ import { keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { acceptCompletion } from '@codemirror/autocomplete';
 import { indentMore, indentLess } from '@codemirror/commands';
-import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { configSections, infoNodes, GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG } from './docs.js';
-import { apiCompletions, apiHover } from './complete.js';
+import { sketchLanguage, apiHover } from './complete.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { initPolyhaven } from './polyhaven.js';
@@ -187,8 +186,7 @@ function makeExample(code, autorun) {
     extensions: [
       runKeys,
       basicSetup,
-      javascript(),
-      javascriptLanguage.data.of({ autocomplete: apiCompletions }),
+      sketchLanguage,
       apiHover,
       oneDark,
       EditorView.lineWrapping,
