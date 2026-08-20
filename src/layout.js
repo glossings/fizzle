@@ -123,10 +123,10 @@ class Cursor {
     return this;
   }
 
-  // Place a copy along the next step, then take it. The copy centers on the
-  // step rather than on the joint, so segments meet end to end instead of
-  // straddling the joint and crossing each other where a branch forks. A shape
-  // one unit long (box({ height: 1 }), capsule()) spans the step exactly.
+  // Move forward, leaving a copy that spans the step. Centering it on the step
+  // rather than on the joint is what keeps segments meeting end to end instead
+  // of straddling the joint and crossing each other where a branch forks. A
+  // shape one unit long (box({ height: 1 }), capsule()) covers the step exactly.
   span(dist = 1, label, data) {
     const half = typeof dist === 'function' ? (t) => resolve(dist, t) / 2 : dist / 2;
     return this.forward(half).place(label, data).forward(half);

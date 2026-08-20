@@ -582,10 +582,10 @@ Prefiltering is cached per file, so only the first run after importing hitches.
 
 ## layout
 
-`layout(depth, rule)` runs your rule with a cursor. `.span()` lays a copy along
-the cursor's next step, `.branch()` grows children that run the same rule again,
-and it keeps going until `depth` generations are up. `.instance()` draws the
-result.
+`layout(depth, rule)` runs your rule with a cursor. `.span()` moves the cursor
+forward and leaves a copy spanning the step, `.branch()` grows children that run
+the same rule again, and it keeps going until `depth` generations are up.
+`.instance()` draws the result.
 
 ```js
 ambient({ intensity: 0.35 })
@@ -612,7 +612,7 @@ one unit long (`box({ height: 1 })`, `capsule()`) spans one `.span(1)` exactly.
 
 | verb | what it does |
 |---|---|
-| `.span(dist, label, data)` | lay a copy along the next step, then take it, so segments meet end to end |
+| `.span(dist, label, data)` | move forward, leaving a copy that spans the step, so segments meet end to end |
 | `.forward(dist)` | step along the heading without placing anything, scaled by the cursor |
 | `.turn(angle, pitch, roll)` | radians: `angle` turns flat, `pitch` tilts out of that plane, `roll` spins about the heading |
 | `.scale(f)` | shrink, compounding down the branch |
@@ -754,6 +754,71 @@ camera(5, 2, 5.5)
 
 A structure grows from the origin, so `.position()` recenters this one before
 `.rotation()` spins it in place.
+
+### the same structure, flat
+
+`.instance()` is also a texture verb: it takes the picture so far as a stamp and
+draws it once per copy, so a structure lands in the pipeline as pixels.
+
+```js
+const gasket = layout((e) => {
+  if (e.size < 0.06) { e.place(); return }
+  for (const a of [0, 2.094, -2.094])
+    e.branch((x) => x.turn(a).forward(0.25).turn(-a).scale(0.5))
+})
+
+circle({ radius: 0.4, soft: 0.08, color: '#ffd75f', bg: null })
+  .instance(gasket, (x, i, n) => x.scale(0.025).color(hsl(0.05 + (i / n) * 0.3, 0.85, 0.6)))
+  .bloom({ threshold: 0.3, strength: 1 })
+  .out()
+```
+
+Everything a layout knows still applies: `.filter()` slices it, `.grow()` opens
+it out, `.size()`/`.age()`/`.depth()`/`.data()` answer per copy, and a `.turn()`
+that is a fn of t still sways it.
+
+- The copy verbs are the flat ones: `.position(x, y)`, `.rotation(angle)`,
+  `.scale(s)` or `(x, y)`, `.color(c)`, and `.alpha(v)`. A layout placing in 3D
+  still lands; depth is dropped.
+- A copy arrives at the structure's own scale already, so `.scale(l.size(i))`
+  changes nothing. Multiply it — `l.size(i) * 0.4` — to keep the taper, or pass
+  your own number to ignore it.
+- Units are the frame's height, origin at the center: a copy at scale 1 covers
+  the frame. So the stamp is what sizes a copy: draw it to fill its own frame,
+  then scale the copies down.
+- The stamp has to fade out inside its own frame, or every copy carries a hard
+  rectangular edge. `circle({ radius: 0.4, soft: 0.08 })` reaches zero at 0.48;
+  the frame's edge is 0.5.
+- The frame reaches 0.5 either side of the origin and copies outside it are
+  clipped, so a structure has to be built at a size that fits — there is no
+  camera here. Step distances (`.forward()`, `.span()`) carry the positions and
+  leave `e.size` alone, so shrinking those scales the figure without disturbing
+  a size-based stop; scaling the cursor moves both.
+- `{ blend }` is how copies land on each other, `'add'` by default: generators
+  come with an opaque black background, which adds nothing. `'over'` wants a
+  transparent stamp (`bg: null`).
+
+The count form works too, and the stamp is a chain, so it can be anything —
+`text()`, a `videofile()`, a `person()` cutout, or the 3D render itself:
+
+```js
+bg('#04050b')
+ambient({ intensity: 0.4 })
+directional({ intensity: 2.5 }).position(3, 5, 4).out()
+
+torusKnot({ radius: 1, tube: 0.3 })
+  .rotation((t) => t * 0.4, (t) => t * 0.3, 0)
+  .material({ color: '#4fd1c5', roughness: 0.3, metalness: 0.6 })
+  .out()
+
+scene()
+  .instance(12, (x, i, n, t) => {
+    const a = (i / n) * 6.283 + t * 0.2
+    return x.position(Math.cos(a) * 0.33, Math.sin(a) * 0.33).scale(0.22).rotation(a)
+  })
+  .bloom({ threshold: 0.5, strength: 0.7 })
+  .out()
+```
 
 ## 3d text
 

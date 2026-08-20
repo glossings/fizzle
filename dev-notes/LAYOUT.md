@@ -209,3 +209,104 @@ verbatim):
 - `.rand(seed = 0)` — A random 0..1 that holds still: each node draws the same
   value every frame and every re-run, so a stochastic structure doesn't reroll
   while you watch. Different seeds are independent draws.
+
+---
+
+## The 2D bridge — `.instance()` on a texture chain (2026-08-19, same day)
+
+A layout had exactly one consumer, `GeoOp.instance()`. This is the second:
+`TextureOp.instance(count | layout, fn?, { blend })`, shipped in
+[textures.js](../src/textures.js), documented under "the same structure, flat",
+example in [layout-2d.js](../sketches/examples/layout-2d.js).
+
+### Why a bridge at all, given feedback already does 2D fractals
+
+Video feedback (a frame comped with scaled/rotated copies of itself) *is* an
+IFS run by the screen, and it covers a surprising amount of the 2D fractal
+space for free. A Sierpinski gasket falls out of a seed plus three half-scale
+copies of `input()`, and a fractal tree out of a trunk plus two shrunk turned
+ones; both were written first to test exactly that claim. What it can't do:
+
+- Only contractive maps, and only their *attractor*. A Hilbert curve or a
+  dragon is a path, not an attractor; feedback can't draw either.
+- Resolution-bound and emergent over frames, so nothing is addressable: no
+  labels, no `data`, no per-copy color, no exact count.
+
+So feedback and layout overlap in look, not in kind. The bridge stays.
+
+### Naming: `instance`, not `stamp`
+
+Candidates were `stamp`, `copy`, `at`, and reusing `instance`. `instance` won
+because the operation genuinely *is* the same one — copies of one source placed
+by a layout, in a single draw — and one verb across both chains means a layout
+reads the same wherever it lands. `box().instance(tree)` and
+`circle().instance(tree)` differ only in what a copy is made of.
+
+The cost is that `CALLBACK_KIND` in docs.js keys callback kinds by method name
+alone, so both handles have to share the `inst` kind for completion. That
+forced the honest fix rather than a fudge: the 2D handle's `.alpha()` was added
+to the `inst` list, and `InstanceHandle.alpha()` on the geometry side became a
+guard pointing at `.material({ opacity })` — which is the pattern its
+`.noise()`/`.displace()`/`.shadow()` siblings already use.
+
+### Decisions the implementation forced
+
+**Units: 1 = the frame's height, y up, origin centered.** A copy at scale 1
+covers the frame exactly. That identity is what lets a layout's own coordinates
+arrive unscaled, and it matches the house convention elsewhere in textures.js
+(y unscaled, x aspect-corrected — see circle's shader). The quad is therefore
+`aspect × 1` and the matrix is T·R·S in that order, so a rotated copy turns
+rigidly instead of shearing.
+
+**There is no camera, and `{ zoom }` was a mistake.** The frame is one unit tall
+and copies outside it are clipped, so a structure has to be built at a size that
+fits. A `{ zoom }` option shipped first, scaling the ortho camera's extent. It
+was cut the same day: zooming out by k is a similarity transform of the drawing,
+which is to say it is exactly what scaling the structure already does, one step
+later and in a second place. Aria's call, and correct — a framing helper, if one
+is ever wanted, belongs on Layout where the coordinates live, not on the
+consumer that draws them.
+
+The argument that kept it alive too long was that shrinking a rule trips its own
+`e.size` stop sooner and builds a simpler structure (measured: the flake goes
+from 2742 copies over 10 generations to 192 over 5). True, but it is a property
+of one idiom, not of layouts — a depth-based stop has no such coupling, and
+`.forward()`/`.span()` distances carry the positions while leaving `e.size`
+alone, so shrinking those is already a pure scale. Both examples were resized
+that way when zoom came out, structure untouched.
+
+**Blending is fixed-function, not a shader pass.** Every copy lands in one
+draw, so what a copy meets is the destination buffer, which no shader can read.
+That admits exactly `add`/`over`/`screen`/`lighten`; anything else warns and
+points at `.comp()`. Default is `add`, because the generators default to an
+opaque black background — under `over` the copies would hide each other behind
+black rectangles. Alpha blends as source-over regardless of what the color is
+doing, so an additive stack still ends on a composable coverage.
+
+**The stamp is read through a mip pyramid.** Copies are small by nature; without
+mips a copy at 1/64 scale samples one pixel in fifty and sparkles. `.instance()`
+sets `_needsMips` on its source, the same lever `.displace()` pulls.
+
+**Fill rate is the one thing a sketch can get wrong.** A quad is always the
+whole frame, so N copies at scale s cost N·s²·aspect frames of fill. The
+guidance that falls out — draw the stamp to fill its frame, then scale the
+copies down — is also just the 2D reading of how a shape's own dimensions size
+a 3D copy, so it costs nothing to teach.
+
+**A serial in `params`.** `sigOf()` dedupes `.tile()` variants by stringifying
+params, and neither the count nor the fn survives that — two different
+structures in two cells would have merged into one. Each node gets an `id`.
+
+### Not done
+
+- Per-copy shader effects. Same line the geometry side already drew with "one
+  material for the whole batch"; keeping both `.instance()`s identical in what
+  they refuse is part of what makes sharing the name honest.
+- A square stamp. Copies inherit the frame's aspect, so a copy is never square
+  and grid-aligned tiling can't be expressed. `.tile()` is what tiles; this
+  only bit when a Sierpinski *carpet* was briefly considered for the docs
+  example (a gasket of dots doesn't care, since a circle stays a circle).
+- Reading a copy's placed position back inside the fn. `l.apply()` sets it and
+  the handle has no getter, so recentering a structure has to happen in the
+  rule or through `zoom`. Worth adding if a sketch ever wants it — it's the one
+  gap `zoom` doesn't cover.

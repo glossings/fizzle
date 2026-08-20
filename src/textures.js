@@ -3,6 +3,7 @@ import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
 import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
+import { Layout } from './layout.js';
 import { renderFluid, renderFluidView } from './fluid.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
@@ -1015,6 +1016,132 @@ export const BLEND_MODE_NAMES = [
 ];
 
 // ---------------------------------------------------------------------------
+// instanced copies — .instance() on a texture chain, the flat twin of the one
+// on geometry. The picture so far becomes the stamp: one instanced quad per
+// copy, all of them in a single draw through an ortho camera spanning the
+// frame, so a layout() arrives in the texture world as pixels.
+//
+// Units are the frame's height, y up, origin at the center: a copy at scale 1
+// covers the frame exactly, and the frame reaches 0.5 either side of the
+// origin. Copies outside it are clipped, so a structure bigger than that is
+// sized where it is built — framing it from here would only be the same scale
+// applied a step later.
+
+// Blending is fixed-function here rather than a shader pass: every copy lands
+// in one draw, so what a copy meets is the destination buffer, which a shader
+// can't read. These four are what GL can express; the rest is .comp()'s job.
+const COPY_BLEND = {
+  add: { eq: THREE.AddEquation, src: THREE.OneFactor, dst: THREE.OneFactor },
+  over: { eq: THREE.AddEquation, src: THREE.OneFactor, dst: THREE.OneMinusSrcAlphaFactor },
+  screen: { eq: THREE.AddEquation, src: THREE.OneFactor, dst: THREE.OneMinusSrcColorFactor },
+  // factors go unread under a min/max equation, but three wants them set
+  lighten: { eq: THREE.MaxEquation, src: THREE.OneFactor, dst: THREE.OneFactor },
+};
+COPY_BLEND.normal = COPY_BLEND.over;
+
+export const COPY_BLEND_NAMES = ['add', 'over', 'screen', 'lighten'];
+
+// What tells two .instance() nodes apart is a count and a fn, neither of which
+// survives being stringified — so each gets a serial, or the signature .tile()
+// dedupes its variants on would merge two different structures into one.
+let copySerial = 0;
+
+const COPY_VERT = /* glsl */ `
+attribute vec3 tdColor;
+attribute float tdAlpha;
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vUv = uv;
+  vColor = tdColor;
+  vAlpha = tdAlpha;
+  gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+}`;
+
+const COPY_FRAG = /* glsl */ `
+uniform sampler2D tex0;
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  // premultiplied throughout: the fade scales all four channels, the tint only
+  // the three that carry color
+  vec4 c = texture2D(tex0, vUv) * vAlpha;
+  gl_FragColor = vec4(c.rgb * vColor, c.a);
+}`;
+
+// The stand-in for one copy handed to a texture .instance()'s fn. Every copy
+// is the same picture drawn by the same shader, so what can differ between
+// them is where it lands, how big, which way up, and how it's tinted and
+// faded — the rest belongs to the chain and says so. Reused across every copy
+// and every frame, hence reset() and the flat fields.
+class CopyHandle {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.px = this.py = 0;
+    this.rz = 0;
+    this.sx = this.sy = 1;
+    this.col = null;
+    this.a = 1;
+  }
+
+  // a third number is a layout placing in 3D; this is the flat view of it, so
+  // depth is dropped rather than refused
+  position(x = 0, y = 0) {
+    if (Array.isArray(x)) [x, y] = [x[0] ?? 0, x[1] ?? 0];
+    this.px = x; this.py = y;
+    return this;
+  }
+  // one angle turns the copy. Three is a layout's Euler arriving, whose z is
+  // the turn a flat rule made — the other two lean the copy out of the frame,
+  // which a stamp has no way to show.
+  rotation(x = 0, y, z) {
+    this.rz = z === undefined ? x : z;
+    return this;
+  }
+  scale(x = 1, y) {
+    if (Array.isArray(x)) [x, y] = [x[0] ?? 1, x[1] ?? 1];
+    this.sx = x; this.sy = y ?? x;
+    return this;
+  }
+  // tints this copy: multiplied with the picture's own colors
+  color(c) { this.col = c; return this; }
+  // fades this copy, 0..1 — the one thing a copy can do that a 3D one can't,
+  // since a texture is composited rather than lit
+  alpha(v = 1) { this.a = v; return this; }
+
+  // Same bargain as the geometry handle: a verb a copy hasn't got says where
+  // the real one lives and carries on, since this fn runs every frame and
+  // throwing here would take the video down over a line that only wanted moving.
+  align() {
+    warn('instance: a copy of a picture has no heading to align — .rotation(angle) turns it');
+    return this;
+  }
+  tile() {
+    warn('instance: .tile() picks among a set of maps on geometry — here the chain before .instance() is the picture every copy wears');
+    return this;
+  }
+  material() {
+    warn('instance: a copy has no material — .color() tints it and .alpha() fades it, and the rest is the chain before .instance()');
+    return this;
+  }
+  comp() {
+    warn('instance: .comp() layers whole pictures — put it on the chain, before .instance() to composite the stamp or after it to composite the result');
+    return this;
+  }
+  instance() {
+    warn("instance: a copy can't be instanced — raise the count instead");
+    return this;
+  }
+  out() {
+    warn('instance: .out() ends the chain, not a copy — call it after .instance()');
+    return this;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // pass plumbing
 
 export class Quad {
@@ -1678,6 +1805,44 @@ export class TextureOp {
     const l = this._texture(layer, 'comp');
     return l ? this._n('comp', { mode, opacity, swap }, [l]) : this;
   }
+
+  // instance(count, fn) — the picture so far, stamped count times, fn(x, i, n, t)
+  // placing each copy through the flat verbs (x.position/.rotation/.scale/
+  // .color/.alpha). It runs every frame, so copies animate.
+  //
+  // instance(layout) instead takes the copies from a layout() (or one of its
+  // .filter() views), which brings its own count; a fn alongside it runs once
+  // the structure has placed the copy. Same call as on geometry, and a layout
+  // reads the same either way — this one draws it flat, in the frame's own
+  // units (1 = the frame's height, origin at the center).
+  //
+  // Copies are drawn small, so the stamp is read through a mip pyramid or a
+  // shrunken copy would sample one pixel in fifty and sparkle.
+  instance(count, fn, o = {}) {
+    if (typeof fn === 'object' && fn !== null) { o = fn; fn = undefined; }
+    let n = count;
+    if (count instanceof Layout) {
+      const l = count;
+      if (!l.count) warn('instance: the layout placed no copies — a rule builds them with e.place()');
+      n = l.count;
+      // the user's fn is captured before fn is reassigned, or the wrapper
+      // closes over itself
+      const after = fn;
+      fn = after
+        ? (x, i, k, t) => after(l.apply(x, i, t), i, k, t)
+        : (x, i, k, t) => l.apply(x, i, t);
+    } else {
+      fn ??= (x, i, k) => x.position((i - (k - 1) / 2) * 0.25, 0).scale(0.2);
+    }
+    const blend = o.blend ?? 'add';
+    if (!COPY_BLEND[blend]) {
+      warn(`instance: '${blend}' isn't a blend copies can land in — ${COPY_BLEND_NAMES.join(', ')} are what one draw can do, and .comp() has the rest. Using add.`);
+    }
+    this._needsMips = true;
+    const node = this._n('instance', { blend: COPY_BLEND[blend] ? blend : 'add', id: copySerial++ });
+    node._inst = { count: Math.max(0, Math.floor(Number(n) || 0)), fn };
+    return node;
+  }
   // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
   // apply fn only where the mask is bright: dry→wet blend by mask luma.
   // Both the mask and the fn's return may be fns of the chain so far.
@@ -2152,6 +2317,104 @@ export class TextureOp {
       return tex ?? blackTex();
     }
 
+    // One instanced draw of the picture so far, into a target cleared to
+    // transparent — so what comes out is the copies over nothing, and the chain
+    // carries on comping it like any other layer.
+    if (this.kind === 'instance') {
+      const inst = this._inst;
+      const src = this.inputs[0].renderNode(ctx);
+      const out = this._rt(ctx);
+      const n = inst.count;
+      const renderer = ctx.renderer;
+      let c = this._copy;
+      if (!c) {
+        const geo = new THREE.PlaneGeometry(1, 1);
+        const colors = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
+        const alphas = new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1), 1);
+        colors.setUsage(THREE.DynamicDrawUsage);
+        alphas.setUsage(THREE.DynamicDrawUsage);
+        geo.setAttribute('tdColor', colors);
+        geo.setAttribute('tdAlpha', alphas);
+        const blend = COPY_BLEND[this.params.blend];
+        const mat = new THREE.ShaderMaterial({
+          vertexShader: COPY_VERT,
+          fragmentShader: COPY_FRAG,
+          uniforms: { tex0: { value: null } },
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+          transparent: true,
+          blending: THREE.CustomBlending,
+          blendEquation: blend.eq,
+          blendSrc: blend.src,
+          blendDst: blend.dst,
+          // Coverage accumulates as source-over whatever the color is doing, so
+          // an additive stack still ends on an alpha the pipeline can composite
+          // — and a copy's own alpha can't push the buffer's past 1.
+          blendEquationAlpha: THREE.AddEquation,
+          blendSrcAlpha: THREE.OneFactor,
+          blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+        });
+        const mesh = new THREE.InstancedMesh(geo, mat, n);
+        // every copy is placed by hand and the camera sees the whole frame, so
+        // three's own bounds would only ever be wrong about it
+        mesh.frustumCulled = false;
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        const scene = new THREE.Scene();
+        scene.add(mesh);
+        c = this._copy = {
+          scene, mesh, mat, geo, colors, alphas,
+          // y spans -0.5..0.5 (one frame height); x is set per frame, since the
+          // window's aspect is what makes the space isotropic
+          cam: new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1),
+          dummy: new THREE.Object3D(),
+          handle: new CopyHandle(),
+          col: new THREE.Color(),
+        };
+      }
+      c.mat.uniforms.tex0.value = src;
+      const t = ctx.t;
+      // only x moves, with the window's aspect: the frame is one unit tall by
+      // definition, and a structure that doesn't fit is sized in its own rule
+      c.cam.left = -0.5 * ctx.aspect;
+      c.cam.right = 0.5 * ctx.aspect;
+      c.cam.updateProjectionMatrix();
+      for (let i = 0; i < n; i++) {
+        const h = c.handle;
+        h.reset();
+        inst.fn(h, i, n, t);
+        c.dummy.position.set(resolve(h.px, t), resolve(h.py, t), 0);
+        c.dummy.rotation.set(0, 0, resolve(h.rz, t));
+        // x carries the frame's aspect, so a copy keeps the picture's own shape
+        // and a copy at scale 1 covers the frame exactly. T·R·S in that order,
+        // so the wider-than-tall copy turns rigidly rather than shearing.
+        c.dummy.scale.set(resolve(h.sx, t) * ctx.aspect, resolve(h.sy, t), 1);
+        c.dummy.updateMatrix();
+        c.mesh.setMatrixAt(i, c.dummy.matrix);
+        if (h.col !== null) setColor(c.col, h.col, t);
+        else c.col.setRGB(1, 1, 1);
+        c.colors.array[i * 3] = c.col.r;
+        c.colors.array[i * 3 + 1] = c.col.g;
+        c.colors.array[i * 3 + 2] = c.col.b;
+        const a = Number(resolve(h.a, t));
+        c.alphas.array[i] = Number.isFinite(a) ? Math.min(1, Math.max(0, a)) : 1;
+      }
+      c.mesh.instanceMatrix.needsUpdate = true;
+      c.colors.needsUpdate = true;
+      c.alphas.needsUpdate = true;
+      // the copies land on nothing, not on the renderer's clear color — and
+      // on a target cleared this frame, whatever the pass before us was doing
+      const prevAlpha = renderer.getClearAlpha();
+      const prevAutoClear = renderer.autoClear;
+      renderer.setClearAlpha(0);
+      renderer.autoClear = true;
+      renderer.setRenderTarget(out);
+      renderer.render(c.scene, c.cam);
+      renderer.autoClear = prevAutoClear;
+      renderer.setClearAlpha(prevAlpha);
+      return out.texture;
+    }
+
     const ins = this.inputs.map((n) => n.renderNode(ctx));
 
     // A ring of targets written one a frame: the slot n back holds the frame n
@@ -2338,6 +2601,9 @@ export class TextureOp {
     this._ctex?.dispose();
     this._atlas?.tex.dispose();
     this.mat?.dispose();
+    this._copy?.geo.dispose();
+    this._copy?.mat.dispose();
+    this._copy?.mesh.dispose();
   }
 }
 

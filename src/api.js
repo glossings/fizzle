@@ -396,6 +396,10 @@ class InstanceHandle {
     warn('instance: the batch is one mesh, so it casts and receives as one — put .shadow() on the chain');
     return this;
   }
+  alpha() {
+    warn('instance: the batch is one material, so it fades as one — put .material({ opacity }) on the chain. (A copy of a texture chain fades on its own: .instance() there takes .alpha().)');
+    return this;
+  }
   instance() {
     warn("instance: an instance can't be instanced — raise the count instead");
     return this;

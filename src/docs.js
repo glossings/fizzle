@@ -89,10 +89,10 @@ export const METHODS = {
   rotate: ['.rotate(v, { wrap })', 'Texture: rotate the image around center, in radians. v takes a fn of t, or a texture to turn each pixel by its own angle.\nShort form: .rot().'],
   translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame); a map in the first slot shifts each pixel by its own R and G. Short form: .trans()."],
   noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.'],
-  instance: ['.instance(count, (x, i, n, t) => x.position(...))', 'Render as one InstancedMesh. The layout fn gets each copy as x and transforms it with .position/.rotation/.scale/.color; it runs every frame, so instances animate. i = copy index, n = count.'],
+  instance: ['.instance(count | layout, (x, i, n, t) => x.position(...), { blend })', "Geometry: render as one InstancedMesh. Texture: stamp the picture so far once per copy, in one draw.\nThe fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count. A layout() stands in for the count and brings its own."],
   place: ['.place(label?, data?)', "Layout cursor: record a copy centered where the cursor stands, at its heading and scale, for a tip or a scatter rather than a segment (.span() is the one that runs between joints). The label names what goes there, picked out later by .filter(); data rides along per copy, for .data(i) to read."],
   branch: ['.branch(x => x.turn(0.5), rule?)', "Layout cursor: grow a child. The step shapes it, then the rule runs again from there, one generation deeper. The parent's cursor stays put. A second argument hands the child a different rule."],
-  span: ['.span(dist = 1, label?, data?)', 'Layout cursor: lay a copy along the next step, then take it. The copy centers on the step rather than on the joint, so segments meet end to end where a branch forks; a shape one unit long spans the step exactly.'],
+  span: ['.span(dist = 1, label?, data?)', 'Layout cursor: move forward, leaving a copy that spans the step. Centered on the step rather than on the joint, so segments meet end to end where a branch forks; a shape one unit long covers the step exactly.'],
   forward: ['.forward(dist = 1)', 'Layout cursor: step along the heading (+Y) without placing anything. The step scales with the cursor, so a shrunken branch takes shorter steps.'],
   turn: ['.turn(angle, pitch?, roll?)', 'Layout cursor: rotate the heading, in radians. angle turns it flat, pitch tilts it out of that plane, roll spins it about the heading itself. A fn of t here sways everything grown past it.'],
   distance: ['.distance', 'Layout cursor: how far it has walked from the root.'],
@@ -198,7 +198,7 @@ export const METHODS = {
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount, mid, smooth })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
   comp: [".comp(layer, { mode, opacity, swap })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
-  alpha: ['.alpha(v)', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black."],
+  alpha: ['.alpha(v)  ·  .alpha(v) on a copy', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.\nInstance copy: fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
@@ -723,6 +723,9 @@ const METHOD_KEY_DOCS = {
     mid: 'The map value that means no movement. Default 0.5 for mid-gray maps; use 0 for a dark map you only want to push one way.',
     smooth: 'Geometry only: how wide each vertex reads the map, in vertex spacings. Default 1 turns a busy map into relief rather than grit; 0 reads a single point (jagged, sparkling), 2-4 is doughy and rounded. Takes a fn of t.',
   },
+  instance: {
+    blend: "Texture only: how copies land on each other. Default 'add', which drops a generator's opaque black background; 'over' stacks them instead and wants a stamp with transparency (bg: null). 'screen' and 'lighten' also drop black. The rest of .comp()'s modes need to read what's underneath, which one draw can't.",
+  },
   comp: {
     mode: "Blend mode. Default 'over', which lands the layer only where its alpha says so — a transparent-bg generator comps as a sprite. 'under' puts it behind instead. add and screen are the ones that drop an opaque black background; luminosity/color are the non-separable pair that split luma from chroma.",
     opacity: 'How much of the blended result mixes back in, 0..1. Default 1. Takes a fn of t.',
@@ -842,7 +845,7 @@ const methodKinds = {
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
   light: 'position target out',
-  inst: 'position rotation scale align color tile material',
+  inst: 'position rotation scale align color alpha tile material',
   // the cursor a layout rule steers, and the structure it hands back
   cursor: 'span forward turn scale place branch rand depth size distance position',
   layout: 'filter grow apply age depth data size count',
@@ -850,7 +853,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile particles out
+        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile instance particles out
         ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
