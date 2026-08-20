@@ -417,6 +417,7 @@ initDrop();
     onTogglePause: togglePause,
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
     onToggleSidebar: sidebar.toggle,
+    onToggleAudio: sidebar.audioModal.toggle,
     // Allowed to restart the show only because a person asked, rather than an
     // edit causing it. restartSketch frees state the patch still points at, so
     // the rebuild belongs to the same action; run rather than runResume, so a

@@ -50,10 +50,11 @@ export function fillCall(view, fn, args, suffix = '') {
 
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
-//   this window's code · ctrl+p sidebar · ctrl+r restart · ctrl+e record ·
-//   ctrl+[ / ctrl+] previous / next in the playlist · F1 projector window
+//   this window's code · ctrl+p sidebar · ctrl+a audio manager · ctrl+r
+//   restart · ctrl+e record · ctrl+[ / ctrl+] previous / next in the playlist
+//   · F1 projector window
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onStep, onChange, onScroll }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onStep, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
@@ -76,6 +77,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-h', run: () => { toggleCode(); return true; } },
       { key: 'Ctrl-m', run: () => { toggleLocalCode(); return true; } },
       { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
+      { key: 'Ctrl-a', run: () => { onToggleAudio?.(); return true; } },
       { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
       { key: 'Ctrl-e', run: () => { onRecord?.(); return true; } },
       // brackets rather than the arrows: ctrl+up/down belong to Mission

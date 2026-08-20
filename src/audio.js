@@ -1,8 +1,9 @@
 // Audio input as control signals. AudioEngine captures an input device (any
 // channel count) and runs one analysis pass per rendered frame: per-channel
-// RMS, a mono-mix RMS, and a normalized magnitude spectrum. Signals returned
-// by audio() are plain functions of t — they slot into every
-// value-or-fn-of-t parameter — with chainable processing methods attached.
+// and mono-mix loudness (RMS on a dB scale, 0..1), and a normalized magnitude
+// spectrum. Signals returned by audio() are plain functions of t — they slot
+// into every value-or-fn-of-t parameter — with chainable processing methods
+// attached.
 
 import { warn } from './warn.js';
 import { carried } from './carry.js';
@@ -36,8 +37,8 @@ export class AudioEngine {
     this.source = null;
     this.analysers = [];      // one per input channel
     this.monoAnalyser = null;
-    this.levels = [];         // per-channel RMS, refreshed each frame
-    this.level = 0;           // mono-mix RMS
+    this.levels = [];         // per-channel loudness, refreshed each frame
+    this.level = 0;           // mono-mix loudness
     this.spectrum = null;     // per-bin magnitude, normalized 0..1
     this.binHz = 1;
     this.channels = 0;
@@ -169,6 +170,16 @@ export class AudioEngine {
     return Math.sqrt(s / buf.length);
   }
 
+  // RMS -> 0..1 on a dB scale, -60..0 dBFS — the meter convention, and the
+  // same treatment the spectrum gets from the analyser's dB window. Linear
+  // RMS puts ordinary music at 0.01-0.1, useless as a control value; in dB
+  // it reads mid-scale and the manager's anchors do the rest.
+  static loudness(buf) {
+    const rms = AudioEngine.rms(buf);
+    if (rms <= 1e-3) return 0; // -60 dBFS and below
+    return Math.min(1, 1 + (20 * Math.log10(rms)) / 60);
+  }
+
   // one pass per rendered frame, called by the engine (skipped while paused,
   // so audio-driven parameters freeze like everything else)
   update() {
@@ -178,11 +189,11 @@ export class AudioEngine {
     if (this.ctx.state === 'suspended') this.ctx.resume();
     for (let i = 0; i < this.analysers.length; i++) {
       this.analysers[i].getFloatTimeDomainData(this.wave);
-      this.levels[i] = AudioEngine.rms(this.wave);
+      this.levels[i] = AudioEngine.loudness(this.wave);
     }
     const ma = this.monoAnalyser;
     ma.getFloatTimeDomainData(this.wave);
-    this.level = AudioEngine.rms(this.wave);
+    this.level = AudioEngine.loudness(this.wave);
     ma.getFloatFrequencyData(this.freq);
     const lo = ma.minDecibels, hi = ma.maxDecibels;
     for (let i = 0; i < this.freq.length; i++) {

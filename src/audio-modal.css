@@ -1,0 +1,179 @@
+/* the audio manager — devices, spectrum bands, and meter anchors */
+#au-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+#au-modal.show { display: flex; }
+
+#au-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 94vw);
+  max-height: 88vh;
+  background: rgba(10, 12, 18, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #cfd4e0;
+  font-size: 13px;
+  overflow: hidden;
+}
+#au-panel header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.au-title {
+  color: #7ee787;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+#au-panel header label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 0;
+  flex: 1;
+}
+#au-panel header select {
+  flex: 1;
+  min-width: 60px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+}
+#au-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#au-close:hover { color: #fff; }
+
+#au-spectrum {
+  width: 100%;
+  height: 170px;
+  display: block;
+  background: rgba(0, 0, 0, 0.35);
+  touch-action: none;
+}
+
+.au-addrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#au-add {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfd4e0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#au-add:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+.au-hint { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
+
+#au-meters {
+  overflow-y: auto;
+  padding: 6px 12px 12px;
+}
+.au-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.au-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+.au-name {
+  width: 76px;
+  flex: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #cfd4e0;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+input.au-name:hover, input.au-name:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  outline: none;
+}
+.au-fixed { color: #7ee787; }
+.au-hz {
+  width: 78px;
+  flex: none;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+.au-meter {
+  flex: 1;
+  height: 26px;
+  min-width: 100px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.au-val {
+  width: 34px;
+  flex: none;
+  text-align: right;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+.au-del {
+  width: 20px;
+  flex: none;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+button.au-del:hover { color: #ff7b72; }
+
+/* the sidebar's way in */
+#sb-audio-manage {
+  display: block;
+  margin: 7px 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfd4e0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#sb-audio-manage:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }

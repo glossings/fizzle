@@ -15,6 +15,7 @@ import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
 import { sig, valueNoise, barPhase, setBpmSource } from './audio.js';
+import { bandValue } from './bands.js';
 import { midiHandle, gamepadHandle } from './control.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
@@ -1455,6 +1456,15 @@ export function makeApi(engine) {
       if (typeof chan === 'string') { name = chan; chan = chan2; }
       const ae = audioIn(name);
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
+    },
+    // A named band from the audio manager (ctrl+a), normalized 0..1 by its
+    // meter anchors. band() = the global level, band(1) = the band named "1"
+    // (the default names are numbers). The lookup is live: dragging in the
+    // manager retunes a running sketch.
+    band(name) {
+      const key = name == null ? 'level' : String(name);
+      const ae = audioIn();
+      return sig(() => bandValue(ae, key), ae);
     },
     // An imported audio file, played out loud and analyzed like audio():
     // returns its level as a signal with the same chainable methods

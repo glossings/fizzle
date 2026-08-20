@@ -2209,8 +2209,10 @@ icosa({ radius: 1 })
   .out()
 ```
 
-- `audio()` — mono mix level (RMS). `audio(2)` — one channel by index; inputs
-  with more than 2 channels are fully addressable.
+- `audio()` — mono mix loudness, 0..1 on a dB scale (−60..0 dBFS), so a
+  quiet-but-real signal reads mid-scale rather than hugging 0. `audio(2)` —
+  one channel by index; inputs with more than 2 channels are fully
+  addressable.
 - `audio('scarlett')` — a specific input device by name, independent of the
   sidebar's selection, so two interfaces can drive different parameters.
   `audio('scarlett', 2)` picks a channel of it.
@@ -2236,6 +2238,38 @@ The sidebar's **audio out** passes the captured input through to an output
 device, handy for monitoring an interface channel. It's where `audiofile()`
 plays too, so picking a device moves all of fizzle's sound at once. Mind the
 feedback: mic → speakers will howl.
+
+### the audio manager
+
+Press **ctrl+a** (or the sidebar's *audio manager* button) to see the incoming
+spectrum and carve it into named bands. Drag a band's edges to choose the
+frequencies it captures, then drag the two anchors on its meter to mark what
+reads as 0 and what reads as 1. Values below the low anchor clip to 0 and
+values above the high anchor clip to 1; in between you get a 0..1 ramp.
+
+`band()` reads them in a sketch:
+
+```js
+ambient({ intensity: 0.2 })
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
+
+sphere({ radius: 1 })
+  .scale(band(1).smooth(0.03, 0.2).range(0.8, 1.6))
+  .material({ color: '#8899ff' })
+  .out()
+```
+
+- `band()` or `band('level')` reads the global level meter.
+- Bands are named `1`, `2`, `3` as you add them, so `band(1)` reads the
+  first. Rename one in the manager and read it by that name: `band('kick')`.
+- Everything is live: retuning a band or its anchors changes the running
+  sketch on the next frame, and the settings stick across sketches.
+
+This is the fix for a sketch that slams on one track and barely moves on the
+next: the raw energy of a band depends on the mix, so pin the anchors to what
+the meter actually shows and the sketch sees the same 0..1 sweep every time.
+The chained `.lowpass()` / `.bandpass()` family still reads raw, un-anchored
+energy.
 
 ## tempo & sequencing
 

@@ -6,6 +6,7 @@
 import { syncHash } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
 import { isTouch, forPlatform, exampleApplies } from './touch.js';
+import { initAudioModal } from './audio-modal.js';
 import { recordable } from './record.js';
 import { initOrganize } from './organize.js';
 import {
@@ -119,6 +120,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       <label>font size <input id="sb-font" type="number" min="9" max="40" step="1"></label>
       <label>audio in <select id="sb-audio"></select></label>
       <label>audio out <select id="sb-audio-out"></select></label>
+      <button id="sb-audio-manage" title="devices, bands & levels (ctrl+a)">audio manager…</button>
       <label>tempo <input id="sb-tempo" type="number" min="20" max="300" step="1"> bpm</label>
       <label class="sb-rec">recording <select id="sb-recfmt"></select></label>
       <label class="sb-rec">rec. audio
@@ -302,12 +304,18 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     settings.audioDevice = e.target.value;
     persist();
     applyAudio();
+    window.dispatchEvent(new Event('td-audio-config')); // audio manager follows
   });
   $('#sb-audio-out').addEventListener('change', (e) => {
     settings.audioOut = e.target.value;
     persist();
     applyAudio();
+    window.dispatchEvent(new Event('td-audio-config'));
   });
+  // the audio manager writes the same two settings; keep these selects true
+  window.addEventListener('td-audio-config', fillAudioDevices);
+  const audioModal = initAudioModal({ engine, settings, persist, applyAudio });
+  $('#sb-audio-manage').addEventListener('click', audioModal.open);
   window.addEventListener('td-audio-started', fillAudioDevices);
   navigator.mediaDevices?.addEventListener?.('devicechange', fillAudioDevices);
   fillAudioDevices();
@@ -670,5 +678,5 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   render();
 
   // sketchName: what's loaded, which is what a recording names its file after
-  return { initialCode, toggle, settings, step, sketchName: () => current.name };
+  return { initialCode, toggle, settings, step, audioModal, sketchName: () => current.name };
 }
