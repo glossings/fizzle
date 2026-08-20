@@ -65,6 +65,14 @@ void main() {
 }
 `;
 
+// A steady force over the whole field: .push([x, y]) with nothing to read.
+// Already signed, so there is no midpoint to subtract.
+const FRAG_PUSH_VEC = /* glsl */ `
+void main() {
+  gl_FragColor = vec4(texture2D(tex0, vUv).rg + uForce * uDt, 0.0, 1.0);
+}
+`;
+
 // tex0 = dye, tex1 = the chain being poured in. Premultiplied like every other
 // buffer here, so an ink chain with holes in it pours nothing through them.
 const FRAG_INK = /* glsl */ `
@@ -207,6 +215,7 @@ function mats() {
     copy: makeMaterial({ frag: `void main() { gl_FragColor = texture2D(tex0, vUv); }` }),
     advect: makeMaterial({ extras: { uDt: 0, uDecay: 1 }, frag: FRAG_ADVECT }),
     push: makeMaterial({ extras: { uMod: [1, 0], uDt: 0 }, frag: FRAG_PUSH }),
+    pushVec: makeMaterial({ extras: { uForce: [0, 0], uDt: 0 }, frag: FRAG_PUSH_VEC }),
     ink: makeMaterial({ extras: { uAmount: 1, uDt: 0 }, frag: FRAG_INK }),
     curl: makeMaterial({ frag: FRAG_CURL }),
     smooth: makeMaterial({ frag: FRAG_SMOOTH }),
@@ -318,11 +327,15 @@ export function renderFluid(node, ctx, ins) {
   if (dt <= 0) return s.dye.read.texture;
 
   const sources = p.sources ?? [];
+  // a source's texture, if it has one: .push([x, y]) carries no input, so the
+  // two arrays no longer line up index for index
+  const inOf = (src, i) => ins[src.in ?? i];
   const obsIdx = sources.findIndex((src) => src.role === 'obstacle');
-  const hasObs = obsIdx >= 0 && ins[obsIdx];
+  const obsTex = obsIdx >= 0 ? inOf(sources[obsIdx], obsIdx) : null;
+  const hasObs = !!obsTex;
   // resampled to the grid once, rather than read at frame size by every one
   // of the tens of Jacobi iterations below
-  if (hasObs) runPass(ctx, m.copy, ins[obsIdx], null, s.obs);
+  if (hasObs) runPass(ctx, m.copy, obsTex, null, s.obs);
   const bindObs = (u) => {
     u.uObs.value = hasObs ? s.obs.texture : null;
     u.uHasObs.value = hasObs ? 1 : 0;
@@ -339,8 +352,18 @@ export function renderFluid(node, ctx, ins) {
   // 2. what the sketch pushes in
   for (let i = 0; i < sources.length; i++) {
     const src = sources[i];
-    if (src.role !== 'push' || !ins[i]) continue;
-    runPass(ctx, m.push, s.vel.read.texture, ins[i], s.vel.write, (u) => {
+    if (src.role !== 'push') continue;
+    if (src.vec) {
+      runPass(ctx, m.pushVec, s.vel.read.texture, null, s.vel.write, (u) => {
+        const a = resolve(src.amount, ctx.t);
+        u.uForce.value.set(resolve(src.vec[0], ctx.t) * a, resolve(src.vec[1], ctx.t) * a);
+        u.uDt.value = dt;
+      });
+      s.vel.swap();
+      continue;
+    }
+    if (!inOf(src, i)) continue;
+    runPass(ctx, m.push, s.vel.read.texture, inOf(src, i), s.vel.write, (u) => {
       u.uMod.value.set(resolve(src.amount, ctx.t), resolve(src.mid, ctx.t));
       u.uDt.value = dt;
     });
@@ -392,8 +415,8 @@ export function renderFluid(node, ctx, ins) {
 
   for (let i = 0; i < sources.length; i++) {
     const src = sources[i];
-    if (src.role !== 'ink' || !ins[i]) continue;
-    runPass(ctx, m.ink, s.dye.read.texture, ins[i], s.dye.write, (u) => {
+    if (src.role !== 'ink' || !inOf(src, i)) continue;
+    runPass(ctx, m.ink, s.dye.read.texture, inOf(src, i), s.dye.write, (u) => {
       u.uAmount.value = resolve(src.amount, ctx.t);
       u.uDt.value = dt;
     });

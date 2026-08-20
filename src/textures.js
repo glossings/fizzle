@@ -86,6 +86,15 @@ function setColor4(target, v, t) {
 // transparent — which ?? would swallow
 const orDflt = (v, d) => (v === undefined ? d : v);
 
+// A plain direction where a map is otherwise expected (.push): [x, y] or
+// anything carrying x/y, each component still free to be a fn of t. null when
+// the arg isn't one — a chain, a fn of the chain, a bare number.
+const asVec2 = (v) => {
+  if (v === null || typeof v !== 'object' || v instanceof TextureOp) return null;
+  if (Array.isArray(v)) return [v[0] ?? 0, v[1] ?? 0];
+  return v.x != null || v.y != null ? [v.x ?? 0, v.y ?? 0] : null;
+};
+
 // A per-channel value: one number broadcast to all three, an [r, g, b], or a
 // color in any of the forms color.js takes — .mul('#ff00ff') is a tint, and
 // without the last branch it would quietly hand the uniform three strings.
@@ -1914,22 +1923,28 @@ export class TextureOp {
       warn(`${role}: only a fluid() takes sources — .${role}() has to sit directly on the fluid(), before anything else in the chain`);
       return this;
     }
-    const src = this._texture(map, role);
-    if (!src) return this;
     // a bare number (or fn of t) in the options slot is the amount, which is
     // the only thing most calls want to say
     if (typeof o === 'number' || typeof o === 'function') o = { amount: o };
     o ??= {};
+    const vec = role === 'push' ? asVec2(map) : null;
+    const src = vec ? null : this._texture(map, role);
+    if (!src && !vec) return this;
+    if (vec && o.mid != null) warn('push: mid is for reading an unsigned map — a plain direction is already signed');
+    const source = {
+      role,
+      amount: o.amount ?? 1,
+      // unsigned maps push both ways around their midpoint, the same
+      // convention (and the same default) as .displace()
+      mid: o.mid ?? 0.5,
+      // which of the node's inputs this source reads; a direction reads none
+      in: vec ? -1 : this.inputs.length,
+    };
+    if (vec) source.vec = vec;
     const node = new TextureOp(this.engine, 'fluid', {
       ...this.params,
-      sources: [...(this.params.sources ?? []), {
-        role,
-        amount: o.amount ?? 1,
-        // unsigned maps push both ways around their midpoint, the same
-        // convention (and the same default) as .displace()
-        mid: o.mid ?? 0.5,
-      }],
-    }, [...this.inputs, src]);
+      sources: [...(this.params.sources ?? []), source],
+    }, vec ? [...this.inputs] : [...this.inputs, src]);
     node.sim = this.sim;
     return node;
   }
@@ -1942,6 +1957,8 @@ export class TextureOp {
   // .push(map, { amount, mid }) — drive the velocity field from a vec2 map,
   // read R/G. This is the one that makes anything happen: dye with nothing
   // pushing it just sits and fades.
+  // .push([x, y]) instead of a map is one steady force over the whole field —
+  // wind, or gravity at [0, -0.3].
   push(map, o) { return this._fluidSource('push', map, o); }
 
   // .obstacle(mask) — cells brighter than 0.5 are solid. The projection sees

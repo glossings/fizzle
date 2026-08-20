@@ -202,7 +202,7 @@ export const METHODS = {
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
-  push: ['.push(map, { amount, mid })', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades, so this is the call that makes anything happen. mid defaults to 0.5, so an unsigned map like noise({ channels: 2 }) pushes both ways."],
+  push: ['.push(map, { amount, mid }) | .push([x, y], amount)', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades, so this is the call that makes anything happen. mid defaults to 0.5, so an unsigned map like noise({ channels: 2 }) pushes both ways.\nA plain [x, y] is one steady force over the whole field: [0, -0.3] is gravity. Under wrap: 'clamp' the pressure solve cancels most of it, since a closed box cannot drift."],
   obstacle: ['.obstacle(mask)', 'Fluid: cells brighter than 0.5 are solid. The sim sees them, so flow goes around rather than being clipped by them.'],
   velocity: ['.velocity({ scale })', "Fluid: the velocity field as a picture, centered on mid-grey. Drops into any slot taking a map: .displace(f.velocity()), .transform({ translate: { map: f.velocity(), mid: 0.5 } })."],
   curl: ['.curl({ scale })', 'Fluid: how sharply the field is spinning at each point, centered on mid-grey.'],
@@ -608,8 +608,8 @@ const GLOBAL_KEY_DOCS = {
 
 const METHOD_KEY_DOCS = {
   push: {
-    amount: 'How hard the map pushes, in frame-heights per second. Default 1. Takes a fn of t.',
-    mid: 'The value in the map that means no push. Default 0.5, so an unsigned map pushes both ways around its midpoint; 0 for a map that is already signed.',
+    amount: 'How hard the map pushes, in frame-heights per second. Default 1. Takes a fn of t; it scales an [x, y] direction too.',
+    mid: 'The value in the map that means no push. Default 0.5, so an unsigned map pushes both ways around its midpoint; 0 for a map that is already signed. Nothing to do with an [x, y] direction.',
   },
   velocity: {
     scale: 'Multiplies the field before it is centered on mid-grey. Default 1. Raise it to see a slow field, lower it when a fast one clips.',

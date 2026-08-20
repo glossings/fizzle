@@ -1946,6 +1946,27 @@ makes anything happen. It reads R and G of a map as a direction, around `mid`
 ways). The amount is roughly the speed it settles at, in frame-heights per
 second.
 
+`.push([x, y])` takes a plain direction instead of a map: one steady force over
+the whole field, in the same frame-heights per second. `[0.3, 0]` is a wind
+blowing right, `[0, -0.3]` is gravity. Each component takes a fn of `t`, so
+`.push([audio(), 0])` blows on the beat. There is no `mid` here, since a
+direction is already signed.
+
+```js
+fluid({ res: 320, fade: 0.12 })
+  .push([0.3, 0])
+  .push(noise({ period: 0.4, channels: 2, speed: 0.3 }), 0.25)
+  .ink(circle({ radius: 0.03, soft: 0.02, color: '#4fd1ff', bg: null }), 6)
+  .out()
+```
+
+One caveat, and it is the solver's rather than the call's: a force that is the
+same everywhere only moves the fluid if the fluid has somewhere to go. Under
+the default `wrap: 'repeat'` it does, and the whole field drifts. Under
+`wrap: 'clamp'` the frame is a closed box, the pressure solve cancels the
+force almost entirely, and little happens beyond a stir near the walls and
+obstacles. Use a map there.
+
 `.ink()` adds per second rather than replacing, so dye builds while the source
 is lit and drifts once it goes dark. Several of either call stack.
 
@@ -1959,7 +1980,7 @@ const disc = circle({ radius: 0.12, center: [0.45, 0.5], bg: null })
 
 fluid({ res: 320, fade: 0.1 })
   .obstacle(disc)
-  .push(constant('#ff8000'), 0.5)
+  .push([0.25, 0])
   .ink(circle({ center: [0.05, t => 0.5 + Math.sin(t) * 0.3], radius: 0.03, color: '#7ee787', bg: null }), 6)
   .comp(disc, 'over')
   .out()

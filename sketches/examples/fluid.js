@@ -5,7 +5,7 @@
 
 const flow = fluid({ res: 320, fade: 0.12, vorticity: 0.7 })
   .obstacle(circle({ radius: 0.11, center: [0.42, 0.5] }))
-  .push(constant('#ff8000'), 0.5)                                // steady drift right
+  .push([0.25, 0])                                               // steady drift right
   .push(noise({ period: 0.4, channels: 2, speed: 0.3 }), 0.25)   // and some churn
   .ink(circle({
     center: [0.05, t => 0.5 + Math.sin(t * 0.8) * 0.3],
