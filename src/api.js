@@ -234,6 +234,16 @@ function textLines(str, opts, align) {
 // extra carries things resolved outside the switch: `font` for text3d, and
 // `geometry` for model() — the parsed .obj/.fbx, which arrives asynchronously
 function buildGeometry(type, o = {}, extra = {}) {
+  // A shape is built once, so a signal in a size param can't animate it —
+  // and passed through raw it would NaN every vertex. Take its current value
+  // and point at .scale(), which is the moving version. `text` stays: it has
+  // its own per-frame rebuild and resolves below.
+  for (const [k, v] of Object.entries(o)) {
+    if (typeof v !== 'function' || k === 'text') continue;
+    const val = v(0);
+    o = { ...o, [k]: typeof val === 'number' && !Number.isFinite(val) ? 0 : val };
+    warn(`${type}: ${k} is fixed when the shape is built — using the signal's current value; animate size with .scale()`);
+  }
   switch (type) {
     // an empty geometry renders nothing, which is exactly what a model that
     // hasn't finished parsing (or wasn't found) should do

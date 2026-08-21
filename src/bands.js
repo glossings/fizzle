@@ -84,34 +84,64 @@ export function updateBands(ae) {
   // the peak that set it has aged out, which is a change of song rather than
   // a verse.
   const BUCKET = 3, BUCKETS = 20; // that minute, as 3s min/max buckets
+  const LO_BUCKETS = 5; // the bottom anchor's shorter memory: ~15s
   const step = (key, b, raw) => {
     const s = run.get(key) ?? { v: 0, win: [] };
     run.set(key, s);
     s.v += (raw - s.v) * ease(dt, b.sm || 0);
     if (b.auto && ae?.running) {
-      if (s.fit == null) { s.fit = 0; s.win = []; } // auto just came on
+      if (s.fit == null) { s.fit = 0; s.win = []; s.floor = s.v; s.quiet = 0; s.below = 0; } // auto just came on
+      // Session noise floor: what this band reads when nothing is playing.
+      // It follows the value down instantly and creeps up slowly enough that
+      // a song can't lift it. "Silence" below means near this floor — an
+      // absolute threshold would miss a mic whose room tone sits well above
+      // zero on the dB scale.
+      s.floor = Math.min(s.v, s.floor + 0.0002 * dt);
+      const quiet = s.floor + 0.02;
+      // A sustained stretch at the floor is a song boundary. The fade-out
+      // that just ended dragged lo down with it (correctly — the fade should
+      // read quiet), and the old song's bounds are only a guess about the
+      // next one: re-arm the quick fit so the next track calibrates itself
+      // in its opening seconds instead of minutes.
+      if (s.v <= quiet) {
+        if ((s.quiet += dt) > 5 && s.fit !== 0) { s.fit = 0; s.win = []; }
+      } else s.quiet = 0;
       const e = Math.floor(now / BUCKET);
       const w = s.win[e % BUCKETS]?.e === e ? s.win[e % BUCKETS] : (s.win[e % BUCKETS] = { e, lo: s.v, hi: s.v });
       w.lo = Math.min(w.lo, s.v);
       w.hi = Math.max(w.hi, s.v);
-      let m = Infinity, M = -Infinity;
+      // hi aims at the loudest moment of the whole window — the song's peak.
+      // lo aims at a low quantile of the low envelope, and only over the last
+      // few buckets: the bottom anchor follows the *recent* floor, so when a
+      // drop hits, the gap under the signal closes in seconds instead of
+      // waiting out the memory of the intro. (The quantile, not the minimum:
+      // min–max would hand one quiet dip the whole bottom of the range.)
+      let M = -Infinity;
+      const los = [];
       for (const k of s.win) {
         // too old (survived a pause), or pure silence — neither gets a vote
-        if (!k || k.e <= e - BUCKETS || k.hi <= 0.02) continue;
-        m = Math.min(m, k.lo);
+        if (!k || k.e <= e - BUCKETS || k.hi <= quiet) continue;
         M = Math.max(M, k.hi);
+        if (k.e > e - LO_BUCKETS) los.push(k.lo);
       }
+      los.sort((x, y) => x - y);
+      const m = los[Math.floor(los.length * 0.25)] ?? Infinity;
       // While the window fills with its first minute of actual signal, its
       // extremes only ever widen, so the fit can be quick without chasing
       // dynamics — auto visibly grabs the signal when pressed. After that,
       // the slow song clock. Near-silence advances neither: it carries no
       // information, so the previous fit holds until real signal arrives.
-      if (M > 0.02) s.fit += dt;
-      const tau = s.fit < BUCKET * BUCKETS ? 1 : 30;
+      const live = M > quiet;
+      if (live) s.fit += dt;
+      const settling = s.fit < BUCKET * BUCKETS;
       b.hi += s.v > b.hi ? (s.v - b.hi) * ease(dt, 0.05)
-        : M > 0.02 ? (M - b.hi) * ease(dt, tau) : 0;
-      b.lo += s.v < b.lo ? (s.v - b.lo) * ease(dt, 0.05)
-        : M > 0.02 ? (m - b.lo) * ease(dt, tau) : 0;
+        : live ? (M - b.hi) * ease(dt, settling ? 1 : 30) : 0;
+      // a dip below lo has to last before it pulls the anchor down: brief
+      // troughs between beats clip to 0 instead of ratcheting lo toward the
+      // bottom of every dip
+      s.below = s.v < b.lo ? s.below + dt : 0;
+      b.lo += s.below > 1 ? (s.v - b.lo) * ease(dt, 0.5)
+        : live ? (m - b.lo) * ease(dt, settling ? 1 : 5) : 0;
       const gap = 0.05 - (b.hi - b.lo); // never collapse to a point
       if (gap > 0) {
         b.hi = Math.min(1, b.hi + gap / 2);

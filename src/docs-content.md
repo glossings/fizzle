@@ -2250,11 +2250,15 @@ values above the high anchor clip to 1; in between you get a 0..1 ramp.
 Each meter also has a **smooth** box (seconds of lag, applied before the
 anchors, so the bar you see is the value your sketch gets) and an **auto**
 button that fits the anchors to the bounds of the whole song. Pressing it
-grabs the signal within a few seconds; from then on the anchors snap out the
-instant the signal passes them but only creep back in once the signal has
-stayed inside them for a minute or so. A quiet passage still reads quiet, and
-a new, quieter track re-fits on its own. Auto stays on while the manager is
-closed; dragging an anchor by hand turns it off.
+grabs the signal within a few seconds. From then on the high anchor snaps up
+the instant a peak passes it and creeps back down only once the signal has
+stayed below it for a minute or so, while the low anchor follows the signal's
+recent working floor rather than its single quietest dip, so brief troughs
+clip to 0, the output keeps its full sweep, and a drop re-opens the bottom of
+the range within seconds. A quiet passage still reads quiet, a silent gap
+between tracks re-arms the quick fit, and each new song calibrates itself in
+its opening seconds. Auto stays on while the manager is closed; dragging an
+anchor by hand turns it off.
 
 `band()` reads them in a sketch:
 
