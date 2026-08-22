@@ -12,6 +12,7 @@ import {
   addBand, bandNameOk, BAND_NAME_RULE, bandStore, normalize, removeBand, saveBands,
   smoothed, updateBands,
 } from './bands.js';
+import { CONF, tempoState, updateTempo } from './tempo.js';
 
 const HZ_MIN = 20, HZ_MAX = 20000;
 const SPAN = Math.log(HZ_MAX / HZ_MIN);
@@ -31,6 +32,15 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
 
   const ae = () => engine.audio; // created by open() / the first audio() call
 
+  // the tracker runs from the engine's frame loop, manager open or not
+  tempoState.auto = !!settings.tempoAuto;
+  tempoState.apply = (bpm) => {
+    if (bpm === settings.bpm) return;
+    settings.bpm = bpm;
+    engine.defaultBpm = bpm;
+    persist();
+  };
+
   function build() {
     el = document.createElement('div');
     el.id = 'au-modal';
@@ -42,6 +52,13 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
           <label>out <select id="au-out"></select></label>
           <button id="au-close" title="close (esc)">✕</button>
         </header>
+        <div id="au-tempo">
+          <span class="au-title">tempo</span>
+          <input id="au-bpm" type="number" min="20" max="300" step="1"> bpm
+          <button id="au-tap" title="tap the beat">tap</button>
+          <button id="au-tempo-auto" class="au-auto" title="follow the beat of the input (stays on with the manager closed)">auto</button>
+          <span id="au-tempo-note" class="au-hint"></span>
+        </div>
         <canvas id="au-spectrum"></canvas>
         <div class="au-addrow">
           <button id="au-add">+ add band</button>
@@ -56,8 +73,57 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
     el.querySelector('#au-add').addEventListener('click', () => { addBand(); renderMeters(); });
 
     wireDevices();
+    wireTempo();
     wireSpectrum(el.querySelector('#au-spectrum'));
     renderMeters();
+  }
+
+  // --- tempo: the bpm beat() and B run at when the sketch doesn't tempo() ---
+  let taps = [];
+  function wireTempo() {
+    const bpmEl = el.querySelector('#au-bpm');
+    const autoEl = el.querySelector('#au-tempo-auto');
+    const setBpm = (v) => {
+      settings.bpm = Math.min(300, Math.max(20, Math.round(v) || 120));
+      engine.defaultBpm = settings.bpm;
+      persist();
+    };
+    const setAuto = (on) => {
+      settings.tempoAuto = tempoState.auto = on;
+      autoEl.classList.toggle('on', on);
+      persist();
+    };
+    bpmEl.value = settings.bpm;
+    autoEl.classList.toggle('on', tempoState.auto);
+    // typing a tempo is taking it by hand — auto would just move it back
+    bpmEl.addEventListener('change', () => { setBpm(Number(bpmEl.value)); setAuto(false); });
+    autoEl.addEventListener('click', () => setAuto(!tempoState.auto));
+    el.querySelector('#au-tap').addEventListener('click', () => {
+      const now = performance.now() / 1000;
+      if (taps.length && now - taps[taps.length - 1] > 2.5) taps = [];
+      taps.push(now);
+      if (taps.length > 12) taps.shift();
+      if (taps.length >= 2) setBpm((60 * (taps.length - 1)) / (taps[taps.length - 1] - taps[0]));
+      setAuto(false);
+    });
+  }
+
+  function drawTempo() {
+    const bpmEl = el.querySelector('#au-bpm');
+    // while auto has a confident read, the box tracks it live — the applied
+    // tempo only trails it by the agreement window
+    const live = tempoState.auto && tempoState.confidence >= CONF ? tempoState.estimate : 0;
+    if (document.activeElement !== bpmEl) bpmEl.value = live || settings.bpm;
+    bpmEl.classList.toggle('au-live', !!live);
+    const note = el.querySelector('#au-tempo-note');
+    note.textContent =
+      engine.sketchBpm != null ? `the sketch's tempo(${engine.sketchBpm}) overrides`
+      : !tempoState.auto
+        ? (taps.length === 1 && performance.now() / 1000 - taps[0] < 2.5 ? 'keep tapping…' : '')
+      : !ae()?.running ? 'waiting for audio…'
+      : live ? ''
+      : tempoState.onsets ? `listening… (${tempoState.onsets} onsets)`
+      : 'listening…';
   }
 
   // --- devices: the same settings the sidebar's selects write ---------------
@@ -336,7 +402,9 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
     if (engine.paused) {
       ae()?.update();
       updateBands(ae());
+      updateTempo(ae());
     }
+    drawTempo();
     drawSpectrum();
     for (const r of rows) drawMeter(r);
     raf = requestAnimationFrame(loop);

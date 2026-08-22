@@ -2284,6 +2284,13 @@ the meter actually shows and the sketch sees the same 0..1 sweep every time.
 The chained `.lowpass()` / `.bandpass()` family still reads raw, un-anchored
 energy.
 
+The **tempo** row at the top of the manager sets the bpm `beat()` and `B` run
+at. Type it, **tap** it in on the button, or press **auto** to have it
+follow the input: it listens for onsets and locks on after ten seconds or so
+of steady beat, keeps following through tempo changes, and stays on with the
+manager closed. Tapping or typing a tempo turns auto off, and a sketch's own
+`tempo()` call outranks all of it.
+
 ## tempo & sequencing
 
 Two things carry the tempo. **`beat(perBar)`** is a gate: 1 for half of each
@@ -2315,8 +2322,9 @@ know about `T` transfers:
 The whole part of `B` is which bar you're in, the fraction is where inside it,
 so `B.select([...])` steps a list on the downbeat.
 
-The tempo itself comes from the sidebar, and **`tempo(bpm)`** overrides it for
-one sketch:
+The tempo itself lives in the audio manager (**ctrl+a**): type a bpm, **tap**
+the beat, or press **auto** to follow the music playing into the input.
+**`tempo(bpm)`** overrides it for one sketch:
 
 ```js
 tempo(174)
@@ -2326,7 +2334,7 @@ circle({ radius: B.mul(4).saw().mul(-0.3).add(0.4), color: '#ff5f9e' })
 
 A sketch that names its own tempo keeps it wherever it's played, which is what
 you want for one built around a specific track. Drop the call and it follows
-the sidebar again.
+the manager again.
 
 ```js
 circle({

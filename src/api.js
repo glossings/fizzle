@@ -1335,7 +1335,7 @@ export function makeApi(engine) {
       const px = (n) => Math.max(1, Math.round(n));
       engine.sketchRes = width == null ? null : [px(width), px(height ?? width)];
     },
-    // Tempo for beat() and B, overriding the sidebar's for this sketch;
+    // Tempo for beat() and B, overriding the audio manager's for this sketch;
     // dropping the call hands it back. Deliberately not a fn of t: barPhase
     // counts t * bpm, so a moving tempo jumps the beat instead of easing it.
     tempo(bpm) {
@@ -1506,7 +1506,7 @@ export function makeApi(engine) {
     // rewind imported media files (all, or by name substring) — also on ctrl+r
     restartMedia: (name) => engine.restartMedia(name),
     // Tempo-synced gate: 1 for `width` of each cycle, `perBar` cycles per bar
-    // of four beats at the sidebar's tempo — so the number is the note value.
+    // of four beats at the manager's tempo — so the number is the note value.
     // beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.
     //
     // This is the shape every trigger slot wants (restart, jump, .when(),
@@ -1604,7 +1604,7 @@ export function makeApi(engine) {
     // chained off it is built fresh by the sketch that chains it.
     T: sig((t) => t),
     // The same idea on the tempo grid: bars elapsed, counting up, at the
-    // sidebar's tempo. Rate is set the way T's is — B.mul(2).sin() is a
+    // manager's tempo. Rate is set the way T's is — B.mul(2).sin() is a
     // half-bar LFO the way T.mul(2).sin() is a half-second one — and the whole
     // part is which bar, so B.select([...]) steps a list on the downbeat.
     // Stateless like T, so one shared instance is safe.

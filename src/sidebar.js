@@ -120,8 +120,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       <label>font size <input id="sb-font" type="number" min="9" max="40" step="1"></label>
       <label>audio in <select id="sb-audio"></select></label>
       <label>audio out <select id="sb-audio-out"></select></label>
-      <button id="sb-audio-manage" title="devices, bands & levels (ctrl+a)">audio manager…</button>
-      <label>tempo <input id="sb-tempo" type="number" min="20" max="300" step="1"> bpm</label>
+      <button id="sb-audio-manage" title="devices, bands, levels & tempo (ctrl+a)">audio manager…</button>
       <label class="sb-rec">recording <select id="sb-recfmt"></select></label>
       <label class="sb-rec">rec. audio
         <select id="sb-recaudio">
@@ -224,7 +223,8 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     settings.resWidth = dim(settings.resWidth, 1920);
     settings.resHeight = dim(settings.resHeight, 1080);
     engine.setQuality(settings.quality);
-    // the default a sketch's tempo() overrides, not the last word
+    // the tempo lives in the audio manager now; this is the default a
+    // sketch's tempo() overrides, not the last word
     engine.defaultBpm = settings.bpm;
     // a fixed size here beats the sketch's own resolution(), so one setting
     // retargets every sketch
@@ -233,7 +233,6 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     $('#sb-quality').value = String(settings.quality);
     $('#sb-font').value = settings.fontSize;
     $('#sb-live').checked = settings.liveColor;
-    $('#sb-tempo').value = settings.bpm;
     $('#sb-res-on').checked = settings.resFixed;
     $('#sb-res-w').value = settings.resWidth;
     $('#sb-res-h').value = settings.resHeight;
@@ -268,7 +267,6 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   $('#sb-recscale')?.addEventListener('change', (e) => { settings.recScale = Number(e.target.value) || 1; persist(); });
   $('#sb-recaudio')?.addEventListener('change', (e) => { settings.recAudio = e.target.value === '1'; persist(); });
   $('#sb-live').addEventListener('change', (e) => { settings.liveColor = e.target.checked; persist(); });
-  $('#sb-tempo').addEventListener('change', (e) => { settings.bpm = Math.max(1, Number(e.target.value) || 120); applySettings(); persist(); });
   applySettings();
 
   // --- audio input device ---

@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTextures, resetTextureBuffers } from './textures.js';
 import { AudioEngine } from './audio.js';
 import { updateBands } from './bands.js';
+import { updateTempo } from './tempo.js';
 import { mediaGet, mediaList, isPolyhaven, bareName } from './media.js';
 import { loadModelGeometry } from './models.js';
 import { fetchPolyhaven } from './polyhaven.js';
@@ -83,8 +84,8 @@ export class Engine {
     // composites here.
     this.onFrame = null;
 
-    this.sketchBpm = null;          // tempo() in the sketch; null = the sidebar's
-    this.defaultBpm = 120;          // the sidebar's tempo, which tempo() outranks
+    this.sketchBpm = null;          // tempo() in the sketch; null = the audio manager's
+    this.defaultBpm = 120;          // the audio manager's tempo, which tempo() outranks
     // Pointer as a control source, in the render's own space: -1..1 with 0 at
     // the center and y up, clamped so a pointer out over the sidebar or the
     // letterbox bars reads as the edge rather than flying past it. Written from
@@ -180,7 +181,8 @@ export class Engine {
     return [canvas.width, canvas.height];
   }
 
-  // beat()'s tempo: the sketch's tempo() if it set one, else the sidebar's.
+  // beat()'s tempo: the sketch's tempo() if it set one, else the audio
+  // manager's.
   // Reversed from resolution(), where the sidebar's fixed size is an opt-in
   // that outranks the sketch — the tempo field always holds a value, so
   // deferring to it would mean tempo() never won.
@@ -260,6 +262,7 @@ export class Engine {
       this.time += dt;
       this.audio?.update();
       updateBands(this.audio); // named bands: smoothing + auto anchors
+      updateTempo(this.audio); // the manager's auto tempo
       for (const ae of this.audios.values()) ae.update();
       for (const m of this.media.values()) m.ae?.update();
       for (const fn of this.updaters) {
@@ -881,7 +884,7 @@ export class Engine {
     this.controls.enabled = this.orbitAllowed;
     // dropping the resolution() call goes back to filling the window
     this.sketchRes = null;
-    // and dropping tempo() goes back to the sidebar's
+    // and dropping tempo() goes back to the audio manager's
     this.sketchBpm = null;
     // a picker request belongs to the run that made it: the code has moved on,
     // and a request left over from a run whose empty call has since been filled
