@@ -505,6 +505,16 @@ export class Engine {
         } else {
           const el = document.createElement(kind === 'video' ? 'video' : 'audio');
           el.loop = true;
+          // A codec the browser won't decode fails on the element, not on the
+          // read — and play() then rejects exactly like a blocked autoplay, so
+          // without this a .mov full of ProRes or HEVC is just a black frame
+          // with nothing said. Listener goes on before the src.
+          el.addEventListener('error', () => {
+            m.missing = true; // a re-run retries, like the paths below
+            warn(
+              `${kind}file "${name}": the browser can't decode this file — convert it to ${kind === 'video' ? 'H.264 mp4 or webm' : 'mp3 or wav'}`
+            );
+          });
           if (kind === 'video') {
             stageVideo(el); // muted/playsinline before the src, for iOS
             el.src = url;

@@ -21,7 +21,7 @@ sphere({ radius: 1.1, res: 96 })
   .material({ color: '#4fd1c5', roughness: held.range(0.6, 0.1), metalness: 0.4 })
   // mouse() is the one signal that isn't 0..1, so ranging it says so:
   // .rotation(0, mouse('x').range(0, Math.PI * 2, { from: [-1, 1] }), 0)
-  // .scale(sig().sin().range(0.6, 1.4))    // bare sig() is t, the seconds-based beat()
+  // .scale(sig().sin().range(0.6, 1.4))    // bare sig() is t, the seconds-based B
   // .color(mouse('down').counter().select(['#4fd1c5', '#ff5f9e', '#ffd166']))  // per click
   .out()
 

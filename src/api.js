@@ -1335,7 +1335,7 @@ export function makeApi(engine) {
       const px = (n) => Math.max(1, Math.round(n));
       engine.sketchRes = width == null ? null : [px(width), px(height ?? width)];
     },
-    // Tempo for beat() and .beat(), overriding the sidebar's for this sketch;
+    // Tempo for beat() and B, overriding the sidebar's for this sketch;
     // dropping the call hands it back. Deliberately not a fn of t: barPhase
     // counts t * bpm, so a moving tempo jumps the beat instead of easing it.
     tempo(bpm) {
@@ -1505,15 +1505,17 @@ export function makeApi(engine) {
     },
     // rewind imported media files (all, or by name substring) — also on ctrl+r
     restartMedia: (name) => engine.restartMedia(name),
-    // tempo-synced phase, counting up: `perBar` cycles per bar of four beats
-    // at the sidebar's tempo, so the number is the note value — beat(4) is
-    // quarter notes, beat(16) sixteenths. Whole part = which cycle we're in,
-    // fraction = where inside it, exactly as sig() counts seconds. So the
-    // shapers take the fraction (beat(2).sin() is a two-beat LFO, beat(16).sqr()
-    // gates on sixteenths, beat(4).saw() is the 0..1 ramp) and anything that
-    // floors takes the count (beat(1).select([...]) walks a list a step per bar).
-    beat(perBar = 4) {
-      return sig((t) => barPhase(t, resolve(perBar, t)));
+    // Tempo-synced gate: 1 for `width` of each cycle, `perBar` cycles per bar
+    // of four beats at the sidebar's tempo — so the number is the note value.
+    // beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.
+    //
+    // This is the shape every trigger slot wants (restart, jump, .when(),
+    // .hold()), which is why it's the plain name: they fire on the rising edge
+    // and don't care how wide the gate is, so width only really matters to
+    // .when(), where it's how long the branch stays up. For a value that moves
+    // on the tempo grid rather than a pulse, reach for B.
+    beat(perBar = 4, width = 0.5) {
+      return sig((t) => barPhase(t, resolve(perBar, t))).sqr(width);
     },
     // pick from a list by index — .select() standing on its own, and the only
     // form that works for texture chains: hand it values and it gives back a
@@ -1601,6 +1603,12 @@ export function makeApi(engine) {
     // Stateless (it only reads t), so one shared instance is safe: everything
     // chained off it is built fresh by the sketch that chains it.
     T: sig((t) => t),
+    // The same idea on the tempo grid: bars elapsed, counting up, at the
+    // sidebar's tempo. Rate is set the way T's is — B.mul(2).sin() is a
+    // half-bar LFO the way T.mul(2).sin() is a half-second one — and the whole
+    // part is which bar, so B.select([...]) steps a list on the downbeat.
+    // Stateless like T, so one shared instance is safe.
+    B: sig((t) => barPhase(t, 1)),
     // escape hatches
     THREE,
     onFrame(fn) { engine.updaters.push(fn); },

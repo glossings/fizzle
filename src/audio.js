@@ -223,13 +223,13 @@ export function valueNoise(x) {
   return hash(i) * (1 - s) + hash(i + 1) * s;
 }
 
-// tempo for the .beat() signal helper — makeApi points this at the engine
+// tempo for beat(), B and .beat() — makeApi points this at the engine
 let bpm = () => 120;
 export const setBpmSource = (fn) => { bpm = fn; };
 
 // Tempo position counted in note values: perBar cycles per bar of four beats,
 // so 4 is quarter notes and 16 sixteenths. Whole part = which cycle, fraction
-// = where in it. Shared by beat() and .beat().
+// = where in it. Shared by beat(), B and .beat().
 const BEATS_PER_BAR = 4;
 export const barPhase = (t, perBar) => (t * bpm() * perBar) / (60 * BEATS_PER_BAR);
 
@@ -309,17 +309,10 @@ export function sig(fn, ae = null) {
   f.saw = () => mk((t) => frac(f(t)));
   f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
   // tempo-synced sample-and-hold: freeze a new value of this signal perBar
-  // times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar
-  f.beat = (perBar = 4) => {
-    const s = carried('beat', () => ({ cycle: null, held: 0, lastT: null }));
-    return mk((t) => {
-      if (t === s.lastT) return s.held;
-      s.lastT = t;
-      const c = Math.floor(barPhase(t, resolve(perBar, t)));
-      if (c !== s.cycle) { s.cycle = c; s.held = f(t); }
-      return s.held;
-    });
-  };
+  // times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar.
+  // Shorthand for .hold(beat(perBar)), and the same code path, so the two
+  // can't drift; .hold() is there for a trigger that isn't the tempo.
+  f.beat = (perBar = 4) => f.hold(sig((t) => barPhase(t, resolve(perBar, t))).sqr(0.5));
   // sample-and-hold driven by another signal: freeze the current value each
   // time the trigger crosses up through threshold (a kicks() hit, a gate)
   f.hold = (trigger, threshold = 0.5) => {

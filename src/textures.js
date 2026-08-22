@@ -1305,6 +1305,18 @@ function phaseTime(ph, el) {
   return Math.min(w * dur, dur - 1e-3);
 }
 
+// A trigger slot wants a gate. Hand it a ramp — B, T, anything counting up —
+// and it crosses the threshold once and never comes back, which reads as a
+// broken jump rather than a wrong signal. The tell is a value parked above 1
+// for seconds on end: a gate that fires is back down long before that, and one
+// that isn't down isn't triggering anything either way.
+function trigger(v, node, key, what) {
+  const n = (node[key] = v > 1 ? (node[key] ?? 0) + 1 : 0);
+  if (n === 120)
+    warn(`${what}: this signal never comes back down, so it fires once and stops — a trigger has to return to 0. beat(4) is the tempo-synced gate; .sqr() shapes any ramp into one`);
+  return v;
+}
+
 // Browsers only play a media element over a narrow range of rates — Chrome
 // throws outside 0.0625..16 rather than clamping, and thrown from a render
 // that would take the whole frame down with it. So the clamp happens here, the
@@ -2280,7 +2292,7 @@ export class TextureOp {
         // restart: fn of t (or signal); a rising edge through 0.5 rewinds
         // (a trigger already high on the first frame doesn't fire)
         if (p.restart != null) {
-          const v = resolve(p.restart, ctx.t);
+          const v = trigger(resolve(p.restart, ctx.t), this, '_restartHigh', `videofile "${p.name}" restart`);
           if (v >= 0.5 && (this._restartPrev ?? Infinity) < 0.5) el.currentTime = 0;
           this._restartPrev = v;
         }
@@ -2306,7 +2318,7 @@ export class TextureOp {
           if (p.speed != null) setRate(el, resolve(p.speed, ctx.t) || 0, `videofile "${p.name}"`);
           // a rising edge through 0.5, like restart — but landing on phase
           if (p.jump != null) {
-            const v = resolve(p.jump, ctx.t);
+            const v = trigger(resolve(p.jump, ctx.t), this, '_jumpHigh', `videofile "${p.name}" jump`);
             if (v >= 0.5 && (this._jumpPrev ?? Infinity) < 0.5) {
               const to = phaseTime(resolve(p.phase ?? 0, ctx.t) || 0, el);
               if (to != null) el.currentTime = to;

@@ -38,7 +38,7 @@ export const GLOBALS = {
   hsv: ['hsv(h, s, v, a?)', 'The same wheel measured the way a paint program does: v is the brightest channel, so hsv(h) is the vivid hue, hsv(h, 0, 1) is white and hsv(h, 1, 0.5) is a dark version of the hue. Every argument takes a fn of t or a signal.'],
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
   resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again. The sidebar's fixed resolution overrides this."],
-  tempo: ['tempo(bpm)', "Tempo for beat() and .beat(), overriding the sidebar's for this sketch. Drop the call to hand it back."],
+  tempo: ['tempo(bpm)', "Tempo for beat() and B, overriding the sidebar's for this sketch. Drop the call to hand it back."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
   scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
@@ -63,15 +63,16 @@ export const GLOBALS = {
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
 
-  beat: ['beat(perBar = 4)', 'Tempo-synced phase, counting up: perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) once a bar.\nWhole part = which cycle, fraction = where inside it, the way sig() counts seconds. Shapers take the fraction (.sin() .tri() .sqr(), and .saw() for the plain 0..1 ramp); anything that floors takes the count, so beat(1).select([...]) steps a list on the downbeat.'],
+  beat: ['beat(perBar = 4, width = 0.5)', 'Tempo-synced gate: 1 for width of each cycle, 0 the rest. perBar cycles per bar of four beats (tempo in the sidebar), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.\nThis is what the trigger slots want: restart, jump, .when(), .hold(). They fire on the rising edge and ignore the width, so width is really for .when(), where it sets how long the branch shows. For a value that moves on the grid rather than a pulse, use B.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input loudness (0..1, dB scale) as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and returning its level as a signal like audio(). Empty call = picker; drag a file in to import; ctrl+r or restartMedia() rewinds.'],
   band: ["band(name? | n?)", 'A named band from the audio manager (ctrl+a) as a signal, normalized 0..1 by its meter anchors. band() is the global level; bands are named 1, 2, 3 by default, so band(1) reads the first.'],
   restartMedia: ['restartMedia(name?)', "Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute. ctrl+r rewinds media too, and starts a sketch's particles, delays, trails and counters over with it."],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1. Positional rand(freq, seed) also works.'],
-  select: ['select([a, b, c], index?)', "Pick from a list by index (floored, wrapped) — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nThe index is any signal, so it carries the timing: beat(1) steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second."],
+  select: ['select([a, b, c], index?)', "Pick from a list by index (floored, wrapped) — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nThe index is any signal, so it carries the timing: B steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second."],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
   T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
+  B: ['B', 'T on the tempo grid: bars elapsed, counting up, at the sidebar\'s tempo. A value, not a call — no parentheses.\nRate is set the way T\'s is, so B.mul(2).sin() is a half-bar LFO the way T.mul(2).sin() is a half-second one. The whole part is which bar, so B.select([...]) steps a list on the downbeat and B.mul(4) counts quarter notes.'],
   mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up. Default axis is x; mouse('down') is a 1/0 gate while a button is held."],
   midi: ['midi(name?)', "A MIDI controller as signals: .cc(74) a knob or fader 0..1, .note .vel .gate .touch the keys, .key(38) narrowing those to one pad, .bend -1..1. No name reads every connected device at once; a name matches an input by substring.\nAn empty .cc() or .key() learns: move the control and its numbers are written into the call. Safari has no Web MIDI, so the signals read 0 there."],
   gamepad: ['gamepad(index?, { deadzone })', "A game controller as signals: .lx .ly .rx .ry sticks (-1..1, y up), .lt .rt analog triggers, .btn('a') a 1/0 gate. Standard mapping, so the face buttons answer to either brand's names — 'a' or 'cross'.\nAn empty .btn() learns the next button pressed. Browsers hide a pad until it sends something, so press a button if nothing is reading."],
@@ -172,8 +173,8 @@ export const METHODS = {
   tri: ['.tri()', 'Signal: triangle shape of the value-as-phase (0..1 out).'],
   saw: ['.saw()', 'Signal: fractional part of the value — a ramp per cycle.'],
   sqr: ['.sqr(width = 0.5)', 'Signal: 1 while the phase is below width, else 0 — square LFO / rhythmic gate.'],
-  beat: ['.beat(perBar = 4)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal perBar times a bar, on the same grid as beat().'],
-  hold: ['.hold(trigger, threshold = 0.5)', 'Signal: sample-and-hold driven by another signal — freezes the current value each time trigger crosses up through threshold.'],
+  beat: ['.beat(perBar = 4)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal perBar times a bar, on the same grid as beat(). Shorthand for .hold(beat(perBar)).'],
+  hold: ['.hold(trigger, threshold = 0.5)', 'Signal: sample-and-hold driven by another signal — freezes the current value each time trigger crosses up through threshold. .hold(audio().kicks()) resamples on the drums; for the tempo grid, .beat(n) is the shorthand.'],
   round: ['.round()', 'Signal: round to the nearest integer.'],
   floor: ['.floor()', 'Signal: round down to an integer.'],
   ceil: ['.ceil()', 'Signal: round up to an integer.'],
@@ -542,9 +543,9 @@ const GLOBAL_KEY_DOCS = {
     speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t. Rates past 16 clamp; negative freezes, since no browser plays a video backwards.',
     loop: 'Start over at the end. Default true.',
     mute: 'Default true. false lets the file\'s own audio play out loud.',
-    restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(1).sqr(0.05) retriggers every bar.',
+    restart: 'Rewinds whenever this crosses 0.5 upward — restart: beat(1) retriggers every bar.',
     phase: 'Where in the clip to sit: 0 the start, 1 the end. Setting it stops playback and hands the position to the signal, so phase: rand().beat(4) jumps around each beat. Wraps while looping, and is silent on its own — add jump to keep the sound.',
-    jump: 'Seeks to phase whenever this crosses 0.5 upward, then plays on from there. Unlike phase alone it leaves the clip running, so mute: false stays audible: { mute: false, phase: rand(), jump: beat(4).sqr(0.05) } re-cues picture and sound every beat.',
+    jump: 'Seeks to phase whenever this crosses 0.5 upward, then plays on from there. Unlike phase alone it leaves the clip running, so mute: false stays audible: { mute: false, phase: rand(), jump: beat(4) } re-cues picture and sound every beat.',
   },
   noise: {
     period: "How much of the frame one blob of noise spans. Default 0.25, four across — 0.5 is big soft shapes, 0.03 is fine grain. The useful range lives in 0..1 like ramp's, so a bare signal drops in: period: audio() churns the grain with the level.",
@@ -618,7 +619,13 @@ const METHOD_KEY_DOCS = {
     mid: 'The value in the map that means no push. Default 0.5, so an unsigned map pushes both ways around its midpoint; 0 for a map that is already signed. Nothing to do with an [x, y] direction.',
   },
   velocity: {
-    scale: 'Multiplies the field before it is centered on mid-grey. Default 1. Raise it to see a slow field, lower it when a fast one clips.',
+    scale: 'Multiplies the field before it is centered on mid-grey. Default 2. Raise it to see a slow field, lower it when a fast one clips.',
+  },
+  curl: {
+    scale: 'Multiplies the field before it is centered on mid-grey. Default 50 — spin is a difference across one cell, so it reads two orders below velocity.',
+  },
+  pressure: {
+    scale: 'Multiplies the field before it is centered on mid-grey. Default 50, for the same reason curl is.',
   },
   noise: {
     amp: 'How far vertices move along their normals, in world units. Default 0.3.',
@@ -840,7 +847,7 @@ const globalKinds = {
   light: 'ambient directional point spot hemi',
   layout: 'layout',
   texture: 'scene depth input constant ramp circle ring video person videofile imagefile imageseq noise voronoi text fluid',
-  signal: 'beat audio audiofile band rand select sig T mouse',
+  signal: 'beat audio audiofile band rand select sig T B mouse',
   midi: 'midi',
   gamepad: 'gamepad',
 };

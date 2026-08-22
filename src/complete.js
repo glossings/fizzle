@@ -33,8 +33,9 @@ import {
 
 // no detail: the info panel's own header is the signature, and printing it on
 // the row too just says it twice
+// T and B are values you read rather than calls — same rule as the methods below
 const globalOptions = Object.entries(GLOBALS).map(([label, entry]) => ({
-  label, type: 'function', info: () => docDom(entry),
+  label, type: entry[0].includes('(') ? 'function' : 'variable', info: () => docDom(entry),
 }));
 // a midi()/gamepad() member that takes no argument is a signal you read, not a
 // call — the signature says which, and the icon in the list should agree
