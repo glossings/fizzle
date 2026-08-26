@@ -108,14 +108,74 @@ only — a recording without the code beats no recording.
 
 ## Where the file goes
 
-`showSaveFilePicker` + `createWritable()`, with `MediaRecorder.start(1000)`, so
-chunks stream to disk a second at a time and a long take never sits in the tab.
-Firefox and Safari have no picker: those buffer in memory and download on stop.
+Into origin-private storage first, then to the file. `MediaRecorder.start(1000)`
+hands over a second at a time; each blob is read and posted to
+[rec-worker.js](../src/rec-worker.js), which writes it through a
+`createSyncAccessHandle()` and flushes. On stop the complete take is read back
+as a file-backed `File` and written into the handle the save dialog gave
+(Chrome/Edge), or downloaded / shared where there's no dialog. The copy out is
+streamed by the browser, so a multi-gigabyte take doesn't pass through the tab;
+it does take a moment, and says so.
+
+**Why not stream into the picked file directly, as the first version did.**
+`createWritable()` writes into a `.crswap` swap file and renames it on
+`close()`. If the tab dies first — renderer crash, or anything that severs the
+mojo pipe without a close — the browser-side writer is destroyed and its
+destructor *deletes the swap file* (`should_purge_swap_file_on_destruction_`
+defaults to true in `file_system_access_file_writer_impl.cc`; the `autoClose`
+option that would finalize instead is behind `FileSystemAccessAPIExperimental`).
+So a crash at minute forty of a set lost all forty minutes, in every container.
+That was the "long recording crashes and the take is gone" bug, or at least the
+half of it that's fixable from here: whatever crashes the tab, the take now
+survives it. OPFS sync-handle writes land in place, and the next load finds the
+file and offers it back.
+
+The take log (`localStorage['td-rec-takes']`, the last six) is the other half:
+every tick writes seconds, bytes on disk, bytes waiting for disk, frames
+composited, snapshots taken, JS heap, visibility and the last few warnings, so
+a take that reads `rolling` on the next load says how far it got and what the
+tab looked like when it went. Before this there was nothing to go on.
+
+**A quiet sound track stalls the picture, and a stalled take is a memory
+leak.** Chrome's `MuxerTimestampAdapter` interleaves by timestamp and, while the
+audio track is live-and-enabled, will not write a video frame until it has an
+audio frame to sort it against. Every encoded video frame it's waiting on sits
+in the renderer. Driving the app in headless Chrome made this concrete: the
+`AudioContext` read `running`, the tap had nothing feeding it, and an eight
+second take with **rec. audio** on wrote *zero* bytes until stop, when every
+frame came out at once (49 h264 frames, no audio stream). The same take with
+audio off wrote a megabyte a second. Headless has no real output device, which
+is presumably why the tap stayed silent there, but the mechanism is the same
+for any sound track that goes quiet mid-set: a context that never resumed, an
+output device that disappeared from under `setSinkId`, or an AAC encoder
+failing (mp4's AAC is `AudioTrackMojoEncoder`, out of process, and once it
+errors it refuses to output for the rest of the take; Opus for mkv/webm is
+in-process). At 18.7 Mbps that's 2.3 MB/s of held frames, a gigabyte in seven
+minutes, and the tab dies without a line of logging — which is a fair match
+for "a long recording crashes and the take is gone". The take log now carries
+the context state every tick, and `tickDot` watches for frames going in with
+no bytes coming out: a warning at ten seconds, a stop at thirty with what the
+recorder had. A recorder that ends on its own (encoder error) is caught the
+same way, through `onstop`. Both thresholds also want frames pushed (150 and
+450), so a sketch that renders slowly isn't mistaken for a stall: mp4 only
+emits at a keyframe, one per hundred frames. Under SwiftShader's ~7 fps the
+warning came at 21 s rather than 10; at 60 fps the clock is what binds.
 
 **The container is the user's choice, in two places that are the same place.**
-mkv and webm stay playable at whatever byte they stop at; mp4 needs a trailer,
-so a take that's cut off is a lost take, but it's the one QuickTime, Premiere
-and a phone's camera roll will take. Neither is right for everyone.
+mkv and webm stay playable at whatever byte they stop at. Chrome's mp4 is
+fragmented (`ftyp moov`, then `moof mdat` pairs, a fragment per keyframe past
+the timeslice) and a file truncated anywhere probes and plays; other browsers'
+mp4 hasn't been checked. mp4 is the one QuickTime, Premiere and a phone's
+camera roll will take. Neither is right for everyone.
+
+Measured in headless Chrome 151 with a pushed 1080p60 canvas plus an
+oscillator, 18.7 Mbps, `start(1000)`: mp4 blobs arrive every ~1.7 s (the
+default keyframe interval is 100 frames and a fragment can only start on one),
+mkv every ~1.0 s; renderer RSS flat over three minutes in both, so the recorder
+itself isn't what grows. While no video frames are pushed (the sketch paused,
+the tab hidden) mp4 emits nothing at all and audio queues in the muxer's
+timestamp adapter until the next keyframe; that's ~16 KB/s, bounded, and the
+file comes out whole.
 
 The first version hard-coded one ordering, and iOS Safari duly recorded webm: a
 file the phone can't play, can't preview, and above all can't put in the camera
@@ -343,21 +403,23 @@ on one chip, all of them avoidable:
 Together roughly 3.5× less compositing work. Hiding the code (`⟨/⟩`) removes
 the overlay cost entirely, which is the usual way to record on a phone anyway.
 
-### The memory path has a ceiling
+### The memory path is the fallback now
 
-No handle means the whole take is Blobs in the tab. At the bitrates here that's
-hundreds of megabytes for a few minutes, and a tab that runs out of room takes
-the take with it. `MEMORY_CAP` stops recording first — 400 MB on a touch screen,
-1.5 GB otherwise — and the indicator shows the running total, so it's visible
-before it's a decision.
+Storage takes the take on every browser with OPFS, which is all of them in a
+secure context. Where there isn't one (a dev server reached by IP has neither
+storage nor a save dialog) the whole take is Blobs in the tab, and
+`MEMORY_CAP` stops recording first — 400 MB on a touch screen, 1.5 GB otherwise.
+On the storage path the ceiling is the disk: a write that fails (quota, most
+likely) ends the take with what's written kept, and `BACKLOG_CAP` (256 MB of
+blobs the disk hasn't acknowledged) ends it if the disk can't keep up at all.
 
-**The one caveat that survives.** Chrome's `createWritable()` writes through a
-swap file and renames it on `close()`. A graceful interruption is covered — stop,
-navigation and `pagehide` all flush — but a hard tab crash leaves the bytes in a
-`.crswap` file beside the target rather than at the target. They're recoverable
-by renaming, and being matroska they play. There is no API that writes in place
-to a user-chosen path; OPFS `createSyncAccessHandle` does, but only inside
-origin-private storage, which is not a location anyone can pick.
+**Handing over.** A take that went to a picked file is copied out and deleted
+from storage. One that went out as a download or a share is still being read
+from storage by the browser, so it stays, logged `done`, and the next load
+deletes it. A take logged `rolling` or `ended` on load is one that never got
+handed over: it's offered behind `#rec-save`, and on a desktop that button opens
+the save dialog itself (no await before it; the gesture rule from the camera
+roll section applies to the dialog too).
 
 ## Audio
 

@@ -24,6 +24,10 @@ const context = () => (ctx ??= new AudioContext());
 let tapNode = null;
 const tap = () => (tapNode ??= context().createMediaStreamDestination());
 
+// for the recording log: a context that isn't running is a recording that
+// isn't writing (see record.js)
+export const audioState = () => ctx?.state ?? 'none';
+
 export function audioTap() {
   const stream = tap().stream;
   context().resume(); // called from the gesture that started the take

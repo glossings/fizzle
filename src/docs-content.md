@@ -64,18 +64,20 @@ fullscreen. While it's open `ctrl + h` hides the code **on the projector**;
 `ctrl + m` always means your own window.
 
 **Recording (`ctrl + e`)** asks where to put the file and starts rolling; the
-same key stops it. Chrome and Edge write to the file as it goes, so a ten
-minute take never sits in the tab.
+same key stops it. The take is written to the browser's own storage a second
+at a time as it goes and handed to the file you chose when you stop, so a ten
+minute take never sits in the tab. If the tab dies mid-set the take doesn't go
+with it: the next load offers what was written back, behind a ⤴ button in the
+corner.
 
 The sidebar's **recording** setting picks the container, and the save dialog's
 own format menu opens on it — so change it there for one take, or in the
 sidebar for every take after. `.mkv` and `.webm` stay playable even if the
-recording is cut off part way, which is what you want mid-set; `.mp4` needs a
-clean stop but opens in anything, QuickTime and Premiere included.
+recording is cut off part way; `.mp4` opens in anything, QuickTime and Premiere
+included.
 
-Where there's no save dialog the take is held in memory until you stop, and
-comes out as a download instead. The counter in the corner shows how much of
-the tab it's using, and recording stops on its own before it's enough to lose.
+Where there's no save dialog the take comes out as a download instead. The
+counter in the corner shows how much has been written so far.
 
 The file is the picture at full size, whatever the window is doing:
 `resolution(1920, 1080)` records 1920×1080 from a half-size window, and the
@@ -85,7 +87,9 @@ hold to, so the file is what the window is really rendering, quality included.
 **rec. audio** puts the sound in the file: the audio input as it arrives, plus
 any `audiofile()` at the volume you set. It's on by default, and the track is
 there from the first frame whether anything is making noise yet or not, so a
-take started before the music still gets it.
+take started before the music still gets it. If the sound stops arriving the
+recorder holds the picture back too; the status line says so, and after half a
+minute of it the take stops and saves what it has.
 
 The code is in the recording exactly when it's on screen, so `ctrl + h` (or
 `ctrl + m` with no projector) takes it out of the file too — decided when you

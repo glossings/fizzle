@@ -1,6 +1,6 @@
 import { warn } from './warn.js';
 import { isTouch } from './touch.js';
-import { audioTap } from './audio.js';
+import { audioTap, audioState } from './audio.js';
 
 // Recording a set to a file.
 //
@@ -17,10 +17,10 @@ import { audioTap } from './audio.js';
 // feeds, and its track goes into the same stream as the picture.
 
 // The containers worth offering, each with the codec strings to try for it.
-// mkv and webm stay playable if the writing stops mid-take; mp4 needs a
-// trailer, so a take that's cut off is a lost one — but it's the one every
-// player opens and the only one a phone will put in the camera roll. Which
-// trade is the right one is the user's, so it's a setting.
+// mkv and webm stay playable at whatever byte they stop at; mp4 isn't promised
+// to (Chrome's is fragmented and does, the others are untested) — but it's the
+// one every player opens and the only one a phone will put in the camera roll.
+// Which trade is the right one is the user's, so it's a setting.
 //
 // Two lists per container, because a codec string that names only a video
 // codec is one some browsers refuse outright when the stream has audio in it.
@@ -77,8 +77,8 @@ function formats(want, sound) {
 const extFor = (mime) =>
   (/matroska/.test(mime) ? 'mkv' : /mp4/.test(mime) ? 'mp4' : /webm/.test(mime) ? 'webm' : '');
 
-// With nowhere to stream to, the whole take sits in the tab. Stop before that
-// kills it — a phone has far less room for this than a laptop does.
+// With no storage to spool into, the whole take sits in the tab. Stop before
+// that kills it — a phone has far less room for this than a laptop does.
 const MEMORY_CAP = (isTouch ? 400 : 1500) * 1024 * 1024;
 
 // h.264 wants even dimensions, and a window is often an odd number of pixels
@@ -258,6 +258,79 @@ function isClean(src) {
   }
 }
 
+// --- where the bytes go -------------------------------------------------------
+//
+// Into origin-private storage first, through a worker holding a sync access
+// handle, a second at a time; the file the save dialog named only gets the
+// take once it has ended. Streaming straight into that file was how it worked
+// before, and it lost whole sets: a FileSystemWritableFileStream writes into a
+// swap file that Chrome deletes if the tab dies before close(), whatever the
+// container. OPFS writes land in place, so a take a crashed tab leaves behind
+// is still there on the next load, where it's offered back — and the tab never
+// holds more than a second of video on any browser, not only the ones with a
+// save dialog.
+
+const OPFS_DIR = 'recordings';
+
+// The last few takes and how they ended, kept across sessions: a take that
+// reads `rolling` on the next load is one the tab died in the middle of, and
+// what was logged about it is what there is to go on. Inspect with
+// localStorage['td-rec-takes'].
+const LS_TAKES = 'td-rec-takes';
+const readTakes = () => { try { return JSON.parse(localStorage.getItem(LS_TAKES) ?? '[]'); } catch { return []; } };
+const writeTakes = (t) => { try { localStorage.setItem(LS_TAKES, JSON.stringify(t.slice(-6))); } catch { /* over quota */ } };
+function logTake(take) {
+  const all = readTakes().filter((t) => t.name !== take.name);
+  all.push(take);
+  writeTakes(all);
+}
+
+const mb = (n) => `${Math.round(n / 1e6)} MB`;
+const dur = (secs) => `${Math.floor(secs / 60)}:${pad(Math.round(secs) % 60)}`;
+
+async function takeDir() {
+  const root = await navigator.storage.getDirectory();
+  return root.getDirectoryHandle(OPFS_DIR, { create: true });
+}
+const takeFile = async (name) => (await (await takeDir()).getFileHandle(name)).getFile();
+const dropTake = async (name) => { try { await (await takeDir()).removeEntry(name); } catch { /* already gone */ } };
+
+// Bytes read from the recorder and not yet acknowledged by the disk. Past this
+// the disk isn't keeping up at all, and the backlog is the old memory problem
+// by another route.
+const BACKLOG_CAP = 256 * 1024 * 1024;
+
+// the worker, started on the first take and kept
+let worker = null, rpcId = 0;
+const rpc = new Map();
+function spooler() {
+  if (worker) return worker;
+  worker = new Worker(new URL('./rec-worker.js', import.meta.url), { type: 'module' });
+  worker.onmessage = ({ data: { id, ok, value, error } }) => {
+    const p = rpc.get(id);
+    if (!p) return;
+    rpc.delete(id);
+    ok ? p.resolve(value) : p.reject(new Error(error));
+  };
+  worker.onerror = (e) => {
+    for (const p of rpc.values()) p.reject(new Error(e.message || 'the recording worker failed'));
+    rpc.clear();
+  };
+  return worker;
+}
+// A worker that never comes up never answers either, so the open has a clock
+// on it; a write is answered as soon as the disk takes it.
+function call(op, payload = {}, transfer = [], timeout = 0) {
+  return new Promise((resolve, reject) => {
+    const id = ++rpcId;
+    let t = 0;
+    if (timeout) t = setTimeout(() => { rpc.delete(id); reject(new Error('the recording worker did not start')); }, timeout);
+    rpc.set(id, { resolve: (v) => { clearTimeout(t); resolve(v); }, reject: (e) => { clearTimeout(t); reject(e); } });
+    try { spooler().postMessage({ id, op, ...payload }, transfer); }
+    catch (e) { clearTimeout(t); rpc.delete(id); reject(e); }
+  });
+}
+
 // --- the recorder ------------------------------------------------------------
 
 // getSize: [w, h] the file should be — resolution(), the sidebar's fixed size,
@@ -272,14 +345,21 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   let rec = null;          // the live MediaRecorder, or null
   let out = null, ctx = null, stream = null, track = null;
   let outW = 0, outH = 0;  // the frame size, with or without a compositing canvas
-  let writable = null;     // streaming to a chosen file
-  let queue = Promise.resolve(); // writes, kept in order
-  let chunks = null;       // ...or held in memory, for browsers without a picker
-  let held = 0;            // how much of the tab that's taken up
+  let handle = null;       // the file the take goes into at the end, when a dialog named one
+  let spool = '';          // the take's name in origin-private storage while it's going there
+  let queue = Promise.resolve(); // reads and writes, kept in order
+  let backlog = 0;         // bytes read from the recorder the disk hasn't taken yet
+  let chunks = null;       // ...or held in memory, where there's no storage to spool into
+  let held = 0;            // bytes on disk (or in the tab)
   let recMime = '';        // what this take was asked to record in
   let writeError = null;   // the first write that didn't land, if any
   let saveName = '';
   let startedAt = 0, timer = 0;
+  let take = null;         // this take's log entry
+  let frames = 0, snaps = 0;
+  let lastHeld = 0, lastHeldAt = 0, framesAtHeld = 0, stalled = false;
+  let recent = [];         // the last few warnings, for the log
+  window.addEventListener('fizzle-warning', (e) => { recent = [...recent.slice(-4), e.detail]; });
 
   // the code layer, cached: it only changes when someone types or scrolls
   let shot = null, shotEl = null, dirty = true, busy = false, noOverlay = false;
@@ -292,34 +372,114 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   dot.id = 'rec-dot';
   document.body.appendChild(dot);
 
-  // A take that's finished and waiting to be handed somewhere, and the button
-  // that does it. Sits where the recording indicator was, so the take ending
-  // swaps one for the other in the same corner.
-  let pending = null;
+  // A take waiting to be handed somewhere, and the button that does it: one
+  // that finished on a phone, where the share sheet wants a tap of its own, or
+  // one a dead tab left behind, which needs the destination it never got.
+  // Sits where the recording indicator was, so the take ending swaps one for
+  // the other in the same corner.
+  let pending = null;      // { file, opfs, take } — opfs: its name in storage, to drop once it's out
   const saveBtn = document.createElement('button');
   saveBtn.id = 'rec-save';
   saveBtn.hidden = true;
-  saveBtn.textContent = '⤴ save video';
   saveBtn.addEventListener('click', () => {
-    const file = pending;
-    if (!file) return;
+    const p = pending;
+    if (!p) return;
     pending = null;
     saveBtn.hidden = true;
-    // Called straight out of the tap with nothing awaited in front of it —
-    // an await here is exactly what loses the gesture and closes this door.
-    navigator.share({ files: [file], title: file.name }).catch((e) => {
-      // dismissing the sheet isn't a decision to throw the take away
-      if (e?.name === 'AbortError') {
-        pending = file;
-        saveBtn.hidden = false;
-        return;
-      }
-      warn(`recording: the share sheet refused the file (${e.message ?? e})`);
-      download(file);
-      flash?.(`⏹ downloaded ${file.name} instead`);
-    });
+    // Every branch here is called straight out of the tap with nothing awaited
+    // in front of it — an await is exactly what loses the gesture and closes
+    // both the share sheet and the save dialog.
+    if (!isTouch && window.showSaveFilePicker) {
+      const ext = extFor(p.file.type) || /\.([a-z0-9]+)$/i.exec(p.file.name)?.[1];
+      const types = ext && LABEL[ext] ? [{ description: LABEL[ext], accept: { [PLAIN[ext]]: [`.${ext}`] } }] : undefined;
+      window.showSaveFilePicker({ suggestedName: p.file.name, types }).then(
+        (h) => deliver(h, p).then((ok) => { if (!ok) { download(p.file); finish(p, 'downloaded'); } }),
+        (e) => { if (e?.name === 'AbortError') park(p); else { download(p.file); finish(p, 'downloaded'); } },
+      );
+      return;
+    }
+    if (isTouch && navigator.canShare?.({ files: [p.file] })) {
+      navigator.share({ files: [p.file], title: p.file.name }).then(() => finish(p, 'shared'), (e) => {
+        // dismissing the sheet isn't a decision to throw the take away
+        if (e?.name === 'AbortError') return park(p);
+        warn(`recording: the share sheet refused the file (${e.message ?? e})`);
+        download(p.file);
+        finish(p, 'downloaded');
+        flash?.(`⏹ downloaded ${p.file.name} instead`);
+      });
+      return;
+    }
+    download(p.file);
+    finish(p, 'downloaded');
   });
   document.body.appendChild(saveBtn);
+
+  function park(p) {
+    pending = p;
+    saveBtn.textContent = p.take?.recovered ? `⤴ save last take (${mb(p.file.size)})` : '⤴ save video';
+    saveBtn.hidden = false;
+  }
+
+  // The take is out of our hands. A file that went to a chosen path is copied
+  // and can go from storage now; one that went out as a download or a share
+  // is still being read from storage, so it stays until the next load.
+  function finish(p, how) {
+    if (p.take) {
+      p.take.state = 'done';
+      p.take.how = how;
+      logTake(p.take);
+    }
+    if (how === 'saved' && p.opfs) dropTake(p.opfs);
+  }
+
+  // The take, complete in origin-private storage, written out to the file the
+  // dialog named. The browser streams it, so a multi-gigabyte take doesn't pass
+  // through the tab — but it is a copy, and a long one takes a moment.
+  async function deliver(h, p) {
+    flash?.(`⏳ writing ${h.name} (${mb(p.file.size)})…`);
+    try {
+      const w = await h.createWritable();
+      await w.write(p.file);
+      await w.close();
+    } catch (e) {
+      warn(`recording: couldn't write ${h.name} (${e.message ?? e}) — downloading instead`);
+      return false;
+    }
+    finish(p, 'saved');
+    flash?.(`⏹ saved ${h.name} — ${p.take ? dur(p.take.secs) : mb(p.file.size)}`);
+    return true;
+  }
+
+  // On load: takes a dead tab left in storage are offered back, and the ones
+  // already handed over are cleared out. What the log has on how the last one
+  // ended goes to the console, since that's the only trace a crash leaves.
+  async function recover() {
+    if (!navigator.storage?.getDirectory) return;
+    const takes = readTakes();
+    if (!takes.length) return;
+    let crashed = null;
+    for (const t of takes) {
+      if (t.state === 'rolling' || t.state === 'ended') {
+        let file = null;
+        try { file = await takeFile(t.name); } catch { /* never got a byte */ }
+        if (file?.size) crashed = { file, take: t };
+        else { t.state = 'lost'; await dropTake(t.name); }
+      } else if (t.state === 'done') {
+        await dropTake(t.name);
+      }
+    }
+    writeTakes(takes);
+    if (!crashed) return;
+    const t = crashed.take;
+    t.recovered = true;
+    console.warn('fizzle: the last recording did not end cleanly', t);
+    warn(`recording: the last take didn't end — ${dur(t.secs)} and ${mb(crashed.file.size)} written when the tab went`
+      + (t.backlog ? `, ${mb(t.backlog)} still waiting for disk` : '')
+      + (t.heap ? `, heap ${mb(t.heap)}` : '')
+      + ' — ⤴ in the corner saves what there is');
+    park({ file: new File([crashed.file], t.file, { type: t.type }), opfs: t.name, take: t });
+  }
+  recover().catch(() => {});
 
   const recording = () => !!rec;
 
@@ -348,6 +508,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   async function refresh(el, k) {
     busy = true;
     dirty = false;
+    snaps++;
     try {
       const next = await snapshot(el, k);
       if (next && !checked) {
@@ -389,6 +550,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     // costs a layout flush, which is the sort of thing this path exists to
     // stop doing sixty times a second.
     if (!out) {
+      frames++; // render ticks: a stand-in for the frames the compositor took
       const now = performance.now();
       if (now - lastFrame < 500) return;
       lastFrame = now;
@@ -407,6 +569,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     const now = performance.now();
     if (now - lastFrame < 1000 / MAX_FPS - 2) return;
     lastFrame = now;
+    frames++;
 
     const W = out.width, H = out.height;
     // contain-fit: the buffer can change shape mid-take (a resize, a new
@@ -455,11 +618,44 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   }
 
   function tickDot() {
-    const s = Math.floor((performance.now() - startedAt) / 1000);
-    // with the take piling up in the tab rather than going to disk, how much
-    // of it there is now is worth knowing before it's a problem
-    const size = chunks ? ` · ${Math.round(held / 1e6)} MB` : '';
-    dot.textContent = `${Math.floor(s / 60)}:${pad(s % 60)}${size}`;
+    const now = performance.now();
+    const secs = (now - startedAt) / 1000;
+    // how much there is so far is worth seeing either way: on disk it's what a
+    // crash would leave, in the tab it's what there's room for
+    dot.textContent = `${dur(secs)} · ${mb(held)}`;
+
+    // Frames going in and nothing coming out: the recorder is holding them,
+    // and it holds them in memory. Chrome's muxer writes nothing until it has
+    // audio to interleave with the picture, so a sound track that has gone
+    // quiet — a context that never resumed, an output device that went away,
+    // an AAC encoder that failed — stalls the picture with it, and a stalled
+    // take grows at the video bitrate until the tab dies. mp4 also only emits
+    // at a keyframe past the timeslice, one per hundred frames, which is why
+    // the frame count is part of the test and not the clock alone.
+    if (held !== lastHeld || !lastHeldAt) {
+      lastHeld = held;
+      lastHeldAt = now;
+      framesAtHeld = frames;
+      stalled = false;
+    } else {
+      const quiet = Math.round((now - lastHeldAt) / 1000), pushed = frames - framesAtHeld;
+      if (!stalled && pushed > 150 && quiet >= 10) {
+        stalled = true;
+        warn(`recording: nothing has reached the disk for ${quiet} s while frames go in — the recorder is holding them (has the sound stopped arriving?)`);
+      }
+      if (rec && pushed > 450 && quiet >= 30) {
+        warn(`recording: stopped — the recorder held everything for ${quiet} s; what it had is being saved. Start a new take, without rec. audio if it happens again`);
+        toggle();
+      }
+    }
+    if (take) {
+      Object.assign(take, {
+        secs: Math.round(secs), bytes: held, backlog, frames, snaps, stalled,
+        heap: performance.memory?.usedJSHeapSize ?? 0, audio: audioState(), warnings: recent,
+        hidden: document.visibilityState === 'hidden', at: new Date().toISOString(),
+      });
+      logTake(take);
+    }
   }
 
   // Both halves have an await in them — the file picker on the way in, the
@@ -473,10 +669,10 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     try { await (rec ? stop() : start()); } finally { switching = false; }
   }
 
-  // Ask where it goes, and in what. Chrome/Edge hand back a handle we can
-  // stream into; everywhere else the take is held in memory and handed over at
-  // the end. Returns the [ext, mime] to record in, or null if it isn't going
-  // to happen.
+  // Ask where it goes, and in what. Chrome/Edge hand back a handle the take is
+  // written into at the end; everywhere else it's handed over as a download
+  // or a share. Returns the [ext, mime] to record in, or null if it isn't
+  // going to happen.
   async function openFile(want, sound) {
     const avail = formats(want, sound);
     if (!avail.length) {
@@ -485,10 +681,8 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     }
     let [ext, mime] = avail[0];
     saveName = `fizzle-${slug(getName?.())}-${stamp()}.${ext}`;
-    if (!window.showSaveFilePicker) {
-      chunks = [];
-      return [ext, mime];
-    }
+    handle = null;
+    if (!window.showSaveFilePicker) return [ext, mime];
 
     // The save dialog has a format menu of its own, so that's where the choice
     // lives rather than in a second dialog of ours: the setting is what's
@@ -497,7 +691,6 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       description: LABEL[e],
       accept: { [PLAIN[e]]: [`.${e}`] },
     }));
-    let handle = null;
     try {
       handle = await window.showSaveFilePicker({ suggestedName: saveName, types });
     } catch (e) {
@@ -515,13 +708,6 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     const hit = avail.find(([e]) => e === chosen);
     if (hit) [ext, mime] = hit;
     if (handle?.name) saveName = handle.name;
-
-    try {
-      writable = await handle.createWritable();
-      queue = Promise.resolve();
-    } catch {
-      chunks = []; // no handle, or no permission to write through it
-    }
     return [ext, mime];
   }
 
@@ -533,8 +719,13 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   async function fail(e) {
     release();
     chunks = null;
-    await writable?.abort().catch(() => {});
-    writable = null;
+    handle = null;
+    if (spool) {
+      await call('close').catch(() => {});
+      dropTake(spool);
+      spool = '';
+    }
+    if (take) { take.state = 'failed'; logTake(take); take = null; }
     warn(`recording: ${e.message ?? e}`);
   }
 
@@ -542,9 +733,11 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     // a take left un-tapped isn't a take meant to be thrown away; put it
     // somewhere before this one starts piling up behind it
     if (pending) {
-      download(pending);
+      const p = pending;
       pending = null;
       saveBtn.hidden = true;
+      download(p.file);
+      finish(p, 'downloaded');
     }
     // inside the gesture that asked for it — a file picker needs one
     const wantSound = getAudio?.() ?? false;
@@ -553,6 +746,25 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     const [ext] = picked;
     let [, mime] = picked;
     recMime = mime;
+
+    // Where the bytes go while it rolls. Storage is the answer wherever there
+    // is any; memory is the fallback, with its ceiling, for where there isn't
+    // (an insecure context has no storage and no dialog either).
+    spool = '';
+    chunks = null;
+    held = backlog = 0;
+    take = { name: `take-${Date.now()}.${ext}`, file: saveName, type: PLAIN[ext], mime, started: new Date().toISOString(), state: 'rolling', secs: 0, bytes: 0 };
+    if (navigator.storage?.getDirectory && typeof Worker !== 'undefined') {
+      try {
+        await call('open', { dir: OPFS_DIR, name: take.name }, [], 8000);
+        spool = take.name;
+      } catch (e) {
+        warn(`recording: the browser's storage wouldn't take the recording (${e.message ?? e}) — holding it in memory instead`);
+      }
+    }
+    if (!spool) chunks = [];
+    take.where = spool ? 'storage' : 'memory';
+    take.dest = handle ? 'file' : isTouch ? 'share' : 'download';
 
     // The tap's own track, which lives as long as the page does: every source
     // is already feeding it, including ones that start after this take does.
@@ -614,6 +826,9 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     if (audioTrack) stream.addTrack(audioTrack);
 
     lastFrame = lastSnap = 0;
+    frames = snaps = 0;
+    lastHeld = lastHeldAt = framesAtHeld = 0;
+    stalled = false;
     const video = bitrate(outW, outH, MAX_FPS);
     const make = () =>
       new MediaRecorder(stream, {
@@ -635,17 +850,42 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       recMime = mime = mimeFor(ext, false) ?? mime;
       try { rec = make(); } catch (e2) { return fail(e2); }
     }
+    Object.assign(take, { mime, size: `${outW}x${outH}`, direct, audio: !!audioTrack, bitrate: video });
     writeError = null;
-    held = 0;
+    queue = Promise.resolve();
     // an encoder that gives up mid-take (a size it won't take, a codec that
     // fails late) does it through this event and nowhere else
     rec.onerror = (e) => warn(`recording: ${e.error?.message ?? 'the encoder failed mid-take'}`);
+    // ...and one that then ends on its own leaves a take that thinks it's
+    // rolling; stop() replaces this handler, so it only fires for that
+    const r0 = rec;
+    rec.onstop = () => { if (rec === r0) { warn('recording: the recorder stopped on its own — saving what it wrote'); toggle(); } };
     rec.ondataavailable = (e) => {
       if (!e.data?.size) return;
-      if (!chunks) {
-        // one failed write mustn't break the chain, but it has to be said at
-        // the end — a set that didn't reach the disk should not report as saved
-        queue = queue.then(() => writable.write(e.data)).catch((err) => { writeError ??= err; });
+      if (spool) {
+        // Read and written one blob at a time, in order. A disk that can't keep
+        // up shows as bytes waiting here, and a disk that says no — out of
+        // room, most likely — ends the take with what's written kept.
+        const blob = e.data;
+        backlog += blob.size;
+        queue = queue
+          .then(async () => {
+            const buf = await blob.arrayBuffer();
+            held = await call('write', { buf }, [buf]);
+          })
+          .catch((err) => {
+            if (writeError) return;
+            writeError = err;
+            if (rec) {
+              warn(`recording: the disk stopped taking the take (${err.message ?? err}) — stopping, what's written is kept`);
+              toggle();
+            }
+          })
+          .finally(() => { backlog -= blob.size; });
+        if (backlog > BACKLOG_CAP && rec) {
+          warn(`recording: stopped at ${dur((performance.now() - startedAt) / 1000)} — the disk is ${mb(backlog)} behind the recorder`);
+          toggle();
+        }
         return;
       }
       chunks.push(e.data);
@@ -653,7 +893,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       // ending it here at least hands over what there is; a tab that runs out
       // of room takes the whole take with it
       if (held > MEMORY_CAP) {
-        warn(`recording: stopped at ${Math.round(held / 1e6)} MB — nothing here can stream to a file, so the take has to fit in the tab`);
+        warn(`recording: stopped at ${mb(held)} — nothing here can stream to a file, so the take has to fit in the tab`);
         toggle();
       }
     };
@@ -662,8 +902,8 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     dirty = true;
     forgetCss();
     frame(); // a first frame, so the recorder starts on a picture
-    // a second at a time: with a handle that's a second of disk lag and no
-    // memory growth, and without one it's how often the ceiling gets checked
+    // a second at a time: a second of video is all the tab holds, and the
+    // write behind it is what a crash can't take back
     rec.start(1000);
 
     startedAt = performance.now();
@@ -692,21 +932,22 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   // So the finished take waits behind a button of its own, and the sheet opens
   // from that tap. Anywhere without a share sheet — a laptop, or a browser
   // that won't take files — the download is the whole story, as before.
-  function offer(file, dur) {
+  function offer(p, d) {
+    const { file } = p;
     if (isTouch && navigator.canShare?.({ files: [file] })) {
-      pending = file;
-      saveBtn.hidden = false;
-      return `⏹ ${dur} recorded — tap ⤴ to save it`;
+      park(p);
+      return `⏹ ${d} recorded — tap ⤴ to save it`;
     }
     download(file);
-    if (!isTouch) return `⏹ downloaded ${file.name} — ${dur}`;
+    finish(p, 'downloaded');
+    if (!isTouch) return `⏹ downloaded ${file.name} — ${d}`;
     // A phone that won't offer the sheet has three ways of not offering it,
     // and they want different things done about them. The share API is
     // secure-context only, so a dev server reached over the network by its IP
     // hasn't got one at all — which looks identical to a refusal from here.
     const why = !window.isSecureContext ? 'sharing needs https'
       : !navigator.canShare ? 'no share sheet in this browser'
-      : `sheet refused ${file.type || 'a file with no type'}, ${Math.round(file.size / 1e6)} MB`;
+      : `sheet refused ${file.type || 'a file with no type'}, ${mb(file.size)}`;
     return `⏹ downloaded ${file.name} — ${why}`;
   }
 
@@ -726,38 +967,63 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     });
     release();
     const secs = Math.round((performance.now() - startedAt) / 1000);
-    const dur = `${Math.floor(secs / 60)}:${pad(secs % 60)}`;
+    const d = dur(secs);
+    const t = take;
+    take = null;
+    if (t) { t.secs = secs; t.state = 'ended'; logTake(t); }
+    // Safari has been known to leave mimeType empty; a File with no type is
+    // one the share sheet can't identify and won't take
+    const type = (r.mimeType || recMime || '').split(';')[0];
+    const ext = extFor(type);
+    if (ext) saveName = saveName.replace(/\.[^.]+$/, `.${ext}`);
+    if (t) { t.file = saveName; t.type = type; }
     let msg;
 
     if (chunks) {
-      // Safari has been known to leave mimeType empty; a File with no type is
-      // one the share sheet can't identify and won't take
-      const type = (r.mimeType || recMime || '').split(';')[0];
-      const ext = extFor(type);
-      if (ext) saveName = saveName.replace(/\.[^.]+$/, `.${ext}`);
       const file = new File(chunks, saveName, { type });
       chunks = null;
-      msg = offer(file, dur);
+      msg = offer({ file, opfs: '', take: t }, d);
     } else {
+      const name = spool;
+      spool = '';
+      await queue; // every blob read and acknowledged, or the error that ended it
+      let file = null;
       try {
-        await queue;
-        await writable.close();
+        await call('close');
+        file = new File([await takeFile(name)], saveName, { type });
       } catch (e) {
         writeError ??= e;
       }
-      writable = null;
-      msg = `⏹ saved ${saveName} — ${dur}`;
+      if (!file?.size) {
+        warn(`recording: ${saveName} has nothing in it (${writeError?.message ?? writeError ?? 'no data'})`);
+        if (t) { t.state = 'lost'; logTake(t); }
+        dropTake(name);
+        handle = null;
+        return;
+      }
+      const p = { file, opfs: name, take: t };
+      if (handle) {
+        const h = handle;
+        handle = null;
+        const ok = await deliver(h, p);
+        if (!ok) {
+          download(file);
+          finish(p, 'downloaded');
+          msg = `⏹ downloaded ${saveName} instead — ${d}`;
+        }
+      } else {
+        msg = offer(p, d);
+      }
     }
     if (writeError) {
       warn(`recording: ${saveName} didn't finish writing (${writeError.message ?? writeError})`);
-      return;
     }
-    flash?.(msg);
+    if (msg) flash?.(msg);
   }
 
-  // Closing the tab mid-take: stop() is async and nothing here can be awaited,
-  // but the recorder flushes what it has and the container is a streaming one,
-  // so what reached disk stays playable.
+  // Closing the tab mid-take: the worker dies with the page, and what it had
+  // flushed is on disk under a take still logged as rolling — which is the
+  // state the next load offers back.
   window.addEventListener('pagehide', () => { if (rec) stop(); });
 
   return { frame, recording, toggle };
