@@ -808,7 +808,10 @@ export class ParticleOp {
       ? (o.dir == null || o.dir === 'out' ? [0, 0, 1] : (asVec(o.dir) ?? [0, 0, 1]))
       : dirOut ? [0, 1, 0] : (asVec(o.dir) ?? [0, 1, 0]);
     const spread = o.spread ?? 0.25;
-    const speed = o.speed ?? 2;
+    // a shape or an image held still is the shape, stippled — the sketch
+    // chooses to set it moving. A bare point emitter has nothing to show at
+    // rest, so it fountains.
+    const speed = o.speed ?? (surf || texEmit ? 0 : 2);
     // texture emitters: births land on a world plane at the origin — height in
     // world units, width following the screen; only pixels past the luma
     // threshold give birth. Unless .color() says otherwise, each particle

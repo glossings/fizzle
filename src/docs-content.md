@@ -893,8 +893,9 @@ scene().bloom({ threshold: 0.4, strength: 0.9 }).out()
 
 `particles({ rate, life, speed, spread, dir, pos, max })` on its own is a
 fountain from a point. Either way `rate × life` is how many are alive at once
-and `max` only caps it. `speed` and `life` take `[min, max]` pairs to vary per
-particle; `dir` is a vector or `'out'` (the surface normal, the default from a
+and `max` only caps it. From a shape or an image, `speed` defaults to 0, so the
+swarm holds still as a stipple of its source until you set it moving. `speed`
+and `life` take `[min, max]` pairs to vary per particle; `dir` is a vector or `'out'` (the surface normal, the default from a
 shape) and `spread` how far off it a particle may aim. A source shape needn't
 be in the scene, and its transform applies live.
 
