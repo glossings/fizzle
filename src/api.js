@@ -9,6 +9,7 @@ import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPh
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
+import { lineGeometry } from './lines.js';
 import { makePointSet } from './sample.js';
 import { makeLayout, Layout } from './layout.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
@@ -255,8 +256,11 @@ function buildGeometry(type, o = {}, extra = {}) {
       const r = o.res ?? 24;
       return new THREE.BoxGeometry(o.width ?? 1, o.height ?? 1, o.depth ?? 1, r, r, r);
     }
-    case 'plane':
-      return new THREE.PlaneGeometry(o.width ?? 10, o.height ?? 10, o.res ?? 128, o.res ?? 128);
+    // res: [across, down] — scanlines want many columns and few rows
+    case 'plane': {
+      const [rx, ry] = Array.isArray(o.res) ? o.res : [o.res ?? 128, o.res ?? 128];
+      return new THREE.PlaneGeometry(o.width ?? 10, o.height ?? 10, rx, ry);
+    }
     case 'torus':
       return new THREE.TorusGeometry(o.radius ?? 1, o.tube ?? 0.35, o.res ?? 48, (o.res ?? 48) * 2);
     case 'torusKnot':
@@ -437,6 +441,7 @@ class GeoOp {
     this._displaces = [];   // every .displace() in the chain, summed in one patch
     this._instance = null;
     this._material = {};
+    this._draw = null;        // null = triangles; { mode: 'points' | 'lines', ... } draws the vertices or their grid instead
     this._shadow = null;      // null = whatever the material implies (see out())
     this._align = null;       // a direction to aim +Y at, on top of _rot
     this._pointSet = null;    // sampled surface points, built on the first .sample()
@@ -689,6 +694,30 @@ class GeoOp {
     return this;
   }
 
+  // points({ size }) — draw the vertices as dots instead of the surface, size
+  // in pixels. Every deformer still applies, and a color map colors each dot
+  // by the pixel under it, so plane({ res: 300 }).material({ map: person() })
+  // .displace(person()).points() is the camera as a relief of dots.
+  points(o = {}) {
+    if (typeof o !== 'object' || o === null) o = { size: o };
+    this._draw = { mode: 'points', size: o.size ?? 1 };
+    return this;
+  }
+
+  // lines({ dir }) — draw the rows ('x'), columns ('y') or both ('xy') of the
+  // vertex grid as 1px lines. A shape with no grid (model, text3d, icosa)
+  // draws its triangle edges, which is what .wire() asks for outright.
+  lines(o = {}) {
+    if (typeof o !== 'object' || o === null) o = { dir: o };
+    const dir = o.dir ?? 'x';
+    if (!['x', 'y', 'xy', 'edges'].includes(dir)) {
+      warn(`.lines(): dir is 'x', 'y' or 'xy' — got ${JSON.stringify(dir)}, drawing 'x'`);
+      this._draw = { mode: 'lines', dir: 'x' };
+    } else this._draw = { mode: 'lines', dir };
+    return this;
+  }
+  wire() { return this.lines({ dir: 'edges' }); }
+
   // A naked .material() means "I want a material and haven't got one yet":
   // it opens the Poly Haven browser and fills the pick back into this very
   // call, the same way an empty videofile() opens a picker. .material({})
@@ -750,11 +779,27 @@ class GeoOp {
     }));
     const m = this._material;
     const textured = hasMaps(m);
+    const draw = this._draw;
+    const asPoints = draw?.mode === 'points';
+    const asLines = draw?.mode === 'lines';
+    // dots and lines: flat color or map, no light, no shadow
+    const flat = asPoints || asLines;
+    if (flat && this._instance) {
+      warn(`.${asPoints ? 'points' : 'lines'}() draws one shape — .instance() is skipped. Raise res for more detail.`);
+      this._instance = null;
+    }
     // Glass, clearcoat, iridescence and friends live on the physical material,
     // which is the pricier shader — so the sketch opts in simply by naming one
     // of those properties, and everything else stays on standard.
     const Material = isPhysical(m) ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
-    const material = new Material({
+    // Dots and lines take no light, so the surface keys mean nothing to them;
+    // a color map reads at each vertex's uv, which three does on its own.
+    const flatColor = () => makeColor(m.color ?? (textured ? '#ffffff' : '#8899ff'));
+    const material = asPoints ? new THREE.PointsMaterial({
+      color: flatColor(),
+      size: resolve(draw.size, 0),
+      sizeAttenuation: false,
+    }) : asLines ? new THREE.LineBasicMaterial({ color: flatColor() }) : new Material({
       // A color map is tinted by material.color, so a textured chain that
       // didn't ask for a color starts white and shows the map as authored.
       // Transmission multiplies the light coming *through* the surface the same
@@ -774,11 +819,11 @@ class GeoOp {
         ? THREE.DoubleSide
         : THREE.FrontSide,
     });
-    if (m.emissive) {
+    if (m.emissive && !flat) {
       material.emissive = makeColor(m.emissive);
       material.emissiveIntensity = m.emissiveIntensity ?? 1;
     }
-    applyMaterialScalars(material, m);
+    if (!flat) applyMaterialScalars(material, m);
     const surfaceUpdate = applySurface(material, m);
 
     // .material({ map: [a, b, c] }): one array texture the copies pick out of.
@@ -821,7 +866,10 @@ class GeoOp {
           [`uDispWidth${i}`]: { value: resolve(d.smooth, 0) },
         });
       });
-      applyDisplacement(material, dispFlags, dispUniforms);
+      // dots and lines have no shading, so their shaders take the depth
+      // pass's patch: position only, no normal to rebuild
+      if (flat) applyDisplacementDepth(material, dispFlags, dispUniforms);
+      else applyDisplacement(material, dispFlags, dispUniforms);
     }
 
     let mesh;
@@ -829,6 +877,10 @@ class GeoOp {
     if (inst) {
       mesh = new THREE.InstancedMesh(geometry, material, inst.count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    } else if (asPoints) {
+      mesh = new THREE.Points(geometry, material);
+    } else if (asLines) {
+      mesh = new THREE.LineSegments(lineGeometry(geometry, draw.dir), material);
     } else {
       mesh = new THREE.Mesh(geometry, material);
     }
@@ -838,7 +890,9 @@ class GeoOp {
     const seeThrough =
       (m.transmission != null && resolve(m.transmission, 0) > 0) ||
       (m.opacity != null && resolve(m.opacity, 0) < 1);
-    const sh = this._shadow ?? { cast: !seeThrough, receive: true };
+    // dots and lines neither cast nor receive: a pixel throws no usable
+    // shadow and their shaders have no shadow taps
+    const sh = flat ? { cast: false, receive: false } : this._shadow ?? { cast: !seeThrough, receive: true };
     mesh.castShadow = sh.cast;
     mesh.receiveShadow = sh.receive;
     // A shadow pass renders its own depth material, which knows nothing about
@@ -875,7 +929,8 @@ class GeoOp {
     // sends it down a branch calling a method it doesn't have.
     const swapGeometry = (g) => {
       mesh.geometry.dispose();
-      mesh.geometry = attachTile(prepare(g));
+      g = attachTile(prepare(g));
+      mesh.geometry = asLines ? lineGeometry(g, draw.dir) : g;
       if (mesh.isInstancedMesh) {
         mesh.boundingSphere = null;
         mesh.boundingBox = null;
@@ -907,6 +962,7 @@ class GeoOp {
       if (isDynamicColor(m.emissive)) setColor(material.emissive, m.emissive, t);
       // opacity + any physical property given as a fn of t
       surfaceUpdate?.(t);
+      if (asPoints) material.size = resolve(draw.size, t);
       if (lastText !== null && typeof this.opts.text === 'function') {
         const s = String(this.opts.text(t));
         if (s !== lastText) {
@@ -1030,6 +1086,39 @@ class GeoOp {
 // textures.js don't import each other.
 TextureOp.prototype.particles = function (opts) {
   return new ParticleOp(this.engine, opts, this);
+};
+
+// person().points() / .lines() / .wire(): the image as a grid of dots or
+// scanlines. Builds the plane the long form would — a color map of the
+// image, displaced by its brightness — and hands back the geometry chain, so
+// .noise()/.rotation()/.color() carry on from it. size is the plane's world
+// height (4, like a texture emitter), width follows the screen's aspect;
+// depth is how far a white pixel lifts, 0 for a flat picture.
+function imageGeo(tex, o, mode) {
+  const size = o.size ?? 4;
+  const depth = o.depth ?? 0.5;
+  const res = o.res ?? (mode === 'lines' ? (o.dir === 'y' ? [64, 256] : o.dir === 'xy' ? 256 : [256, 64]) : 256);
+  const dsz = new THREE.Vector2();
+  const aspect = () => {
+    tex.engine.renderer.getDrawingBufferSize(dsz);
+    return dsz.x / Math.max(dsz.y, 1);
+  };
+  const a0 = aspect();
+  const g = new GeoOp(tex.engine, 'plane', { width: size * a0, height: size, res })
+    .material({ map: tex })
+    // keeps the picture's aspect through a resize without a re-run
+    .scale(() => aspect() / a0, 1, 1);
+  if (depth !== 0) g.displace(tex, { amount: depth, mid: o.mid ?? 0, smooth: o.smooth ?? 1 });
+  return g;
+}
+TextureOp.prototype.points = function (o = {}) {
+  return imageGeo(this, o, 'points').points({ size: o.dot ?? 1 });
+};
+TextureOp.prototype.lines = function (o = {}) {
+  return imageGeo(this, o, 'lines').lines({ dir: o.dir ?? 'x' });
+};
+TextureOp.prototype.wire = function (o = {}) {
+  return imageGeo(this, o, 'lines').wire();
 };
 
 // shadow: true on a light, or shadow: { ... } to tune it. Every option below

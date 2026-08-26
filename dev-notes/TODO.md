@@ -725,36 +725,17 @@ Chain methods go next to `.smooth()` at
   again — so the sketch flashes once at load and looks broken rather than
   silent. Seed `avg` from the first sample instead of firing on it.
 
-## Draw modes: `.points()` / `.lines()` / `.wire()` (point clouds, scanlines)
+## Draw modes
 
-An image as a point cloud is a *grid* drawn as points, not a particle system:
-one point per pixel cell, colored by the pixel, nothing born or dying. The
-moiré it shows is the lattice aliasing against the screen. `.particles()`
-(stochastic births, a sim) can't make that picture; a render mode on a
-geometry can, and the deformer half already exists — `plane({ res })
-.displace(person(), { amount })` is the scanline displacement. What's missing
-is drawing the mesh as anything but triangles ([src/api.js:833](../src/api.js#L833)
-hardcodes `THREE.Mesh`).
+`.points()`, `.lines()`, `.wire()` and their texture-chain forms shipped; the
+line and point shaders take the depth-pass displacement patch
+(`applyDisplacementDepth`), which is the one that fits a shader with no
+normal chunk.
 
-[ ] `.points({ size })` on `GeoOp`: `out()` builds `THREE.Points` from the same
-  geometry. Color from the material map sampled at the vertex uv (a
-  `PointsMaterial.map` reads `gl_PointCoord`, so it needs an onBeforeCompile or
-  our own shader). Check that `applyDisplacement`'s chunk rewrite lands on
-  `PointsMaterial`/`LineBasicMaterial` so `.noise()`/`.displace()` carry over.
-[ ] `.lines({ dir: 'x' | 'y' | 'xy' })`: `THREE.LineSegments` with index
-  buffers built from the segment counts — every three parametric shape is a
-  `(w+1)×(h+1)` grid, so row/column connectivity falls out of them. Models/text have no
-  grid: fall back to `EdgesGeometry`. Lines are 1px in WebGL; fat lines
-  (`LineSegments2`) later if wanted.
-[ ] `.wire()` as the method form of `material({ wireframe })`.
-[ ] Texture-chain sugar: `person().points({ res, depth, size })` and
-  `videofile(..).lines({ dir, res, depth })` build the plane + displace chain
-  and return the `GeoOp`, so `.noise()` chains after.
-[ ] Draw-time `.noise()` on `ParticleOp`: `pos + fbm(pos, t)` in the draw
-  shader, no sim state touched (a wobble on a held swarm).
-  `.turbulence()` stays the velocity-field version.
-[ ] Examples: image as a point grid, scanlines from a video, noised held
-  particles. Docs entry under geometry, cross-linked from particles.
+[ ] Fat lines for `.lines()`: WebGL lines are 1px; `LineSegments2` from the
+  addons takes a width, but it's a different vertex layout (instanced
+  segments), so the deformer patch would need porting. Only if bloom on 1px
+  isn't enough.
 
 ## Particles
 

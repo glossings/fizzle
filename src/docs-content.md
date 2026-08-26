@@ -331,6 +331,83 @@ sphere({ radius: 1.4, res: 260 })
   .out()
 ```
 
+### .points — a shape as dots
+
+`.points()` draws the vertices instead of the surface. Everything else on the
+chain still applies: `.noise()` and `.displace()` move the dots, and a color
+map colors each one by the pixel under it. `res` sets how many there are.
+
+```js
+bg('#05060c')
+camera(0, 0, 6)
+
+const pic = text('fizzle', { size: 0.3, bg: null })
+
+plane({ width: 8, height: 4.5, res: 320 })
+  .material({ map: pic })
+  .displace(pic, { amount: 0.8, mid: 0 })
+  .noise({ amp: 0.15, period: 2, speed: 0.3 })
+  .points({ size: 1 })
+  .rotation(-0.3, t => Math.sin(t * 0.4) * 0.3, 0)
+  .out()
+```
+
+`size` is in pixels (default 1) and takes a function of `t`. Dots take no light
+and cast no shadow. Unlike `.particles()`, nothing is born or dies: the picture
+sits still, one dot per vertex, and a dense grid shows the fine interference
+patterns a swarm never can.
+
+### .lines — a shape as scanlines
+
+`.lines()` draws the rows of the vertex grid as lines instead. `dir: 'x'`
+(the default) is the rows, `'y'` the columns, `'xy'` both. A plane displaced
+by a picture and drawn this way is the classic video scanline look:
+
+```js
+bg('#05060c')
+camera(0, 0, 6)
+
+const pic = text('fizzle', { size: 0.3, bg: null })
+
+plane({ width: 8, height: 4.5, res: [400, 90] })
+  .material({ map: pic })
+  .displace(pic, { amount: 0.9, mid: 0 })
+  .lines({ dir: 'x' })
+  .rotation(-0.5, t => Math.sin(t * 0.4) * 0.3, 0)
+  .out()
+
+scene().bloom({ threshold: 0.4, strength: 0.8 }).out()
+```
+
+The rows and columns come from the shape's own grid, so a sphere draws as
+rings, a torus as loops. Lines are one pixel wide; `.bloom()` is how they
+glow. `.wire()` draws every triangle edge instead, on any shape, and is what
+`.lines()` falls back to on a model or 3D text, which have no grid.
+
+### images as dots and scanlines
+
+Any texture chain has `.points()`, `.lines()` and `.wire()` directly. They
+build the plane above for you, mapped with the image and lifted by its
+brightness, and hand back the geometry chain:
+
+```js
+bg('#03040a')
+camera(0, 0, 6)
+
+person().contrast(1.5)
+  .lines({ dir: 'x', res: [480, 80], depth: 1.4 })
+  .rotation(-0.6, t => Math.sin(t * 0.25) * 0.5, 0)
+  .out()
+
+scene().bloom({ threshold: 0.3, strength: 1 }).out()
+```
+
+`res` is the grid (a number, or `[across, down]`), `depth` how far a white
+pixel lifts (default 0.5, `0` for flat), `size` the picture's world height
+(default 4, width following the screen). `.points()` takes `dot` for the
+pixel size. Everything after is a geometry chain, so `.noise()` wobbles it and
+`.color()` tints it.
+
 ### .instance — many copies, one mesh
 
 `.instance(count, fn)` renders the chain as one `InstancedMesh`.
@@ -909,6 +986,9 @@ signal, so audio can drive the wind:
 - `.attract([x, y, z], { strength, radius })` — inverse-square pull, negative
   to repel. Aim it at `mouse()` and the swarm follows the pointer.
 - `.drag(v)` — velocity damping, the difference between embers and snow.
+- `.noise({ amp, period, speed, seed })` — not a force: each dot is offset by
+  a noise field where it's drawn, so a held swarm ripples in place and a
+  flying one keeps its path underneath.
 
 The looks all take **one value, or two meaning birth → death**: `.size(a, b)`
 in world units, `.color(a, b)`, `.opacity(a, b)`. Wherever a number goes, a
@@ -1043,6 +1123,10 @@ depend on `life` and `t`, not on one particle's position.
 
 `.position/.rotation/.scale` move the whole system like any shape, and
 `.out('name')` sends it to a [geometry layer](#geometry-layers).
+
+For a picture that holds still rather than a swarm, one dot per pixel with no
+births or deaths, see [.points](#points-a-shape-as-dots) and
+[.lines](#lines-a-shape-as-scanlines).
 
 The swarm keeps flying across a re-run rather than restarting; changing the
 pool size (`rate`, `life`, `max`) is the exception.

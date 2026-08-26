@@ -61,6 +61,8 @@ const SIGNAL_GLOBALS = [...kindGlobals('signal'), ...kindGlobals('midi'), ...kin
 // narrower one — only the four key signals are on it.
 const MEMBER_KIND = {
   particles: 'particle',
+  // an image drawn as dots or scanlines is a geometry chain from there on
+  points: 'geo', lines: 'geo', wire: 'geo',
   // .apply(x, i) hands the copy handle back, so the chain past it is the
   // handle's — the layout is where it came from, not what it is now
   apply: 'inst',

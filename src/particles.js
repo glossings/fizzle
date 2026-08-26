@@ -266,7 +266,25 @@ void main() {
 // lit particles. RECIPROCAL_PI matches how a mesh's diffuse term scales the
 // same irradiance, so a lit swarm sits tonally with lit geometry.
 
-const drawVert = (evolve, mapColor, lit) => /* glsl */ `
+// .noise() on the swarm: a draw-time offset by a simplex field, read at the
+// particle's own position — the swarm wobbles as one cloth without the sim
+// ever seeing it, which is what makes it free on a held swarm. uWobble is
+// amp, freq, speed, seed.
+const WOBBLE_GLSL = SNOISE_GLSL + /* glsl */ `
+uniform vec4 uWobble;
+uniform float uWobbleT;
+vec3 wobble(vec3 p) {
+  vec3 q = p * uWobble.y + vec3(uWobble.w);
+  float ts = uWobbleT * uWobble.z;
+  return uWobble.x * vec3(
+    snoise(q + vec3(ts, 0.0, 0.0)),
+    snoise(q + vec3(31.7, 12.3 + ts, 74.2)),
+    snoise(q + vec3(9.2, 44.9, 27.1 + ts)));
+}
+`;
+
+const drawVert = (evolve, mapColor, lit, wob) => /* glsl */ `
+${wob ? WOBBLE_GLSL : ''}
 ${lit ? `#include <common>
 #include <shadowmap_pars_vertex>
 varying vec3 vViewPosition;` : ''}
@@ -300,10 +318,12 @@ void main() {
   }
   vFrac = clamp(P.w / max(V.w, 1e-4), 0.0, 1.0);
   vRand = hash12(aRef * 913.7);
-  vec4 mv = modelViewMatrix * vec4(P.xyz, 1.0);
+  vec3 pos = P.xyz;
+  ${wob ? 'pos += wobble(pos);' : ''}
+  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
   ${lit ? `vViewPosition = -mv.xyz;
-  vec4 worldPosition = modelMatrix * vec4(P.xyz, 1.0);
+  vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
   #include <shadowmap_vertex>` : ''}
   // each end scatters by the same per-particle draw, then birth lerps to death
   float size = mix(mix(uSizeA.x, uSizeA.y, vRand), mix(uSizeB.x, uSizeB.y, vRand), vFrac);
@@ -432,7 +452,8 @@ void main() {
 // the color written out is only read by the unfiltered point-light path,
 // which wants world distance to the light instead.
 
-const castVert = (evolve) => /* glsl */ `
+const castVert = (evolve, wob) => /* glsl */ `
+${wob ? WOBBLE_GLSL : ''}
 uniform sampler2D uPosTex;
 uniform sampler2D uVelTex;
 uniform vec2 uSizeA;
@@ -462,8 +483,10 @@ void main() {
   }
   vFrac = clamp(P.w / max(V.w, 1e-4), 0.0, 1.0);
   vRand = hash12(aRef * 913.7);
-  vWorldPosition = (modelMatrix * vec4(P.xyz, 1.0)).xyz;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(P.xyz, 1.0);
+  vec3 pos = P.xyz;
+  ${wob ? 'pos += wobble(pos);' : ''}
+  vWorldPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
   float size = mix(mix(uSizeA.x, uSizeA.y, vRand), mix(uSizeB.x, uSizeB.y, vRand), vFrac);
   ${evolve ? `if (uRampSize > 0.5) size = texture2D(uRamp, vec2(vFrac, 0.5)).r;` : ''}
   // pixels of the shadow map, not the screen: projectionMatrix[1][1] covers
@@ -587,6 +610,7 @@ export class ParticleOp {
     this.opts = opts ?? {};
     this.source = source;
     this._forces = [];      // { kind: 'force'|'turb'|'attract', ... } in chain order
+    this._wobble = null;    // .noise(): a draw-time offset field, nothing to do with the sim
     this._drags = [];
     this._evolve = null;
     this._sizeA = 0.05;
@@ -643,6 +667,19 @@ export class ParticleOp {
   }
 
   drag(v = 1) { this._drags.push(v); return this; }
+
+  // noise({ amp, period, freq, speed, seed }) — displace each dot by a noise
+  // field where it's drawn. Not a force: velocities never see it, so a held
+  // swarm ripples in place and a flying one keeps its path underneath.
+  noise(o = {}) {
+    this._wobble = {
+      amp: o.amp ?? 0.3,
+      freq: o.period !== undefined ? reciprocal(o.period) : o.freq ?? 1,
+      speed: o.speed ?? 0.5,
+      seed: o.seed ?? 0,
+    };
+    return this;
+  }
 
   // .evolve((p, life, t) => ...) — looks and forces across each particle's
   // life. life runs 0 (birth) to 1 (death); whatever the fn sets on p
@@ -739,10 +776,6 @@ export class ParticleOp {
     if (rest.length) {
       warn(`particles: no .material() here — .color()/.size()/.opacity()/.blend() are the looks, .lit() takes the scene's light (${rest.join('/')} ignored)`);
     }
-    return this;
-  }
-  noise() {
-    warn('particles: .noise() displaces surfaces — .turbulence() is the force that stirs a swarm');
     return this;
   }
   instance() {
@@ -1046,6 +1079,11 @@ export class ParticleOp {
       if (mapColor) drawUniforms.uRampColor = { value: 0 };
     }
     if (mapColor) drawUniforms.uAuxTex = { value: state.read.textures[2] };
+    const wob = this._wobble;
+    if (wob) {
+      drawUniforms.uWobble = { value: new THREE.Vector4() };
+      drawUniforms.uWobbleT = { value: 0 };
+    }
     // lights: true makes three fill the cloned light/shadow uniforms from the
     // scene each frame and recompile when the light count changes
     const litV = this._lit;
@@ -1056,7 +1094,7 @@ export class ParticleOp {
     }
     const solid = this._blend === 'solid';
     const material = new THREE.ShaderMaterial({
-      vertexShader: drawVert(!!evolve, mapColor, litV != null),
+      vertexShader: drawVert(!!evolve, mapColor, litV != null, !!wob),
       fragmentShader: drawFrag(!!evolve, mapColor, litV != null, solid),
       uniforms: drawUniforms,
       transparent: !solid,
@@ -1088,13 +1126,17 @@ export class ParticleOp {
         castUniforms.uRamp = drawUniforms.uRamp;
         castUniforms.uRampSize = drawUniforms.uRampSize;
       }
+      if (wob) {
+        castUniforms.uWobble = drawUniforms.uWobble;
+        castUniforms.uWobbleT = drawUniforms.uWobbleT;
+      }
       points.customDepthMaterial = new THREE.ShaderMaterial({
-        vertexShader: castVert(!!evolve),
+        vertexShader: castVert(!!evolve, !!wob),
         fragmentShader: castFrag(!!evolve, false),
         uniforms: castUniforms,
       });
       const distMat = new THREE.ShaderMaterial({
-        vertexShader: castVert(!!evolve),
+        vertexShader: castVert(!!evolve, !!wob),
         fragmentShader: castFrag(!!evolve, true),
         uniforms: {
           ...castUniforms,
@@ -1214,6 +1256,10 @@ export class ParticleOp {
       drawUniforms.uSizeB.value.set(...resolveRange(sizeB, t));
       drawUniforms.uOpacity.value.set(resolve(opA, t), resolve(opB, t));
       drawUniforms.uSoft.value = resolve(soft, t);
+      if (wob) {
+        drawUniforms.uWobble.value.set(resolve(wob.amp, t), resolve(wob.freq, t), resolve(wob.speed, t), resolve(wob.seed, t));
+        drawUniforms.uWobbleT.value = t;
+      }
       if (litV != null) drawUniforms.uLit.value = resolve(litV, t);
       if (!litChecked && dt > 0) {
         litChecked = true;

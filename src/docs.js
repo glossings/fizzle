@@ -90,7 +90,10 @@ export const METHODS = {
   scale: ['.scale(x, y?, z?) | .scale(x, y?, { wrap })', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: zoom around center, one number = uniform, .scale(x, y) per-axis, negative flips that axis — .scale(-1, 1) mirrors left to right.\nLayout cursor: shrink by one number, compounding down the branch.'],
   rotate: ['.rotate(v, { wrap })', 'Texture: rotate the image around center, in radians. v takes a fn of t, or a texture to turn each pixel by its own angle.\nShort form: .rot().'],
   translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame); a map in the first slot shifts each pixel by its own R and G. Short form: .trans()."],
-  noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.'],
+  noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', 'Geometry: GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.\nParticles: offset each dot by a noise field where it is drawn. Not a force — a held swarm ripples in place, a flying one keeps its path.'],
+  points: ['.points({ size })  ·  texture: .points({ res, depth, size, dot })', "Geometry: draw the vertices as dots instead of the surface, size in pixels (default 1). res sets how many; .noise() and .displace() still move them, and a color map colors each dot by the pixel at its uv. No light, no shadow.\nTexture: the image as a grid of dots — a plane mapped with it and lifted by its brightness. Hands back the geometry chain."],
+  lines: ['.lines({ dir })  ·  texture: .lines({ dir, res, depth, size })', "Geometry: draw the vertex grid as 1px lines: dir 'x' (default) for rows, 'y' for columns, 'xy' for both. .noise() and .displace() still move them and a color map colors them. A model or text has no grid and draws its triangle edges. No light, no shadow.\nTexture: the image as scanlines — a plane mapped with it and lifted by its brightness. Hands back the geometry chain."],
+  wire: ['.wire()  ·  texture: .wire({ res, depth, size })', "Draw every triangle edge as a 1px line, on any shape. .lines() is the version that follows the vertex grid. On a texture, the image as a mesh of edges."],
   instance: ['.instance(count | layout, (x, i, n, t) => x.position(...), { blend })', "Geometry: render as one InstancedMesh. Texture: stamp the picture so far once per copy, in one draw.\nThe fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count. A layout() stands in for the count and brings its own."],
   place: ['.place(label?, data?)', "Layout cursor: record a copy centered where the cursor stands, at its heading and scale, for a tip or a scatter rather than a segment (.span() is the one that runs between joints). The label names what goes there, picked out later by .filter(); data rides along per copy, for .data(i) to read."],
   branch: ['.branch(x => x.turn(0.5), rule?)', "Layout cursor: grow a child. The step shapes it, then the rule runs again from there, one generation deeper. The parent's cursor stays put. A second argument hands the child a different rule."],
@@ -401,7 +404,7 @@ const GLOBAL_KEY_DOCS = {
   plane: {
     width: 'Size along X. Default 10.',
     height: 'Size along Y (the plane starts upright — .rotation(-Math.PI/2, 0, 0) lays it flat). Default 10.',
-    res: 'Grid subdivisions per side. Default 128 — this is the vertex budget .noise() turns into terrain.',
+    res: 'Grid subdivisions per side, or [across, down]. Default 128 — this is the vertex budget .noise() turns into terrain, and the rows .lines() draws.',
   },
   torus: {
     radius: 'Center of the ring to the center of the tube. Default 1.',
@@ -731,6 +734,23 @@ const METHOD_KEY_DOCS = {
     font: "Any CSS family name, 'google:Name', or a font URL. Default a monospace stack. A proportional face works, but every glyph is fitted to the widest in the set.",
     weight: 'CSS weight, 100..900. Default 400. Heavier ink brightens the whole image, since every glyph carries more of it.',
   },
+  points: {
+    size: 'Geometry: dot size in pixels, default 1, a fn of t. Texture: world height of the picture, default 4 (dot sets the pixel size there).',
+    dot: 'Texture only: dot size in pixels. Default 1.',
+    res: 'Texture only: dots across and down, or [across, down]. Default 256.',
+    depth: 'Texture only: how far a white pixel lifts off the picture, in world units. Default 0.5; 0 keeps it flat.',
+  },
+  lines: {
+    dir: "'x' draws the rows of the vertex grid (across a plane, around a sphere), 'y' the columns, 'xy' both. Default 'x'.",
+    res: "Texture only: grid across and down, or [across, down]. Default [256, 64] for 'x', [64, 256] for 'y', 256 for 'xy'.",
+    depth: 'Texture only: how far a white pixel lifts off the picture, in world units. Default 0.5; 0 keeps it flat.',
+    size: 'Texture only: world height of the picture. Default 4; width follows the screen.',
+  },
+  wire: {
+    res: 'Texture only: grid across and down, or [across, down]. Default 256.',
+    depth: 'Texture only: how far a white pixel lifts off the picture, in world units. Default 0.5.',
+    size: 'Texture only: world height of the picture. Default 4; width follows the screen.',
+  },
   displace: {
     amount: 'How far it moves: on geometry, world units along the normal (default 0.2); on a texture, UV (default 0.1). Negative pulls the other way, and it takes a fn of t.',
     mid: 'The map value that means no movement. Default 0.5 for mid-gray maps; use 0 for a dark map you only want to push one way.',
@@ -853,8 +873,8 @@ const globalKinds = {
 };
 
 const methodKinds = {
-  geo: 'position rotation scale align shadow noise displace instance material color sample normal particles out',
-  particle: 'force turbulence attract drag evolve size color opacity fade blend soft lit shadow position rotation scale out',
+  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal particles out',
+  particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale out',
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
   light: 'position target out',
@@ -866,7 +886,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile instance particles out
+        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile instance particles points lines wire out
         ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
