@@ -329,6 +329,22 @@ export function applyTileMap(material, m) {
   return uniforms;
 }
 
+// A lit material on THREE.Points: the mesh shader never writes gl_PointSize,
+// so this adds it. Chained after the deformers' hook like applyTileMap.
+export function applyPointSize(material, uniform) {
+  const prevCompile = material.onBeforeCompile;
+  const prevKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    prevCompile?.call(material, shader, renderer);
+    shader.uniforms.tdPointSize = uniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n uniform float tdPointSize;')
+      .replace('#include <fog_vertex>', '#include <fog_vertex>\n gl_PointSize = tdPointSize;');
+  };
+  material.customProgramCacheKey = () => `${prevKey ? prevKey.call(material) : ''}-tdpoints`;
+  material.needsUpdate = true;
+}
+
 // Attach every map named on `m` to `material`. `isAlive` is checked before an
 // async load assigns anything, so a texture that arrives after its patch was
 // cleared is dropped instead of mutating a disposed material.

@@ -340,6 +340,8 @@ map colors each one by the pixel under it. `res` sets how many there are.
 ```js
 bg('#05060c')
 camera(0, 0, 6)
+ambient({ intensity: 0.3 })
+directional({ intensity: 2 }).position(3, 4, 5).out()
 
 const pic = text('fizzle', { size: 0.3, bg: null })
 
@@ -352,8 +354,8 @@ plane({ width: 8, height: 4.5, res: 320 })
   .out()
 ```
 
-`size` is in pixels (default 1) and takes a function of `t`. Dots take no light
-and cast no shadow. Unlike `.particles()`, nothing is born or dies: the picture
+`size` is in pixels (default 1) and takes a function of `t`. Dots are lit like
+the surface they came from and take shadows, but cast none. Unlike `.particles()`, nothing is born or dies: the picture
 sits still, one dot per vertex, and a dense grid shows the fine interference
 patterns a swarm never can.
 
@@ -366,6 +368,8 @@ by a picture and drawn this way is the classic video scanline look:
 ```js
 bg('#05060c')
 camera(0, 0, 6)
+ambient({ intensity: 0.3 })
+directional({ intensity: 2 }).position(3, 4, 5).out()
 
 const pic = text('fizzle', { size: 0.3, bg: null })
 
@@ -380,8 +384,8 @@ scene().bloom({ threshold: 0.4, strength: 0.8 }).out()
 ```
 
 The rows and columns come from the shape's own grid, so a sphere draws as
-rings, a torus as loops. Lines are one pixel wide; `.bloom()` is how they
-glow. `.wire()` draws every triangle edge instead, on any shape, and is what
+rings, a torus as loops. Lines are one pixel wide, lit by the same lights as
+the surface, and `.bloom()` is how they glow. `.wire()` draws every triangle edge instead, on any shape, and is what
 `.lines()` falls back to on a model or 3D text, which have no grid.
 
 ### images as dots and scanlines
@@ -393,6 +397,8 @@ brightness, and hand back the geometry chain:
 ```js
 bg('#03040a')
 camera(0, 0, 6)
+ambient({ intensity: 0.3 })
+directional({ intensity: 2 }).position(3, 4, 5).out()
 
 person().contrast(1.5)
   .lines({ dir: 'x', res: [480, 80], depth: 1.4 })

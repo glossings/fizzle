@@ -5,7 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
-import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, tileSources, applyTileMap } from './materials.js';
+import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, tileSources, applyTileMap, applyPointSize } from './materials.js';
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
@@ -782,7 +782,7 @@ class GeoOp {
     const draw = this._draw;
     const asPoints = draw?.mode === 'points';
     const asLines = draw?.mode === 'lines';
-    // dots and lines: flat color or map, no light, no shadow
+    // dots and lines: lit like the surface, but nothing to cast a shadow with
     const flat = asPoints || asLines;
     if (flat && this._instance) {
       warn(`.${asPoints ? 'points' : 'lines'}() draws one shape — .instance() is skipped. Raise res for more detail.`);
@@ -792,14 +792,7 @@ class GeoOp {
     // which is the pricier shader — so the sketch opts in simply by naming one
     // of those properties, and everything else stays on standard.
     const Material = isPhysical(m) ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
-    // Dots and lines take no light, so the surface keys mean nothing to them;
-    // a color map reads at each vertex's uv, which three does on its own.
-    const flatColor = () => makeColor(m.color ?? (textured ? '#ffffff' : '#8899ff'));
-    const material = asPoints ? new THREE.PointsMaterial({
-      color: flatColor(),
-      size: resolve(draw.size, 0),
-      sizeAttenuation: false,
-    }) : asLines ? new THREE.LineBasicMaterial({ color: flatColor() }) : new Material({
+    const material = new Material({
       // A color map is tinted by material.color, so a textured chain that
       // didn't ask for a color starts white and shows the map as authored.
       // Transmission multiplies the light coming *through* the surface the same
@@ -810,7 +803,9 @@ class GeoOp {
       // to 1 if and when one actually lands (see applyMaps)
       roughness: m.roughness ?? 0.5,
       metalness: m.metalness ?? 0.1,
-      flatShading: m.flatShading ?? false,
+      // flat shading takes the normal from screen derivatives, which a dot or
+      // a line has none of — so those keep the vertex normal
+      flatShading: flat ? false : (m.flatShading ?? false),
       wireframe: m.wireframe ?? false,
       // imported models often have open shells or inconsistent winding, so
       // they get both sides by default like planes do; .material({ doubleSide })
@@ -819,11 +814,11 @@ class GeoOp {
         ? THREE.DoubleSide
         : THREE.FrontSide,
     });
-    if (m.emissive && !flat) {
+    if (m.emissive) {
       material.emissive = makeColor(m.emissive);
       material.emissiveIntensity = m.emissiveIntensity ?? 1;
     }
-    if (!flat) applyMaterialScalars(material, m);
+    applyMaterialScalars(material, m);
     const surfaceUpdate = applySurface(material, m);
 
     // .material({ map: [a, b, c] }): one array texture the copies pick out of.
@@ -866,11 +861,11 @@ class GeoOp {
           [`uDispWidth${i}`]: { value: resolve(d.smooth, 0) },
         });
       });
-      // dots and lines have no shading, so their shaders take the depth
-      // pass's patch: position only, no normal to rebuild
-      if (flat) applyDisplacementDepth(material, dispFlags, dispUniforms);
-      else applyDisplacement(material, dispFlags, dispUniforms);
+      applyDisplacement(material, dispFlags, dispUniforms);
     }
+    // pixels, like PointsMaterial without attenuation: size times the ratio
+    const pointSize = asPoints ? { value: resolve(draw.size, 0) * this.engine.renderer.getPixelRatio() } : null;
+    if (pointSize) applyPointSize(material, pointSize);
 
     let mesh;
     const inst = this._instance;
@@ -890,9 +885,9 @@ class GeoOp {
     const seeThrough =
       (m.transmission != null && resolve(m.transmission, 0) > 0) ||
       (m.opacity != null && resolve(m.opacity, 0) < 1);
-    // dots and lines neither cast nor receive: a pixel throws no usable
-    // shadow and their shaders have no shadow taps
-    const sh = flat ? { cast: false, receive: false } : this._shadow ?? { cast: !seeThrough, receive: true };
+    // dots and lines receive but never cast: a pixel throws no usable shadow
+    const sh = this._shadow ?? { cast: !seeThrough && !flat, receive: true };
+    if (flat) sh.cast = false;
     mesh.castShadow = sh.cast;
     mesh.receiveShadow = sh.receive;
     // A shadow pass renders its own depth material, which knows nothing about
@@ -962,7 +957,7 @@ class GeoOp {
       if (isDynamicColor(m.emissive)) setColor(material.emissive, m.emissive, t);
       // opacity + any physical property given as a fn of t
       surfaceUpdate?.(t);
-      if (asPoints) material.size = resolve(draw.size, t);
+      if (pointSize) pointSize.value = resolve(draw.size, t) * this.engine.renderer.getPixelRatio();
       if (lastText !== null && typeof this.opts.text === 'function') {
         const s = String(this.opts.text(t));
         if (s !== lastText) {
