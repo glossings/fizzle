@@ -223,6 +223,7 @@ export const METHODS = {
   alpha: ['.alpha(v)  ·  .alpha(v) on a copy', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.\nInstance copy: fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch.\nData set: how visible each point is, 0..1, as an array — a particle's fade envelope; 1 unless the source sets it."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
+  fluid: ['.fluid({ ink, res, speed, fade, damping, vorticity, iterations, wrap }) | .fluid(ink)', "Texture: the chain becomes dye in an incompressible fluid sim, poured in at the ink rate. What comes back is the sim itself, so .push() and the rest of fluid() carry on from there. Contents survive a re-run."],
   ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
   push: ['.push(map, { amount, mid }) | .push([x, y], amount)', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades, so this is the call that makes anything happen. mid defaults to 0.5, so an unsigned map like noise({ channels: 2 }) pushes both ways.\nA plain [x, y] is one steady force over the whole field: [0, -0.3] is gravity. Under wrap: 'clamp' the pressure solve cancels most of it, since a closed box cannot drift."],
   obstacle: ['.obstacle(mask)', 'Fluid: cells brighter than 0.5 are solid. The sim sees them, so flow goes around rather than being clipped by them.'],
@@ -687,6 +688,11 @@ const GLOBAL_KEY_DOCS = {
 };
 
 const METHOD_KEY_DOCS = {
+  // the same sim, so the same knobs — plus the pour rate the chain form folds in
+  fluid: {
+    ...GLOBAL_KEY_DOCS.fluid,
+    ink: "How much dye the chain pours in per second. Default 1. Same as .ink()'s amount.",
+  },
   pairs: {
     within: 'Connection distance in world units — two points closer than this pair up. Default 1. Takes a fn of t, so the web can breathe.',
     max: 'At most this many pairs per point. Default 6. Keeps a dense clump from turning into a solid mass, and bounds the cost.',
@@ -979,7 +985,7 @@ const methodKinds = {
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
         remap lookup tint alpha displace comp mask blur bloom delay feedback when tile instance particles points lines wire out
-        ink push obstacle velocity curl pressure`,
+        fluid ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that

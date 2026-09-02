@@ -1554,6 +1554,9 @@ export function makeApi(engine) {
     // the field driven by .push(), solids marked by .obstacle(). The node
     // itself is the dye; .velocity()/.curl() read the fields behind it.
     //   fluid().push(noise({ period: 0.4 })).ink(text('hi'), 2).out()
+    // chain.fluid() is the same thing said from the dye's side, and is the
+    // shorter way in when there is one ink source. This form is for a sim with
+    // none — a field read only through .velocity()/.curl().
     // The sim carries across re-runs, so editing a knob doesn't blow it away.
     fluid(o) {
       const node = new TextureOp(engine, 'fluid', o ?? {});

@@ -2214,13 +2214,13 @@ whose only object *is* the screen stays black forever.
 
 ## fluid
 
-`fluid()` is an incompressible fluid sim. `.push()` drives the velocity field,
-`.ink()` pours dye into it, and the chain itself is the dye.
+`.fluid()` turns a chain into the dye of an incompressible fluid sim, and
+`.push()` drives the field the dye rides.
 
 ```js
-fluid({ res: 320, fade: 0.12 })
+circle({ radius: 0.03, soft: 0.02, color: '#4fd1ff', bg: null })
+  .fluid({ res: 320, fade: 0.12, ink: 6 })
   .push(noise({ period: 0.4, channels: 2, speed: 0.3 }), 0.4)
-  .ink(circle({ radius: 0.03, soft: 0.02, color: '#4fd1ff', bg: null }), 6)
   .out()
 ```
 
@@ -2237,10 +2237,10 @@ blowing right, `[0, -0.3]` is gravity. Each component takes a fn of `t`, so
 direction is already signed.
 
 ```js
-fluid({ res: 320, fade: 0.12 })
+circle({ radius: 0.03, soft: 0.02, color: '#4fd1ff', bg: null })
+  .fluid({ res: 320, fade: 0.12, ink: 6 })
   .push([0.3, 0])
   .push(noise({ period: 0.4, channels: 2, speed: 0.3 }), 0.25)
-  .ink(circle({ radius: 0.03, soft: 0.02, color: '#4fd1ff', bg: null }), 6)
   .out()
 ```
 
@@ -2251,8 +2251,9 @@ the default `wrap: 'repeat'` it does, and the whole field drifts. Under
 force almost entirely, and little happens beyond a stir near the walls and
 obstacles. Use a map there.
 
-`.ink()` adds per second rather than replacing, so dye builds while the source
-is lit and drifts once it goes dark. Several of either call stack.
+`ink` is a rate, per second, rather than a replacement: dye builds while the
+chain is lit and drifts once it goes dark. `.ink(chain, amount)` pours in a
+second source, and several of either call stack.
 
 ### obstacles
 
@@ -2262,10 +2263,10 @@ them, so flow goes around rather than being clipped afterwards.
 ```js
 const disc = circle({ radius: 0.12, center: [0.45, 0.5], bg: null })
 
-fluid({ res: 320, fade: 0.1 })
+circle({ center: [0.05, t => 0.5 + Math.sin(t) * 0.3], radius: 0.03, color: '#7ee787', bg: null })
+  .fluid({ res: 320, fade: 0.1, ink: 6 })
   .obstacle(disc)
   .push([0.25, 0])
-  .ink(circle({ center: [0.05, t => 0.5 + Math.sin(t) * 0.3], radius: 0.03, color: '#7ee787', bg: null }), 6)
   .comp(disc, 'over')
   .out()
 ```
@@ -2295,8 +2296,9 @@ plane({ width: 16, height: 16, res: 280 })
   .out()
 ```
 
-Hold the sim in a variable to read it more than once. Two separate `fluid()`
-calls are two separate sims.
+`fluid()` on its own is the same sim with no dye in it, for when only the
+fields are wanted. Hold it in a variable to read it more than once: two
+separate calls are two separate sims.
 
 `{ scale }` on any of the three is the dial when a field looks flat: it
 multiplies the values before they are centered.

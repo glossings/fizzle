@@ -4,7 +4,7 @@ import { setColor as writeColor, cssColor } from './color.js';
 import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
 import { Layout } from './layout.js';
-import { renderFluid, renderFluidView } from './fluid.js';
+import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -2044,10 +2044,11 @@ export class TextureOp {
 
   // --- fluid ---------------------------------------------------------------
   //
-  // The sources and the outputs of a fluid() sim. Each source call returns a
-  // *new* fluid node carrying one more input, so the chain reads the way every
-  // other chain here does — but all of them share the one carried sim, so
-  // .ink().push() is a single solver and not three.
+  // The sources and the outputs of a fluid() sim, plus .fluid() itself, which
+  // starts one from the dye. Each source call returns a *new* fluid node
+  // carrying one more input, so the chain reads the way every other chain here
+  // does — but all of them share the one carried sim, so .ink().push() is a
+  // single solver and not three.
 
   _fluidSource(role, map, o) {
     if (this.kind !== 'fluid') {
@@ -2078,6 +2079,18 @@ export class TextureOp {
     }, vec ? [...this.inputs] : [...this.inputs, src]);
     node.sim = this.sim;
     return node;
+  }
+
+  // chain.fluid(o) — the same sim entered from the dye side: this chain is the
+  // ink and what comes back is the fluid, so .push() and the rest carry on
+  // from there. `ink` is the pour rate, i.e. .ink()'s amount.
+  fluid(o = {}) {
+    // a bare number (or fn of t) is the rate, as in .ink(map, 6)
+    if (typeof o === 'number' || typeof o === 'function') o = { ink: o };
+    const { ink = 1, ...knobs } = o;
+    const node = new TextureOp(this.engine, 'fluid', knobs);
+    node.sim = claimFluidState();
+    return node._fluidSource('ink', this, ink);
   }
 
   // .ink(chain, amount) — pour a chain in as dye. Added per second, so the
