@@ -360,6 +360,8 @@ function inline(s) {
   return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${spans[i]}</code>`);
 }
 
+const FENCE = /^\s*```/;
+
 function renderMarkdown(md, root) {
   const lines = md.split('\n');
   let i = 0;
@@ -367,17 +369,20 @@ function renderMarkdown(md, root) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
 
-    const fence = line.match(/^```(\S*)\s*(.*)$/);
+    // a fence written under a list item is indented; it's still a code block,
+    // and the block's own indentation is what's left after that one is taken off
+    const fence = line.match(/^(\s*)```(\S*)\s*(.*)$/);
     if (fence) {
+      const [, indent, lang, flags] = fence;
       const codeLines = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) codeLines.push(lines[i++]);
+      while (i < lines.length && !FENCE.test(lines[i])) codeLines.push(lines[i++]);
       i++; // closing fence
-      const code = codeLines.join('\n');
+      const code = codeLines.map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l)).join('\n');
       // ```js — a live editor; ```js static — a snippet that can't run here
       // (it names files only you have), so it renders as plain code
-      if (fence[1] === 'js' && !fence[2].includes('static')) {
-        root.appendChild(makeExample(code, fence[2].includes('autorun')));
+      if (lang === 'js' && !flags.includes('static')) {
+        root.appendChild(makeExample(code, flags.includes('autorun')));
       } else {
         const pre = document.createElement('pre');
         pre.className = 'static';
@@ -418,7 +423,8 @@ function renderMarkdown(md, root) {
     if (/^- /.test(line)) {
       const ul = document.createElement('ul');
       let item = null;
-      while (i < lines.length && (/^- /.test(lines[i]) || /^ {2,}\S/.test(lines[i]))) {
+      while (i < lines.length && !FENCE.test(lines[i])
+             && (/^- /.test(lines[i]) || /^ {2,}\S/.test(lines[i]))) {
         if (/^- /.test(lines[i])) {
           item = document.createElement('li');
           item.innerHTML = inline(lines[i].slice(2));
@@ -434,7 +440,8 @@ function renderMarkdown(md, root) {
 
     // paragraph: gather until a blank line or a new block form
     const para = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{2,3} |```|\| |- )/.test(lines[i])) {
+    while (i < lines.length && lines[i].trim()
+           && !FENCE.test(lines[i]) && !/^(#{2,3} |\| |- )/.test(lines[i])) {
       para.push(lines[i++]);
     }
     const p = document.createElement('p');
