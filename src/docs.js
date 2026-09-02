@@ -63,6 +63,8 @@ export const GLOBALS = {
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
+  curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along, so c(T.mul(0.2)) moves along it and c(i / n) is the i-th of n stations. Closed curves wrap u; open ones stop at the ends.\ncurve(fn) lifts your own function, curve(layout) follows an unbranched layout's trail; curve.circle(r), curve.line(a, b) and curve.helix({ … }) are ready-made. .tangent(u) is the direction of travel."],
+  spread: ['spread(n, { jitter, random, seed, end })', "n phases 0..1, evenly spaced — the values a curve eats: spread(12).map(c) is twelve points along it. The values hold still across frames and re-runs."],
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
   data: ['data(array) | data({ pos, alpha })', "Your own points as a data set: a live array of [x, y, z], or named channels, each an array or a fn of t. Renders nothing; .pairs() and .link() connect it, .instance() places onto it."],
@@ -117,6 +119,10 @@ export const METHODS = {
 
   align: ['.align(v)', "Aim the shape's +Y axis along a direction vector. .rotation() still applies, in the shape's own frame before the aim; components take fns of t."],
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
+  tangent: ['.tangent(u)', "Curve: the direction of travel a fraction u of the way along, unit length — what .align() wants for a copy pointing along the curve."],
+  circle: ['curve.circle(r, { center, axis })', "A closed circle of radius r — flat on the ground plane by default, starting on +X and heading toward +Z. r takes a fn of t."],
+  line: ['curve.line(a, b)', "A straight path from a to b, each an [x, y, z]; components take fns of t. Open, so u stops at the ends."],
+  helix: ['curve.helix({ radius, height, turns })', "A helix rising along Y through the origin — u = 0 at the bottom, 1 at the top. Every option takes a fn of t."],
   normal: ['.normal(i)  ·  scatter data: .normal', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. A .scatter() set carries them all as .normal.'],
   scatter: ['.scatter(n)', "Geometry: the first n surface scatter points as a data set — the same points .sample(i) reads, with .noise() and the transform applied. Renders nothing."],
   read: ['.read()', "Particles: the swarm as a data set — .pos, .alpha (the fade envelope; 0 in an empty slot), .vel, .age, .life. Read back one frame behind; filled once the system's .out() runs."],
@@ -409,6 +415,16 @@ METHODS.material[2] = MATERIAL_GROUPS
 // next to the list that validates them.
 
 const GLOBAL_KEY_DOCS = {
+  curve: {
+    closed: "Wrap u instead of stopping at the ends — for a lifted fn whose end meets its start. curve.circle() is already closed.",
+    even: 'Respace u by arc length, so equal steps of u cover equal distance even where the fn hurries. Snapshotted once (per frame when the fn takes t).',
+  },
+  spread: {
+    jitter: 'How far a value may leave its even slot, 0..1 of half a step. Deterministic by seed.',
+    random: 'Scatter the values instead of spacing them evenly. Deterministic by seed.',
+    seed: 'Reroll for jitter and random.',
+    end: 'Include both endpoints — i/(n-1) instead of i/n. Fence posts on an open curve; a closed one would double its seam.',
+  },
   data: {
     pos: 'The points: an array of [x, y, z], or a fn of t returning one.',
     alpha: 'Optional visibility per point, 0..1 — an array or fn of t. 0 drops a point from pairing and fades its lines out; confidence from a tracker goes here.',
@@ -688,6 +704,15 @@ const GLOBAL_KEY_DOCS = {
 };
 
 const METHOD_KEY_DOCS = {
+  circle: {
+    center: 'Where the circle sits, [x, y, z]. Components take fns of t. Default the origin.',
+    axis: "The axis the circle rings: 'y' (default — flat on the ground), 'x' or 'z'.",
+  },
+  helix: {
+    radius: 'Radius. Takes a fn of t.',
+    height: 'The rise along Y, centered on the origin. Takes a fn of t.',
+    turns: 'How many times it wraps on the way up. Takes a fn of t.',
+  },
   // the same sim, so the same knobs — plus the pour rate the chain form folds in
   fluid: {
     ...GLOBAL_KEY_DOCS.fluid,
@@ -958,6 +983,7 @@ const globalKinds = {
   particle: 'particles',
   light: 'ambient directional point spot hemi',
   layout: 'layout',
+  curvens: 'curve',
   data: 'data',
   segments: 'segments link',
   texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile imagefile imageseq noise voronoi text fluid',
@@ -967,6 +993,8 @@ const globalKinds = {
 };
 
 const methodKinds = {
+  curve: 'tangent',
+  curvens: 'circle line helix',
   geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal scatter link particles out',
   particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale read link out',
   // the handle .evolve() gives its fn — what a life point can set

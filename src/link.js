@@ -23,13 +23,18 @@ const resolve3 = (v, t) => v.map((c) => resolve(c, t));
 const MAX_POINTS = 100000;
 const MAX_PAIRS = 65536;
 
-// what a point may be spelled as: [x, y, z], a Vector3/sample(), or garbage
-const readPoint = (v, out, base) => {
+// what a point may be spelled as: [x, y, z], a Vector3/sample(), or garbage;
+// components may be fns of t — what a moving curve's points are made of
+const comp = (c, t) => {
+  if (typeof c !== 'function') return Number(c) || 0;
+  try { return Number(c(t)) || 0; } catch (e) { warn(e.message ?? String(e)); return 0; }
+};
+const readPoint = (v, out, base, t) => {
   if (v == null || typeof v !== 'object') { out[base] = out[base + 1] = out[base + 2] = 0; return; }
   if (Array.isArray(v)) {
-    out[base] = v[0] || 0; out[base + 1] = v[1] || 0; out[base + 2] = v[2] || 0;
+    out[base] = comp(v[0], t); out[base + 1] = comp(v[1], t); out[base + 2] = comp(v[2], t);
   } else {
-    out[base] = v.x || 0; out[base + 1] = v.y || 0; out[base + 2] = v.z || 0;
+    out[base] = comp(v.x, t); out[base + 1] = comp(v.y, t); out[base + 2] = comp(v.z, t);
   }
 };
 
@@ -108,11 +113,11 @@ export class ArrayData extends Data {
     super(engine);
     this.arr = arr;
   }
-  _fill() {
+  _fill(t) {
     const n = Math.min(this.arr.length, MAX_POINTS);
     this._grow(n);
     this._n = n;
-    for (let i = 0; i < n; i++) readPoint(this.arr[i], this._pts, i * 3);
+    for (let i = 0; i < n; i++) readPoint(this.arr[i], this._pts, i * 3, t);
   }
   // the source array is already the channel
   get pos() { return this.arr; }
@@ -143,7 +148,7 @@ export class ChannelData extends Data {
     this._grow(n);
     this._n = n;
     this._posArr = pos;
-    for (let i = 0; i < n; i++) readPoint(pos[i], this._pts, i * 3);
+    for (let i = 0; i < n; i++) readPoint(pos[i], this._pts, i * 3, t);
     if (alpha) {
       if (!this._alp || this._alp.length < n) this._alp = new Float32Array(n);
       for (let i = 0; i < n; i++) this._alp[i] = Math.min(Math.max(alpha[i] ?? 1, 0), 1);

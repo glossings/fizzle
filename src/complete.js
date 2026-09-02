@@ -45,7 +45,7 @@ const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
 
 // one filtered method list per chain kind, built once
 const methodsByKind = {};
-for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
   methodsByKind[kind] = methodOptions.filter((o) => METHOD_KINDS[o.label]?.has(kind));
 }
 
@@ -68,6 +68,8 @@ const MEMBER_KIND = {
   // .apply(x, i) hands the copy handle back, so the chain past it is the
   // handle's — the layout is where it came from, not what it is now
   apply: 'inst',
+  // curve.circle(…) is a curve from there on, wherever the spine started
+  circle: 'curve', line: 'curve', helix: 'curve',
   key: 'midikey',
   ...Object.fromEntries(
     'cc note vel gate touch bend lx ly rx ry lt rt btn'.split(' ').map((n) => [n, 'signal'])
@@ -128,6 +130,10 @@ function kindOfName(state, node) {
     return names.some((w) => GLOBAL_KIND[w] === 'texture') ? 'texture' : 'signal';
   }
 
+  // curve is a namespace until it's called: `curve.` offers the constructors,
+  // `curve(fn).` the curve they all return
+  if (name === 'curve') return node.parent?.name === 'CallExpression' ? 'curve' : 'curvens';
+
   if (GLOBAL_KIND[name]) return GLOBAL_KIND[name];
 
   // .instance(20, x => x.…) — x is whatever the method hands its callback
@@ -151,6 +157,7 @@ function kindOfName(state, node) {
   if (/\.pairs\s*\(/.test(init)) return 'pairs';
   if (/\.(read|scatter)\s*\(/.test(init)) return 'data';
   if (/\.particles\s*\(/.test(init)) return 'particle';
+  if (/\bcurve\s*[.(]/.test(init)) return 'curve';
   const first = init.match(/[A-Za-z_$][\w$]*/);
   return first ? GLOBAL_KIND[first[0]] ?? null : null;
 }

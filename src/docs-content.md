@@ -1285,6 +1285,135 @@ cylinder({ radius: 1, height: 1, res: 6 })
 An instance count is fixed up front, so give it the most pairs the sketch
 expects and let the rest collapse to nothing.
 
+## curves
+
+A curve is a path through space as a value you can call: `c(u)` is the point
+a fraction `u` of the way along. Feed it time and something rides the path;
+feed it `i / n` and you get stations along it.
+
+```js
+bg('#06070d')
+ambient({ intensity: 0.3 })
+directional({ color: '#fff0d8', intensity: 1.8 }).position(4, 6, 3).out()
+
+const c = curve.circle(3)
+
+box({ width: 0.6, height: 0.6, depth: 0.6 })
+  .position(c(T.mul(0.15)))
+  .align(c.tangent(T.mul(0.15)))
+  .material({ color: '#ffd166', roughness: 0.35 })
+  .out()
+
+sphere({ radius: 0.14, res: 24 })
+  .instance(12, (x, i, n) => x.position(c(i / n)))
+  .material({ color: '#4fd1c5' })
+  .out()
+```
+
+The phase does all the driving. A curve has no speed, direction or start of
+its own: negate the phase to go the other way, `.add(0.25)` to start a
+quarter of the way in, shape it to ease the ride. `c(B)` is one lap per bar.
+An arc is a phase that only covers part of the lap:
+`c(T.saw().range(0, 0.5))` sweeps half the circle. `.tangent(u)` is the
+direction of travel there, which is what `.align()` wants.
+
+The built-ins:
+
+- `curve.circle(r, { center, axis })`: closed, flat on the ground by default,
+  starting on +X and heading toward +Z.
+- `curve.line(a, b)`: straight from `a` to `b`, each an `[x, y, z]`.
+- `curve.helix({ radius, height, turns })`: rising along Y through the origin.
+- `curve(u => [x, y, z], { closed, even })`: any function of your own.
+- `curve(layout)`: the trail an unbranched layout walked (below).
+
+Radii, centers and ends take fns of t, so `curve.circle(band(1).range(2, 4))`
+breathes with the music. Closed curves wrap `u`; open ones stop at the ends.
+
+### spread: the phases a set wants
+
+`spread(n)` is `n` phases 0..1, evenly spaced. A curve is callable, so `.map`
+applies one to the whole set and any point-shaped slot takes the result:
+
+```js
+bg('#05060c')
+const coil = curve.helix({ radius: 1.3, height: 3, turns: 5 })
+link(spread(90).map(coil), { within: 0.5, color: '#8899ff' }).out()
+camera(0, 0.5, 7)
+```
+
+`spread(80, { jitter: 0.5 })` roughs the spacing and `{ random: true }`
+scatters it; both hold still across frames and re-runs, with `seed` as the
+reroll. The default runs `i / n` so a closed curve gets no doubled point at
+the seam; `spread(5, { end: true })` counts fence posts instead
+(`0, 0.25, 0.5, 0.75, 1`) for an open curve. And a distribution of your own
+is just arithmetic on the phases before the curve eats them:
+`spread(40).map(u => u ** 2).map(c)` bunches the points toward the start.
+
+### your own curve
+
+`curve(fn)` lifts any `u => [x, y, z]`. On most functions equal steps of `u`
+do not cover equal distance, so riders rush the sparse stretches and
+`spread()` bunches where the function lingers; `even: true` respaces `u` by
+arc length. Take `(u, t)` and the curve itself moves.
+
+```js
+bg('#06070d')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.8 }).position(4, 6, 3).out()
+
+const rose = curve(u => {
+  const a = u * Math.PI * 2
+  const r = 2 + Math.cos(a * 3) * 0.9
+  return [Math.cos(a) * r, 0, Math.sin(a) * r]
+}, { closed: true, even: true })
+
+sphere({ radius: 0.1, res: 16 })
+  .instance(60, (x, i, n) => x.position(rose(i / n)))
+  .material({ color: '#ff5f9e' })
+  .out()
+
+sphere({ radius: 0.22, res: 24 })
+  .position(rose(T.mul(0.1)))
+  .material({ emissive: '#7ee787', color: '#fff' })
+  .out()
+```
+
+### a layout's trail
+
+An unbranched layout is already a path: the cursor walked it. `curve(layout)`
+is that trail as a curve, parameterized by distance along it, so a rule that
+shrinks its steps does not bunch the phase:
+
+```js
+bg('#06070d')
+ambient({ intensity: 0.3 })
+directional({ color: '#fff0d0', intensity: 2 }).position(4, 5, 6).out()
+
+const shell = layout((e) => {
+  for (let i = 0; i < 260; i++) {
+    e.turn(0.06, 0, 0.028)
+    e.forward(0.09)
+    e.scale(0.996)
+    e.place()
+  }
+})
+
+box({ width: 0.3, height: 0.3, depth: 0.3 })
+  .instance(shell, (x, i) => x.scale(shell.size(i) * 0.3))
+  .material({ color: '#445', roughness: 0.6 })
+  .out()
+
+sphere({ radius: 0.16, res: 24 })
+  .position(curve(shell)(T.mul(0.08)))
+  .material({ emissive: '#7ee787', color: '#fff' })
+  .out()
+
+camera(0, 3, 8)
+```
+
+A branching layout has no single path, so `curve(tree)` warns and follows the
+copies in placement order.
+
 ## lights, camera, scene
 
 ```js
@@ -2641,7 +2770,7 @@ scene().when(beat(4, 0.25), s => s.invert())         // first quarter of each be
   two-beat LFO, `T.mul(0.1).sin()` = a slow free-running one, `.saw()` = the
   ramp itself. `.cos()` is `.sin()` a quarter cycle ahead, for a second
   oscillator in quadrature: `x` on one, `z` on the other, and the motion is a
-  circle.
+  circle. [curves](#curves) say the same thing as one object.
 - `.beat(perBar?)` — tempo-synced sample-and-hold. `rand().beat(1)` = a new
   random value per bar. Shorthand for `.hold(beat(perBar))`.
 - `.hold(trigger, threshold?)` — the same thing on any trigger, so it takes

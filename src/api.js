@@ -13,6 +13,7 @@ import { lineGeometry } from './lines.js';
 import { makePointSet } from './sample.js';
 import { makeLayout, Layout } from './layout.js';
 import { Data, ChannelData, ScatterData, SegmentsOp, asData } from './link.js';
+import { Curve, makeCurve, curveCircle, curveLine, curveHelix, spread } from './curve.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
@@ -197,6 +198,12 @@ const asVec = (v) =>
   v === null || typeof v !== 'object' ? null
     : Array.isArray(v) ? [v[0], v[1], v[2]]
       : [v.x, v.y, v.z];
+
+// a bare curve where a position belongs: it wants a phase
+const unphased = (c) => {
+  warn('position: a curve wants a phase — .position(c(T.mul(0.2))) rides it; assuming one lap per second');
+  return c((t) => t);
+};
 
 // three starts every line at x = 0, so a multiline TextGeometry is always
 // ragged right. Anything but 'left' gets laid out a line at a time and shifted
@@ -472,6 +479,7 @@ class GeoOp {
   }
 
   position(x = 0, y = 0, z = 0) {
+    if (x instanceof Curve) x = unphased(x);
     const v = asVec(x);
     this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
     return this;
@@ -1206,6 +1214,7 @@ class LightOp {
       warn('ambient: arrives evenly from every direction, so it has nowhere to be — hemi(), directional() or point() light from somewhere');
       return this;
     }
+    if (x instanceof Curve) x = unphased(x);
     const v = asVec(x);
     this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
     return this;
@@ -1292,6 +1301,19 @@ export function makeApi(engine) {
     // few lines make a tree; loops in the rule make spirals and scatters.
     // .instance() draws the result: box().instance(l).out().
     layout: (depth, rule) => makeLayout(engine, depth, rule),
+
+    // A path through space as a callable value — c(u) is the point a fraction
+    // u of the way along, so c(T.mul(0.2)) rides it, c(i / n) is the i-th of
+    // n stations, spread(n).map(c) is the whole set (see curve.js). curve(fn)
+    // lifts a u => [x, y, z] of your own; curve(layout) follows an unbranched
+    // layout's trail.
+    curve: Object.assign((src, o) => makeCurve(src, o), {
+      circle: curveCircle,
+      line: curveLine,
+      helix: curveHelix,
+    }),
+    // n phases 0..1, evenly spaced — what a curve (or anything phase-shaped) eats
+    spread,
 
     // The sketch's own points as a data set: data(array) views a live
     // [x, y, z][] the sketch moves in onFrame(), data({ pos, alpha }) adopts
@@ -1777,6 +1799,7 @@ export function makeApi(engine) {
     Signal,
     Layout,
     Data,
+    Curve,
 
     // A bus name nothing else will take, one per call site — what a helper
     // closing a feedback loop by hand needs, since a literal name would collide
