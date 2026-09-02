@@ -417,7 +417,7 @@ METHODS.material[2] = MATERIAL_GROUPS
 const GLOBAL_KEY_DOCS = {
   curve: {
     closed: "Loop u instead of turning back at the ends — for a lifted fn whose end meets its start. curve.circle() is already closed.",
-    even: 'Respace u by arc length, so equal steps of u cover equal distance even where the fn hurries. Snapshotted once (per frame when the fn takes t).',
+    even: "Measures the curve's length and remaps u to a fraction of it, so equal steps of u cover equal distance. Built-in curves are already even. Measured once, or per frame when the fn takes t.",
   },
   spread: {
     jitter: 'How far a value may leave its even slot, 0..1 of half a step. Deterministic by seed.',
