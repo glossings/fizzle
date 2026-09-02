@@ -271,6 +271,117 @@ const SPECS = {
     },
   },
 
+  // circle's rectangular sibling: a rounded-box distance field, so corner,
+  // soft and thickness all come along for free. w/h are fractions of the
+  // frame per axis (crop's units — the frame-relative masks people build);
+  // corner and soft are UV-height units like circle's radius, and rotation
+  // happens in aspect-corrected space so a wide rect turns rigidly.
+  rect: {
+    extras: { uCenter: [0.5, 0.5], uW: 0.5, uH: 0.5, uRot: 0, uCorner: 0, uSoft: 0, uThick: -1, uColA: [1, 1, 1, 1], uColB: [0, 0, 0, 1] },
+    texParams: { w: 'uW', h: 'uH', corner: 'uCorner', soft: 'uSoft', thickness: 'uThick', center: 'uCenter', rotate: 'uRot' },
+    frag: `
+      void main() {
+        vec2 p = (vUv - uCenter) * vec2(uAspect, 1.0);
+        float rot = uRot;
+        float cs = cos(rot), sn = sin(rot);
+        p = mat2(cs, sn, -sn, cs) * p;
+        vec2 hf = vec2(uW * uAspect, uH) * 0.5;
+        // a corner past the short half-side would eat the whole shape
+        float r = min(uCorner, min(hf.x, hf.y));
+        vec2 q = abs(p) - hf + r;
+        float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+        float sf = max(uSoft, uTexel.y * 0.5), th = uThick;
+        float m = 1.0 - smoothstep(-sf, sf, d);
+        if (th >= 0.0) m *= smoothstep(-th - sf, -th + sf, d);
+        gl_FragColor = mix(uColB, uColA, m);
+      }`,
+    update(u, p, t) {
+      const c = par(p.center, [0.5, 0.5]);
+      u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
+      const w = par(p.w, 0.5);
+      u.uW.value = resolve(w, t);
+      u.uH.value = resolve(par(p.h, w), t);
+      u.uRot.value = resolve(par(p.rotate, 0), t);
+      u.uCorner.value = resolve(par(p.corner, 0), t);
+      u.uSoft.value = resolve(par(p.soft, 0), t);
+      u.uThick.value = resolve(par(p.thickness, -1), t);
+      setColor4(u.uColA.value, orDflt(p.color, '#ffffff'), t);
+      setColor4(u.uColB.value, orDflt(p.bg, '#000000'), t);
+    },
+  },
+
+  // A regular n-gon, one vertex up, radius to the vertices — so it converges
+  // on circle() as sides climb. star pulls the edge midpoints toward the
+  // center (0 leaves them on the edge, 1 collapses the shape to spikes),
+  // turning the same n corners into an n-pointed star. The fold takes the
+  // pixel into one half-segment; the distance is exact to the edge segment
+  // there, so soft and thickness behave like rect's.
+  polygon: {
+    extras: { uCenter: [0.5, 0.5], uSides: 6, uRadius: 0.25, uRot: 0, uStar: 0, uSoft: 0, uThick: -1, uColA: [1, 1, 1, 1], uColB: [0, 0, 0, 1] },
+    texParams: { sides: 'uSides', radius: 'uRadius', star: 'uStar', soft: 'uSoft', thickness: 'uThick', center: 'uCenter', rotate: 'uRot' },
+    frag: `
+      void main() {
+        vec2 p = (vUv - uCenter) * vec2(uAspect, 1.0);
+        float n = max(floor(uSides + 0.5), 3.0);
+        // the radius floor keeps a zero (or animated-through-zero) radius as
+        // "nothing drawn" — at 0 exactly, every edge vector degenerates and
+        // sign(0) would grey the whole frame instead
+        float r = max(uRadius, 1e-4), sf = max(uSoft, uTexel.y * 0.5), th = uThick;
+        float st = clamp(uStar, 0.0, 1.0);
+        float an = 3.1415927 / n;
+        float a = mod(atan(p.y, p.x) - 1.5707963 - uRot, 2.0 * an) - an;
+        vec2 q = length(p) * vec2(cos(a), abs(sin(a)));
+        vec2 O = vec2(r, 0.0);
+        vec2 e = (1.0 - st) * r * cos(an) * vec2(cos(an), sin(an)) - O;
+        vec2 v = q - O;
+        // the floor keeps radius 0 (e collapses to a point) at NaN's door —
+        // it draws nothing, like circle's
+        vec2 dd = v - e * clamp(dot(v, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+        float d = length(dd) * sign(e.y * v.x - e.x * v.y);
+        float m = 1.0 - smoothstep(-sf, sf, d);
+        if (th >= 0.0) m *= smoothstep(-th - sf, -th + sf, d);
+        gl_FragColor = mix(uColB, uColA, m);
+      }`,
+    update(u, p, t) {
+      const c = par(p.center, [0.5, 0.5]);
+      u.uCenter.value.set(resolve(c[0], t), resolve(c[1], t));
+      u.uSides.value = resolve(par(p.sides, 6), t);
+      u.uRadius.value = resolve(par(p.radius, 0.25), t);
+      u.uRot.value = resolve(par(p.rotate, 0), t);
+      u.uStar.value = resolve(par(p.star, 0), t);
+      u.uSoft.value = resolve(par(p.soft, 0), t);
+      u.uThick.value = resolve(par(p.thickness, -1), t);
+      setColor4(u.uColA.value, orDflt(p.color, '#ffffff'), t);
+      setColor4(u.uColB.value, orDflt(p.bg, '#000000'), t);
+    },
+  },
+
+  // Two colors on a square grid — a mask, a displace source, a floor. Cells
+  // are square (aspect-corrected) with a corner at the frame center, and the
+  // pattern is integrated over the pixel's footprint rather than
+  // point-sampled, so a fine checker greys out instead of shimmering.
+  checker: {
+    extras: { uFreq: 8, uRot: 0, uColA: [0, 0, 0, 1], uColB: [1, 1, 1, 1] },
+    frag: `
+      void main() {
+        vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+        float cs = cos(uRot), sn = sin(uRot);
+        p = mat2(cs, sn, -sn, cs) * p * uFreq;
+        // pixel footprint in cell units — the rotation is rigid, so the
+        // magnitude survives it and one height-texel measures both axes
+        vec2 w = vec2(max(uTexel.y * abs(uFreq), 1e-5));
+        vec2 i = 2.0 * (abs(fract((p - 0.5 * w) * 0.5) - 0.5)
+                      - abs(fract((p + 0.5 * w) * 0.5) - 0.5)) / w;
+        gl_FragColor = mix(uColA, uColB, 0.5 - 0.5 * i.x * i.y);
+      }`,
+    update(u, p, t) {
+      u.uFreq.value = periodic(p.period, p.freq, 8, t);
+      u.uRot.value = resolve(p.rotate ?? 0, t);
+      setColor4(u.uColA.value, orDflt(p.a, '#000000'), t);
+      setColor4(u.uColB.value, orDflt(p.b, '#ffffff'), t);
+    },
+  },
+
   noiseGen: {
     extras: { uFreq: 4, uOct: 3, uLac: 2, uGain: 0.5, uSpeed: 0.3, uSeed: 0, uChannels: 1, uColA: [0, 0, 0, 1], uColB: [1, 1, 1, 1] },
     pre: SNOISE_GLSL,

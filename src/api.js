@@ -1486,6 +1486,11 @@ export function makeApi(engine) {
         thickness: typeof outer === 'function' || typeof inner === 'function' ? width : width(0),
       });
     },
+    // h defaults to w (see textures.js for the units: w/h are fractions of
+    // the frame per axis, corner/soft UV-height like circle's radius)
+    rect: (o) => new TextureOp(engine, 'rect', o ?? {}),
+    polygon: (o) => new TextureOp(engine, 'polygon', o ?? {}),
+    checker: (o) => new TextureOp(engine, 'checker', o ?? {}),
     // An incompressible fluid sim as a generator: dye poured in with .ink(),
     // the field driven by .push(), solids marked by .obstacle(). The node
     // itself is the dye; .velocity()/.curl() read the fields behind it.

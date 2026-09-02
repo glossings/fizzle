@@ -84,7 +84,7 @@ export function saveLibrary(lib) {
 const calls = (code, names) => new RegExp(`(?<![\\w$.])(${names.join('|')})\\s*\\(`).test(code);
 
 const GEOMETRY = ['sphere', 'box', 'plane', 'torus', 'torusKnot', 'cylinder', 'capsule', 'icosa', 'text3d', 'model'];
-const SOURCES_2D = ['constant', 'ramp', 'circle', 'ring', 'noise', 'voronoi', 'text', 'gradient'];
+const SOURCES_2D = ['constant', 'ramp', 'circle', 'ring', 'rect', 'polygon', 'checker', 'noise', 'voronoi', 'text', 'gradient'];
 const AUDIO = ['audio', 'audiofile'];
 const CAMERA = ['video', 'person'];
 const MEDIA = ['videofile', 'imagefile', 'imageseq'];

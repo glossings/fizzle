@@ -1251,6 +1251,16 @@ scene()
   measured inward from the rim. `bg: null` draws it on nothing.
 - `ring({ inner, outer, soft, center, color, bg })` — the same shape addressed
   by its two edges instead.
+- `rect({ w, h, corner, rotate, thickness, soft, center, color, bg })` — a
+  rectangle, `w`/`h` as fractions of the frame (both default 0.5). `corner`
+  rounds it, `rotate` turns it, and `thickness` keeps only the outline, like
+  `circle()`'s.
+- `polygon({ sides, radius, star, rotate, thickness, soft, center, color, bg })`
+  — a regular n-gon, one vertex up, `radius` to the corners. `star: 0..1`
+  pulls the edge midpoints inward, so the same six corners become a
+  six-pointed star.
+- `checker({ period, freq, rotate, a, b })` — a two-color checkerboard of
+  square cells, `freq` cells across the frame.
 - `noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })`
   — animated fbm noise shading from color `a` (low) to `b` (high). `octaves`
   stacks detail layers, `lacunarity` is the frequency step per octave, `gain`
