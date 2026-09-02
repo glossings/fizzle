@@ -14,7 +14,7 @@ import { Prec } from '@codemirror/state';
 import { acceptCompletion } from '@codemirror/autocomplete';
 import { indentMore, indentLess } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { configSections, infoNodes, GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG } from './docs.js';
+import { bodyFor, configSections, infoNodes, GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG } from './docs.js';
 import { sketchLanguage, apiHover } from './complete.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
@@ -483,19 +483,17 @@ function referenceSection(root) {
     root.appendChild(h3);
     const t = document.createElement('table');
     t.className = 'ref';
-    for (const [name, [sig, info, extra]] of Object.entries(table)) {
+    for (const [name, [sig, info]] of Object.entries(table)) {
       const tr = t.insertRow();
       // the keys the signature is too short to list, so the page and the
       // completion popup describe the same call
       const sections = configSections(config[name]);
       const keys = sections?.map(([s, list]) => `${s}: ${list.join(' ')}`).join('\n') ?? '';
-      tr.dataset.text = `${name} ${sig} ${info} ${keys}`.toLowerCase();
+      tr.dataset.text = `${name} ${sig} ${bodyFor(info)} ${keys}`.toLowerCase();
       const td1 = tr.insertCell();
       td1.innerHTML = `<code class="ref-sig">${esc(sig)}</code>`;
       const td2 = tr.insertCell();
-      // the grid below lists every key, so the tooltip's "and these others too"
-      // summary is just the same names twice here
-      td2.append(...infoNodes(info, sections ? null : extra));
+      td2.append(...infoNodes(info));
       if (sections) {
         const dl = document.createElement('div');
         dl.className = 'ref-keys';

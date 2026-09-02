@@ -33,7 +33,7 @@ export const GLOBALS = {
 
   hdri: ['hdri(name?, { background, intensity, blur, rotation, backgroundRotation, backgroundIntensity })', "Image-based lighting from an imported .hdr/.exr: lights every material and shows behind the scene — metal has nothing to reflect without one. Empty hdri() opens the Poly Haven browser; drag a file in to import. Every option but background takes a fn of t."],
 
-  camera: ['camera(x, y, z, [tx, ty, tz]) | camera({ pad, fly, speed, look, lift, recenter, deadzone, x, y, z, target })', "Puts the camera at x, y, z looking at the point [tx, ty, tz] — the origin without one. Static numbers: orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.\ncamera({ pad: true }) hands the orbit rig to a game controller — right stick orbits, left stick moves in and out along the view, triggers and bumpers pan — with the mouse still live. camera({ fly: true }) flies instead: left stick moves where you're looking, right stick looks, triggers rise and fall. Negative speed or look inverts an axis."],
+  camera: ['camera(x, y, z, [tx, ty, tz]) | camera({ pad, fly, speed, look, lift, recenter, deadzone, x, y, z, target })', "Puts the camera at x, y, z looking at the point [tx, ty, tz] — the origin without one. Static numbers: orbit stays live. Any fn of t: sketch drives the camera, orbit disabled.\nThe config form hands the camera to a game controller: { pad: true } drives the orbit rig, { fly: true } flies free."],
   hsl: ['hsl(h, s, l, a?)', 'A color from hue (in turns, 0..1 around the wheel), saturation and lightness — usable in any color slot. Each takes a fn of t or a signal, so hsl(rand(), 0.7, 0.5) is a random hue at a brightness you set, and hsl(rand().beat(1), 0.7, 0.5) re-rolls it every bar.'],
   hsv: ['hsv(h, s, v, a?)', 'The same wheel measured the way a paint program does: v is the brightest channel, so hsv(h) is the vivid hue, hsv(h, 0, 1) is white and hsv(h, 1, 0.5) is a dark version of the hue. Every argument takes a fn of t or a signal.'],
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
@@ -52,7 +52,7 @@ export const GLOBALS = {
   polygon: ['polygon({ sides, radius, star, rotate, thickness, soft, center, color, bg })', 'Texture generator: a regular n-gon, one vertex up. star pulls the edge midpoints inward, turning it into an n-pointed star; thickness keeps only the outline. Most keys take fns of t, or textures.'],
   checker: ['checker({ period, freq, rotate, a, b })', 'Texture generator: a two-color checkerboard of square cells — a mask, a floor, a displace source. period/freq size the cells like every periodic generator.'],
   video: ['video(name?)', "Texture generator: live camera — permission prompt on first use, black until the stream is live. No name = the default camera (the console lists sources); video('front') / video('back') ask for a facing; any other name matches a camera label by substring."],
-  person: ["person(name?, { part: 'hair'|'face'|'body'|'skin'|'clothes'|'other', smooth })", "Texture generator: a person mask from the live camera — white where a person is, black elsewhere. name picks a camera exactly like video()'s: no name = the default camera, 'front'/'back' = a facing, anything else matches a camera label by substring. part masks one region instead: 'hair', 'face', 'body', 'skin', 'clothes' or 'other'. First use fetches the model (~12 MB, +16 MB with a part) and prompts for camera permission; black until ready."],
+  person: ["person(name?, { part: 'hair'|'face'|'body'|'skin'|'clothes'|'other', smooth })", "Texture generator: a person mask from the live camera — white where a person is, black elsewhere. name picks a camera exactly like video()'s: no name = the default camera, 'front'/'back' = a facing, anything else matches a camera label by substring. part masks one region instead. First use fetches the model (~12 MB, +16 MB with a part) and prompts for camera permission; black until ready."],
   videofile: ["videofile(name?, { speed, loop, mute, restart, phase, jump })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring, or is an https:// URL. ctrl+r or restartMedia() rewinds; phase scrubs it by hand, jump throws it around while it plays."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker), or an https:// URL, which downloads once. An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
@@ -63,15 +63,15 @@ export const GLOBALS = {
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
-  curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along, so c(T.mul(0.2)) moves along it and c(i / n) is the i-th of n stations. Past the ends the motion continues without a jump: closed curves loop, open ones turn back.\ncurve(fn) lifts your own function, curve(layout) follows an unbranched layout's trail; curve.circle(r), curve.line(a, b) and curve.helix({ … }) are ready-made. .tangent(u) is the direction of travel."],
-  spread: ['spread(n, { jitter, random, seed, end })', "n phases 0..1, evenly spaced — the values a curve eats: spread(12).map(c) is twelve points along it. The values hold still across frames and re-runs."],
+  curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along. curve(fn) lifts your own function; curve(layout) follows an unbranched layout's trail."],
+  spread: ['spread(n, { jitter, random, seed, end })', "n phases 0..1, evenly spaced — the values a curve takes: spread(12).map(c) is twelve points along it. The values hold still across frames and re-runs."],
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
   data: ['data(array) | data({ pos, alpha })', "Your own points as a data set: a live array of [x, y, z], or named channels, each an array or a fn of t. Renders nothing; .pairs() and .link() connect it, .instance() places onto it."],
   segments: ['segments(pairs | points, { within, max, fill, lit, fade, color, opacity, blend })', "Line segments between paired points, redrawn every frame. Takes a .pairs(), a data set, or a plain array of [x, y, z]. Flat 1px lines unless lit; .material({ color, opacity }), then .out()."],
   link: ['link(points, { within, max, fill, lit, fade, color, opacity, blend })', "segments() over any array or data set: a line between every pair of points closer than within. Ends in .out()."],
 
-  beat: ['beat(perBar = 4, width = 0.5)', 'Tempo-synced gate: 1 for width of each cycle, 0 the rest. perBar cycles per bar of four beats (tempo in the audio manager), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.\nThis is what the trigger slots want: restart, jump, .when(), .hold(). They fire on the rising edge and ignore the width, so width is really for .when(), where it sets how long the branch shows. For a value that moves on the grid rather than a pulse, use B.'],
+  beat: ['beat(perBar = 4, width = 0.5)', 'Tempo-synced gate: 1 for width of each cycle, 0 the rest. perBar cycles per bar of four beats (tempo in the audio manager), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input loudness (0..1, dB scale) as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and returning its level as a signal like audio(). Empty call = picker; drag a file in to import; ctrl+r or restartMedia() rewinds.'],
   band: ["band(name? | n?)", 'A named band from the audio manager (ctrl+a) as a signal, normalized 0..1 by its meter anchors. band() is the global level; bands are named 1, 2, 3 by default, so band(1) reads the first.'],
@@ -94,16 +94,36 @@ export const GLOBALS = {
 };
 
 export const METHODS = {
-  position: ['.position(x, y, z) | .position(v)', 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works.\nShort form: .pos().\nLayout cursor: where the cursor stands, as [x, y, z] — read only, since .forward() is what moves it.'],
+  position: ['.position(x, y, z) | .position(v)', {
+    cursor: 'Where the cursor stands, as [x, y, z] — read only, since .forward() is what moves it.',
+    '*': 'Position. Each component is a number or fn of t; one vector argument ([x,y,z] or anything with x/y/z) also works.\nShort form: .pos().',
+  }],
   rotation: ['.rotation(x, y, z) | .rotation(v)', 'Geometry: rotation in radians. Each component is a number or fn of t, or one vector in the first slot.\nShort form: .rot().'],
-  scale: ['.scale(x, y?, z?) | .scale(x, y?, { wrap })', 'Geometry: scale, one number = uniform, one vector = per-axis · Texture: zoom around center, one number = uniform, .scale(x, y) per-axis, negative flips that axis — .scale(-1, 1) mirrors left to right.\nLayout cursor: shrink by one number, compounding down the branch.'],
+  scale: ['.scale(x, y?, z?) | .scale(x, y?, { wrap })', {
+    texture: 'Zoom around center: one number = uniform, .scale(x, y) per-axis, negative flips that axis — .scale(-1, 1) mirrors left to right.',
+    cursor: 'Shrink by one number, compounding down the branch.',
+    '*': 'Scale: one number = uniform, one vector = per-axis.',
+  }],
   rotate: ['.rotate(v, { wrap })', 'Texture: rotate the image around center, in radians. v takes a fn of t, or a texture to turn each pixel by its own angle.\nShort form: .rot().'],
   translate: ['.translate(x, y, { wrap }) | .translate(map, { wrap })', "Texture: shift the image in UV space (1 = full frame); a map in the first slot shifts each pixel by its own R and G. Short form: .trans()."],
-  noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', 'Geometry: GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.\nParticles: offset each dot by a noise field where it is drawn. Not a force — a held swarm ripples in place, a flying one keeps its path.'],
-  points: ['.points({ size })  ·  texture: .points({ res, depth, size, dot })', "Geometry: draw the vertices as dots instead of the surface, size in pixels (default 1). res sets how many; .noise() and .displace() still move them, and a color map colors each dot by the pixel at its uv. Lit like the surface; casts no shadow.\nTexture: the image as a grid of dots — a plane mapped with it and lifted by its brightness. Hands back the geometry chain."],
-  lines: ['.lines({ dir })  ·  texture: .lines({ dir, res, depth, size })', "Geometry: draw the vertex grid as 1px lines: dir 'x' (default) for rows, 'y' for columns, 'xy' for both. .noise() and .displace() still move them and a color map colors them. A model or text has no grid and draws its triangle edges. Lit like the surface; casts no shadow.\nTexture: the image as scanlines — a plane mapped with it and lifted by its brightness. Hands back the geometry chain."],
+  noise: ['.noise({ amp, period, freq, octaves, lacunarity, gain, speed, seed })', {
+    geo: 'GPU fbm displacement along vertex normals, with the normals recomputed so lighting stays correct. It can only move vertices the shape already has — raise its res if nothing happens.',
+    particle: 'Offset each dot by a noise field where it is drawn. Not a force — a held swarm ripples in place, a flying one keeps its path.',
+  }],
+  points: ['.points({ size })  ·  texture: .points({ res, depth, size, dot })', {
+    geo: 'Draw the vertices as dots instead of the surface, size in pixels. .noise() and .displace() still move them, and a color map colors each dot by the pixel at its uv. Lit like the surface; casts no shadow.',
+    texture: 'The image as a grid of dots — a plane mapped with it and lifted by its brightness. Hands back the geometry chain.',
+  }],
+  lines: ['.lines({ dir })  ·  texture: .lines({ dir, res, depth, size })', {
+    geo: 'Draw the vertex grid as 1px lines, rows or columns or both. .noise() and .displace() still move them and a color map colors them. A model or text has no grid and draws its triangle edges. Lit like the surface; casts no shadow.',
+    texture: 'The image as scanlines — a plane mapped with it and lifted by its brightness. Hands back the geometry chain.',
+  }],
   wire: ['.wire()  ·  texture: .wire({ res, depth, size })', "Draw every triangle edge as a 1px line, on any shape. .lines() is the version that follows the vertex grid. On a texture, the image as a mesh of edges."],
-  instance: ['.instance(count | layout, (x, i, n, t) => x.position(...), { blend })', "Geometry: render as one InstancedMesh. Texture: stamp the picture so far once per copy, in one draw.\nThe fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count. A layout() stands in for the count and brings its own."],
+  instance: ['.instance(count | layout, (x, i, n, t) => x.position(...), { blend })', {
+    geo: 'Render as one InstancedMesh.',
+    texture: 'Stamp the picture so far once per copy, in one draw.',
+    note: 'The fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count. A layout() stands in for the count and brings its own.',
+  }],
   place: ['.place(label?, data?)', "Layout cursor: record a copy centered where the cursor stands, at its heading and scale, for a tip or a scatter rather than a segment (.span() is the one that runs between joints). The label names what goes there, picked out later by .filter(); data rides along per copy, for .data(i) to read."],
   branch: ['.branch(x => x.turn(0.5), rule?)', "Layout cursor: grow a child. The step shapes it, then the rule runs again from there, one generation deeper. The parent's cursor stays put. A second argument hands the child a different rule."],
   span: ['.span(dist = 1, label?, data?)', 'Layout cursor: move forward, leaving a copy that spans the step. Centered on the step rather than on the joint, so segments meet end to end where a branch forks; a shape one unit long covers the step exactly.'],
@@ -113,9 +133,16 @@ export const METHODS = {
   filter: [".filter('leaf') | .filter((p, i) => …)", "Layout: some of the copies, as a layout of its own, so each slice can take a shape of its own. A label keeps the copies placed under it; a function keeps the copies it says yes to, handed { label, data, depth } and the copy's index."],
   grow: ['.grow(amount)', 'Layout: open the structure out from the root. amount is 0..1 in place order and takes any signal; copies past that front are scaled away.'],
   apply: ['.apply(x, i)', 'Layout: place copy i on an instance handle and hand the handle back. .instance(l) is this call already made; the long form is for putting more on top of it.'],
-  age: ['.age(i)  ·  particle data: .age', 'Layout: where copy i falls in place order, 0..1, which runs outward a generation at a time. What .grow() measures against.\nParticle data: seconds into the current life, per slot — negative while the slot waits to be born.'],
+  age: ['.age(i)  ·  particle data: .age', {
+    layout: 'Where copy i falls in place order, 0..1, which runs outward a generation at a time. What .grow() measures against.',
+    data: 'Seconds into the current life, per slot — negative while the slot waits to be born.',
+  }],
   data: ['.data(i)', 'Layout: whatever .place() was handed alongside its label, for copy i.'],
-  count: ['.count', 'Layout: how many copies the rule placed.\nData set / pairs: how many points the set holds, or how many pairs there are this frame.'],
+  count: ['.count', {
+    layout: 'How many copies the rule placed.',
+    data: 'How many points the set holds.',
+    pairs: 'How many pairs there are this frame.',
+  }],
 
   align: ['.align(v)', "Aim the shape's +Y axis along a direction vector. .rotation() still applies, in the shape's own frame before the aim; components take fns of t."],
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
@@ -130,18 +157,27 @@ export const METHODS = {
   link: ['.link({ within, max, fill, lit, fade, color, opacity, blend })  ·  .link(other, { … })  ·  particles: { sample }  ·  geometry: { count }', "Draw a line between every pair of points closer than within. On a geometry it connects its scatter; on particles, the swarm, drawn by the system's own .out(); on a data set it ends in its own .out(), and .link(other) pairs across to the other's points."],
   between: ['.between(a, b)', "Instance copy: span this copy between two points — midpoint, aimed along the gap, y scaled to the distance. Build the shape unit-height (cylinder({ height: 1 })) so it spans exactly; .scale() before it sets the thickness."],
   pos: ['.pos', 'Data set: the points, a live array of [x, y, z], rebuilt each frame.\nElsewhere .pos() is short for .position().'],
-  vel: ['.vel', 'Particle data: velocity per slot, as [x, y, z] in world units per second.\nmidi: how hard the last key was struck, 0..1. Latched, so it holds between notes; after .key(38) it follows that pad alone.'],
+  vel: ['.vel', {
+    data: 'Velocity per slot, as [x, y, z] in world units per second.',
+    'midi midikey': 'How hard the last key was struck, 0..1. Latched, so it holds between notes; after .key(38) it follows that pad alone.',
+  }],
   life: ['.life', "Particle data: each slot's lifespan in seconds."],
   list: ['.list', "Pairs: this frame's pairs, as an array of [a, b] point indices — b indexes the second set when the pairing crossed two."],
   tris: ['.tris', 'Pairs: trios of points that are all within reach of one another, as [a, b, c] index triples. Only within one set.'],
-  material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. Empty .material() opens the Poly Haven browser. Every value takes a fn of t; every map slot takes an imported image by name, or a live texture chain."],
-  color: ['.color(c) | .color(birth, death)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.\nOn particles a second color fades each particle from birth to death."],
+  material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. Empty .material() opens the Poly Haven browser."],
+  color: ['.color(c) | .color(birth, death)', {
+    'particle evolve': 'The dot color — one value, or a second that fades each particle from birth to death.',
+    '*': "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.",
+  }],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
-  shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists.\nParticles: .shadow() makes the swarm cast — off by default, since it's a depth pass per shadow light. Receiving is .lit()'s side."],
+  shadow: ['.shadow(false | { cast, receive })  ·  light option: shadow: true | { map, soft, strength, bias, normalBias, near, far, area }', {
+    particle: "Makes the swarm cast — off by default, since it's a depth pass per shadow light. Receiving is .lit()'s side.",
+    geo: "Geometry casts and receives by default — .shadow(false) is the opt-out, or one side via { cast, receive }. On a light, shadow: true turns casting on and the same object tunes it. Glass (transmission) and blended (opacity < 1) surfaces don't cast unless .shadow(true) insists.",
+  }],
   depth: ['.depth · .depth(i)', 'Layout cursor: which generation the rule is running in. On the layout itself, which generation copy i was placed in.'],
   rand: ['.rand(seed = 0)', "Layout cursor: a random 0..1 that holds still. The same node draws the same value on every re-run, so a random structure doesn't reshuffle while you edit. Different seeds are independent draws."],
 
-  cc: ['.cc(num, channel?)', "midi: a knob, fader or button by its CC number, 0..1. Without a channel the number answers to whichever channel sent it last, which is what a controller on its factory setting wants.\nEmpty .cc() learns instead — move a control and the numbers are written into the call."],
+  cc: ['.cc(num, channel?)', "midi: a knob, fader or button by its CC number, 0..1. Without a channel the number answers to whichever channel sent it last, which is what a controller on its factory setting sends.\nEmpty .cc() learns instead — move a control and the numbers are written into the call."],
   key: ['.key(num?)', 'midi: narrows .note .vel .gate .touch to one key or pad, so a drum pad drives one thing on its own. Empty .key() learns the next key played.'],
   note: ['.note', 'midi: the pitch last played, 0..1 across the MIDI range — .mul(127) for the note number back. Latched: it holds after the key is released.'],
   gate: ['.gate', 'midi: 1 while a key is held, 0 when none is. After .key(38), that pad alone. Feed it .smooth() for a ramp or .counter() to step per press.'],
@@ -154,17 +190,21 @@ export const METHODS = {
   lt: ['.lt', 'gamepad: left trigger, 0..1 through its travel. .rt is the right one. A pad with digital triggers reports 0 or 1.'],
   rt: ['.rt', 'gamepad: right trigger, 0..1 through its travel.'],
   btn: [".btn('a')", "gamepad: a button as a 1/0 gate. Face buttons by either brand's name ('a'/'cross', 'b'/'circle', 'x'/'square', 'y'/'triangle'), the d-pad as 'up' 'down' 'left' 'right', shoulders 'lb' 'rb', also 'start' 'back' 'l3' 'r3'.\nEmpty .btn() learns the next button pressed."],
-  out: [".out(name?)", "Naked: geometry/light joins the visible scene; a texture chain becomes the display output — several naked .out()s stack in code order, later over earlier, showing through where a chain is transparent. With a name, publishes for input('name') instead — a texture bus, a geometry render layer, or a light lighting only that layer.\nAn op is mutable, so two .out() calls share one op — use .instance() for repeats, or wrap the shape in a function for copies that differ."],
+  out: [".out(name?)", "Naked: geometry and lights join the visible scene; a texture chain becomes the display output. With a name, publishes for input('name') instead."],
 
   particles: ['.particles({ max, rate, life, speed, spread, dir, size, threshold })', "The source as a particle emitter. On a shape: births scattered over its surface, leaving along the normals — the shape needn't be drawn, its transform applies live, and its .noise() carries through, so births land on the deformed surface. On a texture: births on the bright pixels of the live image, mapped onto a world plane, each particle keeping the color of the pixel it was born from (.color() overrides)."],
   force: ['.force(x, y, z)', 'Particles: a constant acceleration in world units/s² — .force(0, -2, 0) is gravity, .force(1, 0, 0) a crosswind. Components take fns of t; several .force() calls sum.'],
-  turbulence: ['.turbulence({ amp, period, freq, speed, seed })', 'Particles: a curl-noise force field — the swirling, smokey drift. Divergence-free, so the swirl stirs the swarm without bunching it into clumps; several calls layer fields at different scales.'],
+  turbulence: ['.turbulence({ amp, period, freq, speed, seed })', 'Particles: a curl-noise force field — swirling, smoke-like drift. Divergence-free, so the swirl stirs the swarm without bunching it into clumps; several calls layer fields at different scales.'],
   attract: ['.attract([x, y, z], { strength, radius })', 'Particles: pull toward a point with inverse-square falloff — negative strength repels. Position components take fns of t, so the point can orbit, or follow mouse().'],
   drag: ['.drag(v = 1)', 'Particles: exponential velocity damping — higher settles the swarm sooner. Takes a fn of t.'],
-  size: ['.size(a, b?) · .size · .size(i)', 'Particles: point size in world units, shrinking with distance — one value, or birth → death. Where a number goes, a [min, max] pair scatters it per particle. Default 0.05.\nLayout cursor: the scale it has accumulated — the reading a rule stops on, like if (e.size < 0.1) return. On the layout itself, .size(i) is the scale copy i was placed at, which a chain setting its own .scale() has to multiply by.'],
+  size: ['.size(a, b?) · .size · .size(i)', {
+    'particle evolve': 'Point size in world units, shrinking with distance — one value, or birth → death. Where a number goes, a [min, max] pair scatters it per particle. Default 0.05.',
+    cursor: 'The scale the cursor has accumulated — the reading a rule stops on, like if (e.size < 0.1) return.',
+    layout: '.size(i) is the scale copy i was placed at, which a chain setting its own .scale() has to multiply by.',
+  }],
   opacity: ['.opacity(a, b?)', 'Particles: transparency 0..1 — one value, or birth → death. On top of the .fade() ramps; takes fns of t.'],
   fade: ['.fade(in, out) | .fade(false)', "Particles: fade each particle in when it's born and out before it dies, so they don't blink into existence. The numbers are how long each fade takes, as fractions of the lifespan — defaults 0.1 and 0.3. false turns both off."],
-  blend: [".blend('over' | 'add' | 'solid')", "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up. 'solid' is opaque cutout dots that write depth and occlude each other — what a dense .lit() swarm needs, or the visible dots are a depth-scrambled mix instead of the lit skin. Solid dots pop in and out rather than fade, and depth() sees them."],
+  blend: [".blend('over' | 'add' | 'solid')", "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up. 'solid' is opaque cutout dots that write depth and occlude each other, which is what a dense .lit() swarm needs to read as a lit surface. Solid dots pop in and out rather than fade, and depth() sees them."],
   soft: ['.soft(v)', 'Particles: edge softness of each dot, 0 (hard disc) to 1 (pure falloff). Default 0.5. Takes a fn of t.'],
   lit: ['.lit(amount = 1)', "Particles: take the scene's light — each dot tinted by the color, falloff and cone of the lights, and darkened inside their shadows. A dot has no facing, so what shows is color, distance and shadow. amount 0..1 mixes flat color → fully lit; takes a fn of t."],
   evolve: ['.evolve((p, life, t) => p.size(...).color(...).force(...))', "Particles: looks and forces across each particle's life. life runs 0 (birth) to 1 (death); whatever the fn sets on p (.size/.color/.opacity/.force) applies at that point, starting from the chain's own settings.\nSampled across life each frame rather than run per particle — so it sees life and t, never one particle's position."],
@@ -224,22 +264,33 @@ export const METHODS = {
   invert: ['.invert()', 'Texture: invert colors.'],
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
-  displace: ['.displace(map, { amount, mid, smooth })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
-  comp: [".comp(layer, { mode, opacity, swap })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
-  alpha: ['.alpha(v)  ·  .alpha(v) on a copy', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.\nInstance copy: fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch.\nData set: how visible each point is, 0..1, as an array — a particle's fade envelope; 1 unless the source sets it."],
+  displace: ['.displace(map, { amount, mid, smooth })', {
+    geo: "Move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.",
+    texture: "Push each pixel sideways by the map's R and G.",
+    note: 'The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either.',
+  }],
+  comp: [".comp(layer, { mode, opacity, swap })", "Texture: composite layer over this chain. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
+  alpha: ['.alpha(v)  ·  .alpha(v) on a copy', {
+    texture: "Scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.",
+    inst: "Fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch.",
+    data: "How visible each point is, 0..1, as an array — a particle's fade envelope; 1 unless the source sets it.",
+  }],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   fluid: ['.fluid({ ink, res, speed, fade, damping, vorticity, iterations, wrap }) | .fluid(ink)', "Texture: the chain becomes dye in an incompressible fluid sim, poured in at the ink rate. What comes back is the sim itself, so .push() and the rest of fluid() carry on from there. Contents survive a re-run."],
   ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
-  push: ['.push(map, { amount, mid }) | .push([x, y], amount)', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades, so this is the call that makes anything happen. mid defaults to 0.5, so an unsigned map like noise({ channels: 2 }) pushes both ways.\nA plain [x, y] is one steady force over the whole field: [0, -0.3] is gravity. Under wrap: 'clamp' the pressure solve cancels most of it, since a closed box cannot drift."],
+  push: ['.push(map, { amount, mid }) | .push([x, y], amount)', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades.\nA plain [x, y] is one steady force over the whole field: [0, -0.3] is gravity. Under wrap: 'clamp' the pressure solve cancels most of it, since a closed box cannot drift."],
   obstacle: ['.obstacle(mask)', 'Fluid: cells brighter than 0.5 are solid. The sim sees them, so flow goes around rather than being clipped by them.'],
   velocity: ['.velocity({ scale })', "Fluid: the velocity field as a picture, centered on mid-grey. Drops into any slot taking a map: .displace(f.velocity()), .transform({ translate: { map: f.velocity(), mid: 0.5 } })."],
   curl: ['.curl({ scale })', 'Fluid: how sharply the field is spinning at each point, centered on mid-grey.'],
   pressure: ['.pressure({ scale })', 'Fluid: the pressure the solve landed on, centered on mid-grey. Mostly worth looking at when a sim is misbehaving.'],
   delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
-  feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). Default mode is 'add'; 'under' leaves the trail behind whatever is drawn this frame. A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
-  tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', 'Texture: tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.\nInstance copy: which picture this copy wears, out of the set in .material({ map: [a, b, c] }). Counts round, so .tile(i) over a longer grid repeats the set.'],
+  feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
+  tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', {
+    texture: 'Tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.',
+    inst: 'Which picture this copy wears, out of the set in .material({ map: [a, b, c] }). Counts round, so .tile(i) over a longer grid repeats the set.',
+  }],
 };
 
 // --- config keys -----------------------------------------------------------
@@ -393,14 +444,6 @@ const FONT_NAMES = [
 for (const keys of [GLOBAL_CONFIG.text, GLOBAL_CONFIG.text3d, METHOD_CONFIG.ascii]) {
   keys.get('font').values = FONT_NAMES;
 }
-
-// ...so the tooltip owes you the other thirty. Third slot of an entry: named
-// groups listed under the prose, derived from the same set that rejects a typo
-// rather than typed out again beside it.
-const inSignature = new Set(METHODS.material[0].match(/\w+/g));
-METHODS.material[2] = MATERIAL_GROUPS
-  .map(([section, keys]) => [section, keys.filter((k) => !inSignature.has(k))])
-  .filter(([, keys]) => keys.length);
 
 // --- what each config key does ---------------------------------------------
 //
@@ -639,12 +682,12 @@ const GLOBAL_KEY_DOCS = {
   },
   noise: {
     period: "How much of the frame one blob of noise spans. Default 0.25, four across — 0.5 is big soft shapes, 0.03 is fine grain. The useful range lives in 0..1 like ramp's, so a bare signal drops in: period: audio() churns the grain with the level.",
-    freq: 'The same number said the other way: how many blobs span the frame, so freq: 4 is period: 0.25. Reach for whichever avoids a fraction — a period reads better near 1, a frequency better in the hundreds. Naming both is period.',
+    freq: 'How many blobs span the frame — the reciprocal of period, so freq: 4 is period: 0.25. Naming both is period.',
     octaves: 'Layers of finer detail stacked on top, 1..8. Default 3.',
     lacunarity: 'How much finer each octave is than the last. Default 2, meaning twice.',
     gain: 'How much quieter each octave is than the last. Default 0.5. Near 0 stays smooth and cloudy, near 1 goes rough and grainy.',
     speed: 'How fast the field churns. Default 0.3; 0 freezes it into a still.',
-    seed: 'Picks a different field of the same character. Reach for this when the shape is wrong but the settings are right.',
+    seed: 'Picks a different field of the same character — a reroll for when the settings are right but the shape is wrong.',
     channels: '1 for grayscale, 2-4 for independent fields in R/G/B/A. Default 1. Feed channels: 2 to .displace() so it wobbles both ways instead of along the diagonal.',
     a: 'Color the low end shades to. Default black; null shades from transparent, so the clouds float over whatever is under the comp.',
     b: 'Color the high end shades to. Default white; null shades to transparent.',
@@ -660,9 +703,9 @@ const GLOBAL_KEY_DOCS = {
   },
   voronoi: {
     period: 'How much of the frame one cell spans. Default 1/6 — 0.5 is a few big plates, 0.025 is fine crazing. Same 0..1 range every period key has.',
-    freq: 'How many cells span the frame — the reciprocal of period, and usually the easier of the two here, since cells are things you can count. Default 6: 2 is a few big plates, 40 is fine crazing. scale is the old name for this key and still works.',
+    freq: 'How many cells span the frame — the reciprocal of period. Default 6: 2 is a few big plates, 40 is fine crazing. scale is the old name for this key and still works.',
     speed: 'How fast the points drift inside their cells. Default 0.3; 0 freezes the pattern into a still.',
-    blend: "How far past its own cell a pixel listens, in cell widths. Default 0 — hard edges. Raising it melts neighboring cells into each other ('cells'), rounds the wells ('distance') and fattens the seams ('edges'). A texture here makes the pattern crisp in some places and molten in others.",
+    blend: "How far past its own cell each pixel samples, in cell widths. Default 0 — hard edges. Raising it blends neighboring cells into each other ('cells'), rounds the wells ('distance') and fattens the seams ('edges'). A texture here makes the pattern crisp in some places and blended in others.",
     seed: 'Picks a different scatter of the same character. Default 0.',
     mode: "'cells' (default) fills each cell flat, 'distance' shades by how far the pixel is from its point — dark at the points, bright at the walls — and 'edges' lights only the seams, where the two nearest points are equally close.",
     a: 'Color the low end shades to. Default black; null is transparent. In cells mode each cell picks its own point on the a→b ramp, so two different colors give a scatter of tints; .lookup() a grayscale one through a gradient for a wider palette.',
@@ -749,7 +792,7 @@ const METHOD_KEY_DOCS = {
   },
   noise: {
     amp: 'How far vertices move along their normals, in world units. Default 0.3.',
-    period: 'Size of the bumps, in world units between peaks — so unlike every other period this one is not a fraction of the frame, and it scales with the shape rather than the picture. Default 2/3. A short period with a low amp is crinkle, the reverse is a slow wobble.',
+    period: 'Size of the bumps, in world units between peaks — not a fraction of the frame like every other period, so it scales with the shape. Default 2/3. A short period with a low amp is crinkle, the reverse is a slow wobble.',
     freq: 'Bumps per world unit — the reciprocal of period, whichever reads better. Default 1.5.',
     octaves: 'Layers of finer detail stacked on top, 1..8. Default 3.',
     lacunarity: 'How much finer each octave is than the last. Default 2.',
@@ -761,7 +804,7 @@ const METHOD_KEY_DOCS = {
     wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
   },
   scale: {
-    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp' — invisible on a flat source; 'transparent' is what turns .scale(0.5) into a small picture on nothing, ready to comp over another chain.",
+    wrap: "What fills the space around a zoomed-out image: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'. 'transparent' is what leaves .scale(0.5) as a small picture on nothing, ready to comp over another chain.",
   },
   rotate: {
     wrap: "What fills the corners swung in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
@@ -794,7 +837,7 @@ const METHOD_KEY_DOCS = {
   levels: {
     contrast: 'Pushes values away from mid-gray. Default 1 unchanged, 0 flattens to gray, 2 is hard.',
     saturation: '0 grayscale, 1 unchanged, above 1 boosts. Default 1.',
-    gamma: 'Default 1. Above 1 lifts the shadows, below 1 crushes them — the exponent is 1/gamma, which is the levels-control convention rather than the arithmetic one. .pow() is the same curve said the other way round.',
+    gamma: 'Default 1. Above 1 lifts the shadows, below 1 crushes them — the exponent is 1/gamma, which is the levels-control convention rather than the arithmetic one. .pow(v) is the same curve uninverted: .gamma(1 / v).',
     hue: 'Rotation in turns: 0.5 is the opposite color, 1 a full lap. Default 0.',
   },
   range: {
@@ -812,7 +855,7 @@ const METHOD_KEY_DOCS = {
   transform: {
     translate: "[x, y] shift in UV, where 1 is a whole frame. Default [0, 0]. A texture here shifts each pixel by its own R and G; { map, amount, mid } scales and biases what it reads, which is all .displace() is.",
     scale: 'Zoom about the center. A number, or [x, y] to stretch. Default 1. Negative flips that axis, so [-1, 1] mirrors left to right. A texture here takes x from red and y from green, so a grayscale map zooms uniformly.',
-    rotate: 'Rotation about the center, in radians. Default 0. A texture here turns each pixel by its own angle, and since a rotation keeps the radius, everything slides along concentric circles — the map decides how far around, never how far out.',
+    rotate: 'Rotation about the center, in radians. Default 0. A texture here turns each pixel by its own angle, so pixels slide around the center without moving toward or away from it.',
     wrap: "What fills the space moved in from off-frame: 'clamp', 'repeat', 'mirror' or 'transparent' (a cutout in a comp; 'black' is its old name and still works). Default 'clamp'.",
   },
   crop: {
@@ -1070,6 +1113,19 @@ if (import.meta.env?.DEV) {
   for (const n of Object.keys(GLOBAL_SECTION)) {
     if (!GLOBALS[n]) console.warn(`docs: the catalog lists ${n}, which no longer exists`);
   }
+  // A body keyed by a kind the method never runs on is one no tooltip can
+  // reach — a typo that shows as a missing paragraph rather than an error.
+  for (const [table, kindOf] of [[GLOBALS, (n) => new Set([GLOBAL_KIND[n]])], [METHODS, (n) => METHOD_KINDS[n]]]) {
+    for (const [name, [, info]] of Object.entries(table)) {
+      if (typeof info === 'string') continue;
+      for (const key of Object.keys(info)) {
+        if (key === '*' || key === 'note') continue;
+        for (const k of key.split(' ')) {
+          if (!kindOf(name)?.has(k)) console.warn(`docs: ${name} has a body for '${k}', which it is never called on`);
+        }
+      }
+    }
+  }
 }
 
 // A callback parameter's kind, by the method that hands it over:
@@ -1116,8 +1172,34 @@ function splitLead(info) {
 const blocksOf = (info) =>
   info.includes('\n') ? info.split('\n').filter(Boolean) : splitLead(info).filter(Boolean);
 
-// blocks after the lead, plus the extra-key groups, as elements
-function tailNodes(blocks, extra) {
+// An entry's body is a string, or one body per chain kind — `.alpha` on a
+// texture and `.alpha` on a copy are different calls wearing one name, and the
+// popup knows which receiver you're on (complete.js reads the chain). Narrowed
+// to a kind you get that body alone; with no kind to go on (the reference
+// table, a name typed on its own) you get all of them, each labelled. '*' is
+// the part that holds whatever the receiver.
+export function bodyFor(info, kind) {
+  if (typeof info === 'string') return info;
+  const { note, '*': dflt, ...rest } = info;
+  // a key is one kind or several sharing a body — 'particle evolve' is the
+  // same call on the system and on the life handle
+  const groups = Object.entries(rest).map(([k, text]) => [k.split(' '), text]);
+  const out = [];
+  const own = kind && groups.find(([ks]) => ks.includes(kind));
+  if (own) out.push(own[1]);
+  else if (kind && dflt) out.push(dflt);
+  else {
+    // no receiver to go on: every body, each labelled, the way the entries
+    // used to read as one paragraph per kind
+    for (const [ks, text] of groups) out.push(`${KIND_LABEL[ks[0]] ?? ks[0]}: ${text}`);
+    if (dflt) out.push(dflt);
+  }
+  if (note) out.push(note);
+  return out.join('\n');
+}
+
+// blocks after the lead, as elements
+function tailNodes(blocks) {
   const out = [];
   for (const block of blocks) {
     const bullet = block.startsWith('- ');
@@ -1125,29 +1207,20 @@ function tailNodes(blocks, extra) {
     if (out.at(-1)?.tagName !== 'UL') out.push(el('ul', 'td-doc-list'));
     out.at(-1).append(el('li', null, block.slice(2)));
   }
-  if (extra?.length) {
-    const ul = el('ul', 'td-doc-list td-doc-keys');
-    for (const [section, keys] of extra) {
-      const li = el('li');
-      li.append(el('span', 'td-doc-sec', section), keys.join(' '));
-      ul.append(li);
-    }
-    out.push(ul);
-  }
   return out;
 }
 
-export function docDom([sig, info, extra], kind) {
+export function docDom([sig, info], kind) {
   const dom = el('div', 'td-doc');
   // the kind rides on the signature line: which chain this belongs to is the
   // one thing the signature never says
   const head = el('div', 'td-doc-sig');
   head.append(el('span', null, sig));
-  if (kind) head.append(el('span', 'td-doc-kind', kind));
+  if (KIND_LABEL[kind]) head.append(el('span', 'td-doc-kind', KIND_LABEL[kind]));
   dom.append(head);
-  const [lead, ...rest] = blocksOf(info);
+  const [lead, ...rest] = blocksOf(bodyFor(info, kind));
   dom.append(el('div', 'td-doc-lead', lead));
-  const tail = tailNodes(rest, extra);
+  const tail = tailNodes(rest);
   if (tail.length) {
     const more = el('div', 'td-doc-more');
     more.append(...tail);
@@ -1157,9 +1230,9 @@ export function docDom([sig, info, extra], kind) {
 }
 
 // The same body without the signature, for the reference table's own layout.
-export function infoNodes(info, extra) {
-  const [lead, ...rest] = blocksOf(info);
-  return [el('p', null, lead), ...tailNodes(rest, extra)];
+export function infoNodes(info) {
+  const [lead, ...rest] = blocksOf(bodyFor(info));
+  return [el('p', null, lead), ...tailNodes(rest)];
 }
 
 // Every key, grouped, for the reference page — which scrolls, so it can afford

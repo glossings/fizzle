@@ -82,7 +82,7 @@ counter in the corner shows how much has been written so far.
 The file is the picture at full size, whatever the window is doing:
 `resolution(1920, 1080)` records 1920×1080 from a half-size window, and the
 letterbox bars never make it in. Without a `resolution()` there's no size to
-hold to, so the file is what the window is really rendering, quality included.
+hold to, so the file comes out at whatever the window is rendering.
 
 **rec. audio** puts the sound in the file: the audio input as it arrives, plus
 any `audiofile()` at the volume you set. It's on by default, and the track is
@@ -1349,15 +1349,15 @@ scatters it; both hold still across frames and re-runs, with `seed` as the
 reroll. The default runs `i / n` so a closed curve gets no doubled point at
 the seam; `spread(5, { end: true })` counts fence posts instead
 (`0, 0.25, 0.5, 0.75, 1`) for an open curve. And a distribution of your own
-is just arithmetic on the phases before the curve eats them:
+is just arithmetic on the phases before the curve takes them:
 `spread(40).map(u => u ** 2).map(c)` bunches the points toward the start.
 
 ### your own curve
 
 `curve(fn)` lifts any `u => [x, y, z]`. On most functions equal steps of `u`
 do not cover equal distance, so riders rush the sparse stretches and
-`spread()` bunches where the function lingers; `even: true` respaces `u` by
-arc length. Take `(u, t)` and the curve itself moves.
+`spread()` bunches where the function lingers; `even: true` measures the curve
+and remaps `u` to a fraction of its length. Take `(u, t)` and the curve itself moves.
 
 ```js
 bg('#06070d')
@@ -2117,9 +2117,9 @@ stands in for the options, in whichever slot is free:
 .feedback(0.9, { mode: 'screen', swap: true }) // the long form
 ```
 
-`{ mode: 'under' }` is the one worth knowing: the trail is laid down *behind*
-what the chain draws this frame, so the source stays crisp on top of its own
-smear instead of blowing out where the two pile up.
+`{ mode: 'under' }` lays the trail down *behind* what the chain draws this
+frame, so the source stays crisp on top of its own smear instead of blowing
+out where the two pile up.
 
 ```js
 circle({ radius: 0.08, soft: 0.02, color: '#ff5f9e', bg: null })
@@ -2325,8 +2325,7 @@ as an unmapped one.
 
 These chains are a **pre-pass**, rendering before the 3D render that samples
 them, so everything they show is this frame's. The exception is `scene()`,
-which can only be last frame's. That's a feedback loop worth having, since it
-puts a screen inside the scene showing the scene:
+which can only be last frame's. That's a feedback loop: a screen inside the scene showing the scene:
 
 ```js
 bg('#101a2e')
@@ -2725,8 +2724,8 @@ cycle, 0 the rest. `perBar` cycles per bar, so the number is the note value:
 
 It drops straight into anything that triggers — `restart`, `jump`, `.when()`,
 `.hold()`. Those fire on the rising edge and ignore the width, so the second
-argument (`beat(4, 0.1)`) only really matters to `.when()`, where it sets how
-long the branch stays up.
+argument (`beat(4, 0.1)`) only matters to `.when()`, where it sets how long the
+branch stays up.
 
 **`B`** is the same tempo as a moving value: bars elapsed, counting up. It's
 `T` on the grid, and the rate is set the same way — `.mul()` — so anything you

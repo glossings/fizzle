@@ -28,7 +28,7 @@ import { bandStore } from './bands.js';
 import {
   GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
   GLOBAL_ARGS, METHOD_ARGS, GLOBAL_SECTIONS,
-  GLOBAL_KIND, METHOD_KINDS, KIND_LABEL, CALLBACK_KIND, docDom, keyEntry,
+  GLOBAL_KIND, METHOD_KINDS, CALLBACK_KIND, docDom, keyEntry,
 } from './docs.js';
 
 // no detail: the info panel's own header is the signature, and printing it on
@@ -43,7 +43,7 @@ const globalOption = ([label, entry], extra) => {
   return {
     label,
     type: (entry[0].includes('(') ? 'function' : 'variable') + (kind ? ` k-${kind}` : ''),
-    info: () => docDom(entry, KIND_LABEL[kind]),
+    info: () => docDom(entry, kind),
     ...extra,
   };
 };
@@ -62,7 +62,7 @@ const catalogOptions = GLOBAL_SECTIONS.flatMap(([name, list], rank) =>
 const methodOption = ([label, entry], kind) => ({
   label,
   type: entry[0].includes('(') ? 'method' : 'property',
-  info: () => docDom(entry, KIND_LABEL[kind]),
+  info: () => docDom(entry, kind),
 });
 
 // The kind a method belongs to, when there's only one: .kaleido is a texture
@@ -515,8 +515,12 @@ export function docAt(state, pos) {
   const isMethod = range.from > 0 && state.doc.sliceString(range.from - 1, range.from) === '.';
   const entry = isMethod ? METHODS[word] : GLOBALS[word] ?? METHODS[word];
   if (!entry) return null;
-  const kind = !isMethod && GLOBALS[word] ? GLOBAL_KIND[word] : soleKind(word);
-  return { range, entry, kind: KIND_LABEL[kind] };
+  if (!isMethod && GLOBALS[word]) return { range, entry, kind: GLOBAL_KIND[word] };
+  // the chain in front of the dot says which .alpha this is; soleKind covers
+  // the names that mean one thing wherever they turn up
+  const receiver = isMethod ? exprEndingAt(state, range.from - 1) : null;
+  const kind = (receiver && chainKind(state, receiver)) || soleKind(word);
+  return { range, entry, kind };
 }
 
 export const apiHover = hoverTooltip((view, pos) => {
