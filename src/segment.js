@@ -67,9 +67,9 @@ function segmenter(model) {
 
 // One inference loop per camera+model, feeding every part slot registered on
 // it — asking for hair and clothes of the same camera segments once. Loops
-// run for the life of the page like the stream itself, but inference only
-// happens on frames something rendered recently (slots' `wanted` is stamped
-// by the person() nodes), so an edited-out person() goes quiet.
+// run for the life of the page, but inference only happens on frames
+// something rendered recently (slots' `wanted` is stamped by the person()
+// nodes), so an edited-out person() goes quiet.
 const loops = new Map();
 
 export function startSegment(slot, videoSlot, part, camName) {
@@ -91,6 +91,9 @@ export function startSegment(slot, videoSlot, part, camName) {
     );
     run(loop);
   }
+  // a reaped camera comes back as a fresh slot (engine.reapCaptures) — the
+  // loop must read the live one, not the one it was created with
+  loop.videoSlot = videoSlot;
   loop.slots.set(part ?? '', slot);
 }
 

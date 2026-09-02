@@ -94,11 +94,11 @@ export class Engine {
     this.pointer = { x: 0, y: 0, down: 0 };
 
     this.audio = null;              // AudioEngine, created lazily by audio()
-    this.audios = new Map();        // named audio captures, shared across re-runs
+    this.audios = new Map();        // named audio captures, shared across re-runs while used (reapCaptures)
     this.audioDeviceId = undefined; // undefined = system default input
     this.audioEnabled = true;       // false = 'off' in the sidebar
-    this.videos = new Map();        // camera captures by name, shared across re-runs
-    this.segments = new Map();      // person() masks by camera name, shared across re-runs
+    this.videos = new Map();        // camera captures by name, shared across re-runs while used
+    this.segments = new Map();      // person() masks by camera name, shared across re-runs while used
     this.media = new Map();         // imported media files (kind:name), shared across re-runs
     this.models = new Map();        // parsed .obj/.fbx geometry, shared across re-runs
     this.pointSets = new Map();     // shape -> sampled surface points, geo.sample()
@@ -325,11 +325,14 @@ export class Engine {
       ae = new AudioEngine();
       this.audios.set(key, ae);
     }
+    ae.gen = this.patchGen; // this run uses it — reapCaptures spares it
     if (this.audioEnabled && !ae.running && !ae.starting) {
       ae.starting = true; // hold the flag while the label resolves to a device
       this.resolveAudioInput(key).then((id) => {
         ae.starting = false;
-        ae.start(id);
+        // reaped while the label was resolving — don't start a capture
+        // nothing owns
+        if (this.audios.get(key) === ae) ae.start(id);
       });
     }
     return ae;
@@ -383,8 +386,10 @@ export class Engine {
 
   // Camera capture for the video() texture. `name` is 'front'/'back' for a
   // facing (see FACING), otherwise a camera label matched case-insensitively
-  // by substring; no name = default camera. Streams are created once and
-  // survive re-runs, so livecoding doesn't re-prompt.
+  // by substring; no name = default camera. A stream survives re-runs while
+  // some video()/person() still names it, so livecoding doesn't restart the
+  // capture; a run without one stops it (reapCaptures), so the camera light
+  // goes out when the sketch stops watching.
   ensureVideo(name) {
     const key = name ?? '';
     let v = this.videos.get(key);
@@ -425,6 +430,11 @@ export class Engine {
           else warn(`video: no camera matching "${name}" — using default. Sources: ${labels(devs)}`);
         }
         const stream = await navigator.mediaDevices.getUserMedia({ video: constraint });
+        if (this.videos.get(key) !== v) {
+          // reaped while the permission dialog was up — nothing owns this
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         // labels unlock once a stream is live; refresh so the listing is useful
         if (!devs.some((d) => d.label)) devs = await cams();
         console.info(`fizzle: video: using "${stream.getVideoTracks()[0]?.label}". Sources: ${labels(devs)}`);
@@ -468,6 +478,42 @@ export class Engine {
       window.addEventListener('keydown', retry, { once: true });
     });
     return el;
+  }
+
+  // After a run: stop captures the new sketch no longer names, so the
+  // camera/mic indicator lights follow the code. Which cameras are wanted is
+  // read from the texture graph (a video() in a dormant .when() branch still
+  // has its node, so switching doesn't drop the stream); named audio captures
+  // are stamped by ensureAudio during the run. The sidebar's default audio
+  // capture isn't the sketch's to reap — setAudioDevice owns it.
+  reapCaptures() {
+    const cams = new Set();
+    const segs = new Set();
+    for (const n of this.textureNodes) {
+      if (n.kind === 'video') cams.add(n.params.name ?? '');
+      if (n.kind === 'segment') {
+        cams.add(n.params.name ?? '');
+        segs.add(`${n.params.part ?? ''}|${n.params.name ?? ''}`);
+      }
+    }
+    for (const [key, v] of this.videos) {
+      if (cams.has(key)) continue;
+      this.videos.delete(key); // first: an in-flight getUserMedia checks this
+      const el = v.texture?.image;
+      el?.srcObject?.getTracks().forEach((t) => t.stop());
+      if (el) { el.srcObject = null; el.remove(); }
+      v.texture?.dispose();
+    }
+    for (const [key, s] of this.segments) {
+      if (segs.has(key)) continue;
+      this.segments.delete(key);
+      s.texture?.dispose();
+    }
+    for (const [key, ae] of this.audios) {
+      if (ae.gen === this.patchGen) continue;
+      this.audios.delete(key);
+      ae.stop();
+    }
   }
 
   // Imported media file (dropped into the window or picked via an empty
@@ -970,6 +1016,10 @@ export class Engine {
         this.syncResolution();
       }
       return err;
+    } finally {
+      // whatever patch stands now — new, restored, or blank — is what decides
+      // which camera/mic captures live on
+      this.reapCaptures();
     }
   }
 }

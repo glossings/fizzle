@@ -2322,6 +2322,7 @@ Changing `res` or resizing the window starts it over.
 camera; a name matches a camera label by case-insensitive substring
 (`video('facetime')`), and the console lists what's available. First use asks
 for permission, the stream survives re-runs, and it renders black until live.
+Removing the call stops the capture, so the camera light follows the code.
 It's a texture like any other: displace it, mask it, feed it back.
 
 **`video('front')` and `video('back')`** ask for a facing rather than a name,
