@@ -15,7 +15,7 @@ import { makeLayout, Layout } from './layout.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
-import { sig, valueNoise, barPhase, setBpmSource } from './audio.js';
+import { sig, Signal, valueNoise, barPhase, setBpmSource } from './audio.js';
 import { bandValue } from './bands.js';
 import { midiHandle, gamepadHandle } from './control.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
@@ -1707,6 +1707,7 @@ export function makeApi(engine) {
     // there, which is the point when the helper is the part you aren't editing.
     Texture: TextureOp,
     Geometry: GeoOp,
+    Signal,
     Layout,
 
     // A bus name nothing else will take, one per call site — what a helper

@@ -81,6 +81,7 @@ export const GLOBALS = {
   THREE: ['THREE', 'The full three.js namespace, for anything the API does not cover.'],
   Texture: ['Texture', "The type every texture chain is one of. Adding to its prototype adds an op to every chain: Texture.prototype.punch = function (n) { return this.pow(n).contrast(2) } — a function, not an arrow, so `this` is the chain. Also what x instanceof Texture asks."],
   Geometry: ['Geometry', 'The type every geometry chain is one of — the sphere()/box() counterpart of Texture. See Texture.'],
+  Signal: ['Signal', 'The type every signal is one of — the T/audio()/rand() counterpart of Texture. See Texture.'],
   bufferId: ['bufferId()', "A bus name nothing else will take, one per call site: with b = bufferId(), input(b) / .out(b) is a feedback loop that can't collide. The same call site gets the same id every re-run, so the loop keeps its contents. Mostly you want .feedback(), which is this plus the wiring."],
 };
 
@@ -858,7 +859,7 @@ if (import.meta.env?.DEV) {
 // this a `.` offers all 59 methods, so a geometry chain is asked to choose
 // between `bandpass` and `kaleido` when nine verbs apply — the wrong question
 // to put in front of someone mid-set. Kinds mirror the classes in api.js
-// (GeoOp / LightOp / InstanceHandle), textures.js (TextureOp) and audio.js (sig).
+// (GeoOp / LightOp / InstanceHandle), textures.js (TextureOp) and audio.js (Signal).
 
 const names = (s) => s.trim().split(/\s+/);
 

@@ -1840,8 +1840,8 @@ circle({ radius: 0.08, soft: 0.02, color: '#ff5f9e', bg: null })
 
 ### custom methods
 
-`Texture` and `Geometry` are in scope. Adding to a prototype adds an op to
-every chain of that kind:
+`Texture`, `Geometry` and `Signal` are in scope. Adding to a prototype adds an
+op to every chain of that kind:
 
 ```js
 Texture.prototype.trail = function (amt = 0.9) {
@@ -1868,6 +1868,23 @@ Geometry.prototype.spin = function (rate = 0.3) {
 }
 
 torus({ radius: 1.2, tube: 0.4 }).spin(0.5).color('#4fd1c5').out()
+```
+
+`Signal` is the same for anything that reads as a value over time, so a shaping
+move you keep retyping becomes one word:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+
+Signal.prototype.pulse = function (rate = 1) {
+  return this.mul(rate).sin().pow(3)
+}
+
+sphere({ radius: 1 })
+  .scale(T.pulse(0.5).range(0.6, 1.4))
+  .color('#f0883e')
+  .out()
 ```
 
 The types themselves are in scope, so a helper can branch on what it was given:
@@ -2786,8 +2803,9 @@ camera({ fly: true, speed: 12, lift: 5 })
 - `THREE` — the full three.js namespace is in scope for anything the API
   doesn't cover.
 - `onFrame((t, dt) => ...)` — register a raw per-frame callback.
-- `Texture` / `Geometry` — the types the chains are built from. Adding to a
-  prototype adds an op of your own to every chain; see [custom methods](#custom-methods).
+- `Texture` / `Geometry` / `Signal` — the types the chains are built from.
+  Adding to a prototype adds an op of your own to every chain; see
+  [custom methods](#custom-methods).
 
 ```js
 ambient({ intensity: 0.3 })

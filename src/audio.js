@@ -244,134 +244,224 @@ export const barPhase = (t, perBar) => (t * bpm() * perBar) / (60 * BEATS_PER_BA
 // That state lives in carry.js rather than in the closure, so it survives the
 // re-run: a counter keeps its place in the palette and a smoothed level keeps
 // its level while you edit the numbers around them.
+//
+// The methods live on Signal.prototype rather than on each signal, so a sketch
+// can add one — `Signal.prototype.punch = function (n) { ... }` — the way it
+// can with Texture and Geometry, and so `x instanceof Signal` answers. A
+// signal is still a plain function underneath: typeof is 'function' and s(t)
+// calls it, which is what every value-or-fn-of-t parameter is duck-typing on.
+export function Signal() {}
+Signal.prototype = Object.create(Function.prototype);
+Signal.prototype.constructor = Signal;
+
+// The audio engine a signal came from, for the spectral ops. A symbol so it
+// stays off the enumerable surface a sketch (or a for..in) sees.
+const AE = Symbol('audioEngine');
+
 export function sig(fn, ae = null) {
   const f = (t) => fn(t);
-  const mk = (g) => sig(g, ae);
-  f.add = (v = 0) => mk((t) => f(t) + resolve(v, t));
-  f.sub = (v = 0) => mk((t) => f(t) - resolve(v, t));
-  f.mul = (v = 1) => mk((t) => f(t) * resolve(v, t));
-  // a moving divisor is why this can't be .mul(1 / v); the floor keeps a zero
-  // one from handing Infinity to a uniform, the same guard ramp's period uses
-  f.div = (v = 1) => mk((t) => {
-    const d = resolve(v, t);
-    return f(t) / (Math.abs(d) > 1e-6 ? d : (Math.sign(d) || 1) * 1e-6);
-  });
-  f.pow = (v = 1) => mk((t) => Math.pow(Math.max(f(t), 0), resolve(v, t)));
-  // Rescale to a useful span. The input is assumed 0..1 — what every shaper,
-  // rand() and audio() already produce — so `from` is only there for the
-  // signals that aren't: raw trigonometry (-1..1) and mouse().
-  // .range({ from, to }) names both ends when the positional pair reads worse.
-  f.range = (min = 0, max = 1, o = {}) => {
-    // .range([lo, hi]) is the same span the two positional args name — reading
-    // it as an options object instead would make the call a silent no-op
-    if (Array.isArray(min)) { o = { ...o, to: min }; }
-    else if (min !== null && typeof min === 'object') { o = min; min = 0; max = 1; }
-    const [f0, f1] = o.from ?? [0, 1];
-    const [t0, t1] = o.to ?? [min, max];
-    return mk((t) => {
-      const a = resolve(f0, t), span = resolve(f1, t) - a;
-      const u = span === 0 ? 0 : (f(t) - a) / span; // a zero-width source maps to the low end
-      const lo = resolve(t0, t);
-      return lo + u * (resolve(t1, t) - lo);
-    });
-  };
-  // limit without rescaling — .range() is free to overshoot, this is the fence
-  f.clamp = (lo = 0, hi = 1) =>
-    mk((t) => Math.min(Math.max(f(t), resolve(lo, t)), resolve(hi, t)));
-  f.round = () => mk((t) => Math.round(f(t)));
-  f.floor = () => mk((t) => Math.floor(f(t)));
-  f.ceil = () => mk((t) => Math.ceil(f(t)));
-  f.abs = () => mk((t) => Math.abs(f(t)));
-  // comparisons -> 1/0 gates, ready for .when()/.counter()
-  f.gte = (v) => mk((t) => (f(t) >= resolve(v, t) ? 1 : 0));
-  f.lte = (v) => mk((t) => (f(t) <= resolve(v, t) ? 1 : 0));
-  // rising-edge counter: +1 each time the value crosses up through threshold
-  // (a kicks() hit, a gate opening); wraps at max
-  f.counter = (max = Infinity, threshold = 0.5) => {
-    const s = carried('counter', () => ({ n: 0, prev: Infinity, lastT: null }));
-    return mk((t) => {
-      if (t === s.lastT) return s.n;
-      s.lastT = t;
-      const x = f(t);
-      if (x >= threshold && s.prev < threshold && Number.isFinite(x)) {
-        s.n = Number.isFinite(max) ? (s.n + 1) % Math.max(1, Math.round(max)) : s.n + 1;
-      }
-      s.prev = x;
-      return s.n;
-    });
-  };
-  // index an array by the value (floored, wrapped) — items may be fns of t,
-  // and non-numeric items (colors, strings) are fine
-  f.select = (arr) => mk((t) => {
-    const i = ((Math.floor(f(t)) % arr.length) + arr.length) % arr.length;
-    return resolve(arr[i], t);
-  });
-  // waveshapes: treat the value as a phase ramp (beat(), or anything);
-  // one cycle per whole unit, all outputs 0..1
-  f.sin = () => mk((t) => 0.5 + 0.5 * Math.sin(f(t) * Math.PI * 2));
-  f.cos = () => mk((t) => 0.5 + 0.5 * Math.cos(f(t) * Math.PI * 2));
-  f.tri = () => mk((t) => 1 - Math.abs(2 * frac(f(t)) - 1));
-  f.saw = () => mk((t) => frac(f(t)));
-  f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
-  // tempo-synced sample-and-hold: freeze a new value of this signal perBar
-  // times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar.
-  // Shorthand for .hold(beat(perBar)), and the same code path, so the two
-  // can't drift; .hold() is there for a trigger that isn't the tempo.
-  f.beat = (perBar = 4) => f.hold(sig((t) => barPhase(t, resolve(perBar, t))).sqr(0.5));
-  // sample-and-hold driven by another signal: freeze the current value each
-  // time the trigger crosses up through threshold (a kicks() hit, a gate)
-  f.hold = (trigger, threshold = 0.5) => {
-    const s = carried('hold', () => ({ held: null, prev: Infinity, lastT: null }));
-    return mk((t) => {
-      if (t === s.lastT) return s.held;
-      s.lastT = t;
-      const x = resolve(trigger, t);
-      if (s.held == null || (x >= threshold && s.prev < threshold)) s.held = f(t);
-      s.prev = x;
-      return s.held;
-    });
-  };
-  // adaptive onset detector on this signal: fires 1 when the value jumps
-  // past threshold × its own moving average (and above floor), then decays
-  // exponentially. Feed it a band for percussion: .bandpass(30, 160).kicks()
-  f.kicks = ({ threshold = 1.5, decay = 6, floor = 0.05 } = {}) => {
-    const s = carried('kicks', () => ({ avg: 0, env: 0, lastT: null, cool: 0 }));
-    return mk((t) => {
-      if (t === s.lastT) return s.env;
-      const dt = s.lastT == null ? 0 : Math.max(t - s.lastT, 0);
-      s.lastT = t;
-      const e = f(t);
-      s.avg += (e - s.avg) * Math.min(1, dt * 2); // ~0.5s adaptive baseline
-      s.cool = Math.max(0, s.cool - dt);
-      if (s.cool <= 0 && e > floor && e > s.avg * resolve(threshold, t)) {
-        s.env = 1;
-        s.cool = 0.15; // refractory: one hit can't retrigger itself
-      } else {
-        s.env *= Math.exp(-resolve(decay, t) * dt);
-      }
-      return s.env;
-    });
-  };
-  // exponential lag (one-pole lowpass on the control value); up/down are
-  // attack/release time constants in seconds
-  f.smooth = (up = 0.15, down = up) => {
-    const s = carried('smooth', () => ({ v: 0, lastT: null }));
-    return mk((t) => {
-      if (t === s.lastT) return s.v;
-      const dt = s.lastT == null ? 0 : Math.max(t - s.lastT, 0);
-      s.lastT = t;
-      const x = f(t);
-      const tau = x > s.v ? resolve(up, t) : resolve(down, t);
-      s.v = tau > 0 ? s.v + (x - s.v) * (1 - Math.exp(-dt / tau)) : x;
-      return s.v;
-    });
-  };
-  if (ae) {
-    // spectral energy of the audio source (0..1) — reads the input's
-    // spectrum, not the chained value
-    f.lowpass = (hz = 200) => mk((t) => ae.band(0, resolve(hz, t)));
-    f.highpass = (hz = 2000) => mk((t) => ae.band(resolve(hz, t), 20000));
-    f.bandpass = (lo = 200, hi = 2000) => mk((t) => ae.band(resolve(lo, t), resolve(hi, t)));
-  }
+  Object.setPrototypeOf(f, Signal.prototype);
+  f[AE] = ae;
   return f;
 }
+
+// Chain onto this signal: same audio source, so .bandpass() still reads the
+// spectrum however many ops down the chain it sits.
+function mk(self, g) {
+  return sig(g, self[AE]);
+}
+
+Signal.prototype.add = function (v = 0) {
+  const self = this;
+  return mk(self, (t) => self(t) + resolve(v, t));
+};
+Signal.prototype.sub = function (v = 0) {
+  const self = this;
+  return mk(self, (t) => self(t) - resolve(v, t));
+};
+Signal.prototype.mul = function (v = 1) {
+  const self = this;
+  return mk(self, (t) => self(t) * resolve(v, t));
+};
+// a moving divisor is why this can't be .mul(1 / v); the floor keeps a zero
+// one from handing Infinity to a uniform, the same guard ramp's period uses
+Signal.prototype.div = function (v = 1) {
+  const self = this;
+  return mk(self, (t) => {
+    const d = resolve(v, t);
+    return self(t) / (Math.abs(d) > 1e-6 ? d : (Math.sign(d) || 1) * 1e-6);
+  });
+};
+Signal.prototype.pow = function (v = 1) {
+  const self = this;
+  return mk(self, (t) => Math.pow(Math.max(self(t), 0), resolve(v, t)));
+};
+// Rescale to a useful span. The input is assumed 0..1 — what every shaper,
+// rand() and audio() already produce — so `from` is only there for the
+// signals that aren't: raw trigonometry (-1..1) and mouse().
+// .range({ from, to }) names both ends when the positional pair reads worse.
+Signal.prototype.range = function (min = 0, max = 1, o = {}) {
+  const self = this;
+  // .range([lo, hi]) is the same span the two positional args name — reading
+  // it as an options object instead would make the call a silent no-op
+  if (Array.isArray(min)) { o = { ...o, to: min }; }
+  else if (min !== null && typeof min === 'object') { o = min; min = 0; max = 1; }
+  const [f0, f1] = o.from ?? [0, 1];
+  const [t0, t1] = o.to ?? [min, max];
+  return mk(self, (t) => {
+    const a = resolve(f0, t), span = resolve(f1, t) - a;
+    const u = span === 0 ? 0 : (self(t) - a) / span; // a zero-width source maps to the low end
+    const lo = resolve(t0, t);
+    return lo + u * (resolve(t1, t) - lo);
+  });
+};
+// limit without rescaling — .range() is free to overshoot, this is the fence
+Signal.prototype.clamp = function (lo = 0, hi = 1) {
+  const self = this;
+  return mk(self, (t) => Math.min(Math.max(self(t), resolve(lo, t)), resolve(hi, t)));
+};
+Signal.prototype.round = function () {
+  const self = this;
+  return mk(self, (t) => Math.round(self(t)));
+};
+Signal.prototype.floor = function () {
+  const self = this;
+  return mk(self, (t) => Math.floor(self(t)));
+};
+Signal.prototype.ceil = function () {
+  const self = this;
+  return mk(self, (t) => Math.ceil(self(t)));
+};
+Signal.prototype.abs = function () {
+  const self = this;
+  return mk(self, (t) => Math.abs(self(t)));
+};
+// comparisons -> 1/0 gates, ready for .when()/.counter()
+Signal.prototype.gte = function (v) {
+  const self = this;
+  return mk(self, (t) => (self(t) >= resolve(v, t) ? 1 : 0));
+};
+Signal.prototype.lte = function (v) {
+  const self = this;
+  return mk(self, (t) => (self(t) <= resolve(v, t) ? 1 : 0));
+};
+// rising-edge counter: +1 each time the value crosses up through threshold
+// (a kicks() hit, a gate opening); wraps at max
+Signal.prototype.counter = function (max = Infinity, threshold = 0.5) {
+  const self = this;
+  const s = carried('counter', () => ({ n: 0, prev: Infinity, lastT: null }));
+  return mk(self, (t) => {
+    if (t === s.lastT) return s.n;
+    s.lastT = t;
+    const x = self(t);
+    if (x >= threshold && s.prev < threshold && Number.isFinite(x)) {
+      s.n = Number.isFinite(max) ? (s.n + 1) % Math.max(1, Math.round(max)) : s.n + 1;
+    }
+    s.prev = x;
+    return s.n;
+  });
+};
+// index an array by the value (floored, wrapped) — items may be fns of t,
+// and non-numeric items (colors, strings) are fine
+Signal.prototype.select = function (arr) {
+  const self = this;
+  return mk(self, (t) => {
+    const i = ((Math.floor(self(t)) % arr.length) + arr.length) % arr.length;
+    return resolve(arr[i], t);
+  });
+};
+// waveshapes: treat the value as a phase ramp (beat(), or anything);
+// one cycle per whole unit, all outputs 0..1
+Signal.prototype.sin = function () {
+  const self = this;
+  return mk(self, (t) => 0.5 + 0.5 * Math.sin(self(t) * Math.PI * 2));
+};
+Signal.prototype.cos = function () {
+  const self = this;
+  return mk(self, (t) => 0.5 + 0.5 * Math.cos(self(t) * Math.PI * 2));
+};
+Signal.prototype.tri = function () {
+  const self = this;
+  return mk(self, (t) => 1 - Math.abs(2 * frac(self(t)) - 1));
+};
+Signal.prototype.saw = function () {
+  const self = this;
+  return mk(self, (t) => frac(self(t)));
+};
+Signal.prototype.sqr = function (width = 0.5) {
+  const self = this;
+  return mk(self, (t) => (frac(self(t)) < resolve(width, t) ? 1 : 0));
+};
+// tempo-synced sample-and-hold: freeze a new value of this signal perBar
+// times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar.
+// Shorthand for .hold(beat(perBar)), and the same code path, so the two
+// can't drift; .hold() is there for a trigger that isn't the tempo.
+Signal.prototype.beat = function (perBar = 4) {
+  return this.hold(sig((t) => barPhase(t, resolve(perBar, t))).sqr(0.5));
+};
+// sample-and-hold driven by another signal: freeze the current value each
+// time the trigger crosses up through threshold (a kicks() hit, a gate)
+Signal.prototype.hold = function (trigger, threshold = 0.5) {
+  const self = this;
+  const s = carried('hold', () => ({ held: null, prev: Infinity, lastT: null }));
+  return mk(self, (t) => {
+    if (t === s.lastT) return s.held;
+    s.lastT = t;
+    const x = resolve(trigger, t);
+    if (s.held == null || (x >= threshold && s.prev < threshold)) s.held = self(t);
+    s.prev = x;
+    return s.held;
+  });
+};
+// adaptive onset detector on this signal: fires 1 when the value jumps
+// past threshold × its own moving average (and above floor), then decays
+// exponentially. Feed it a band for percussion: .bandpass(30, 160).kicks()
+Signal.prototype.kicks = function ({ threshold = 1.5, decay = 6, floor = 0.05 } = {}) {
+  const self = this;
+  const s = carried('kicks', () => ({ avg: 0, env: 0, lastT: null, cool: 0 }));
+  return mk(self, (t) => {
+    if (t === s.lastT) return s.env;
+    const dt = s.lastT == null ? 0 : Math.max(t - s.lastT, 0);
+    s.lastT = t;
+    const e = self(t);
+    s.avg += (e - s.avg) * Math.min(1, dt * 2); // ~0.5s adaptive baseline
+    s.cool = Math.max(0, s.cool - dt);
+    if (s.cool <= 0 && e > floor && e > s.avg * resolve(threshold, t)) {
+      s.env = 1;
+      s.cool = 0.15; // refractory: one hit can't retrigger itself
+    } else {
+      s.env *= Math.exp(-resolve(decay, t) * dt);
+    }
+    return s.env;
+  });
+};
+// exponential lag (one-pole lowpass on the control value); up/down are
+// attack/release time constants in seconds
+Signal.prototype.smooth = function (up = 0.15, down = up) {
+  const self = this;
+  const s = carried('smooth', () => ({ v: 0, lastT: null }));
+  return mk(self, (t) => {
+    if (t === s.lastT) return s.v;
+    const dt = s.lastT == null ? 0 : Math.max(t - s.lastT, 0);
+    s.lastT = t;
+    const x = self(t);
+    const tau = x > s.v ? resolve(up, t) : resolve(down, t);
+    s.v = tau > 0 ? s.v + (x - s.v) * (1 - Math.exp(-dt / tau)) : x;
+    return s.v;
+  });
+};
+
+// Spectral energy of the audio source (0..1) — reads the input's spectrum,
+// not the chained value. On the prototype like everything else, so a signal
+// with no audio behind it says so rather than throwing.
+function band(self, lo, hi) {
+  const ae = self[AE];
+  if (!ae) {
+    warn('signal: .lowpass/.highpass/.bandpass need an audio source — try audio().lowpass(200)');
+    return self;
+  }
+  return mk(self, (t) => ae.band(resolve(lo, t), resolve(hi, t)));
+}
+Signal.prototype.lowpass = function (hz = 200) { return band(this, 0, hz); };
+Signal.prototype.highpass = function (hz = 2000) { return band(this, hz, 20000); };
+Signal.prototype.bandpass = function (lo = 200, hi = 2000) { return band(this, lo, hi); };
