@@ -63,7 +63,7 @@ export const GLOBALS = {
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
-  curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along, so c(T.mul(0.2)) moves along it and c(i / n) is the i-th of n stations. Closed curves wrap u; open ones stop at the ends.\ncurve(fn) lifts your own function, curve(layout) follows an unbranched layout's trail; curve.circle(r), curve.line(a, b) and curve.helix({ … }) are ready-made. .tangent(u) is the direction of travel."],
+  curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along, so c(T.mul(0.2)) moves along it and c(i / n) is the i-th of n stations. Past the ends the motion continues without a jump: closed curves loop, open ones turn back.\ncurve(fn) lifts your own function, curve(layout) follows an unbranched layout's trail; curve.circle(r), curve.line(a, b) and curve.helix({ … }) are ready-made. .tangent(u) is the direction of travel."],
   spread: ['spread(n, { jitter, random, seed, end })', "n phases 0..1, evenly spaced — the values a curve eats: spread(12).map(c) is twelve points along it. The values hold still across frames and re-runs."],
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
@@ -121,7 +121,7 @@ export const METHODS = {
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
   tangent: ['.tangent(u)', "Curve: the direction of travel a fraction u of the way along, unit length — what .align() wants for a copy pointing along the curve."],
   circle: ['curve.circle(r, { center, axis })', "A closed circle of radius r — flat on the ground plane by default, starting on +X and heading toward +Z. r takes a fn of t."],
-  line: ['curve.line(a, b)', "A straight path from a to b, each an [x, y, z]; components take fns of t. Open, so u stops at the ends."],
+  line: ['curve.line(a, b)', "A straight path from a to b, each an [x, y, z]; components take fns of t. Open, so u turns back at the ends."],
   helix: ['curve.helix({ radius, height, turns })', "A helix rising along Y through the origin — u = 0 at the bottom, 1 at the top. Every option takes a fn of t."],
   normal: ['.normal(i)  ·  scatter data: .normal', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. A .scatter() set carries them all as .normal.'],
   scatter: ['.scatter(n)', "Geometry: the first n surface scatter points as a data set — the same points .sample(i) reads, with .noise() and the transform applied. Renders nothing."],
@@ -416,7 +416,7 @@ METHODS.material[2] = MATERIAL_GROUPS
 
 const GLOBAL_KEY_DOCS = {
   curve: {
-    closed: "Wrap u instead of stopping at the ends — for a lifted fn whose end meets its start. curve.circle() is already closed.",
+    closed: "Loop u instead of turning back at the ends — for a lifted fn whose end meets its start. curve.circle() is already closed.",
     even: 'Respace u by arc length, so equal steps of u cover equal distance even where the fn hurries. Snapshotted once (per frame when the fn takes t).',
   },
   spread: {

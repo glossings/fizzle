@@ -1327,7 +1327,10 @@ The built-ins:
 - `curve(layout)`: the trail an unbranched layout walked (below).
 
 Radii, centers and ends take fns of t, so `curve.circle(band(1).range(2, 4))`
-breathes with the music. Closed curves wrap `u`; open ones stop at the ends.
+breathes with the music. Past the ends the motion continues without a jump:
+closed curves loop and open ones turn back, so `c(T)` stays alive on any
+curve. A one-shot ride is the phase's job like everything else:
+`c(T.mul(0.2).clamp(0, 1))` rides once and holds the end.
 
 ### spread: the phases a set wants
 

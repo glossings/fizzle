@@ -6,8 +6,10 @@ import { Layout } from './layout.js';
 // the way along, so c(T.mul(0.2)) rides it and c(i / n) is the i-th of n
 // stations. Direction, start and easing all live in the phase — negate it to
 // go the other way, .add() to start elsewhere — so a curve has no knobs of
-// its own beyond its geometry. Closed curves wrap u, open ones stop at the
-// ends. spread(n) below makes the phase sets a curve eats.
+// its own beyond its geometry. Past the ends the motion continues without a
+// jump: closed curves loop, open ones turn back, so c(T) stays alive on any
+// curve (a one-shot ride is .clamp(0, 1) on the phase). spread(n) below makes
+// the phase sets a curve eats.
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const isFn = (v) => typeof v === 'function';
@@ -25,7 +27,7 @@ Curve.prototype.constructor = Curve;
 function mk(f, { closed = false, dynamic = false } = {}) {
   const wrap = closed
     ? (u) => u - Math.floor(u)
-    : (u) => Math.min(Math.max(u, 0), 1);
+    : (u) => { const w = u - 2 * Math.floor(u / 2); return w <= 1 ? w : 2 - w; };
   const call = (u) => evaluate(f, wrap, dynamic, u);
   Object.setPrototypeOf(call, Curve.prototype);
   call._f = f;
@@ -49,17 +51,29 @@ function evaluate(f, wrap, dynamic, u) {
   return [sig((t) => ev(t)[0]), sig((t) => ev(t)[1]), sig((t) => ev(t)[2])];
 }
 
-// direction of travel at u, unit length — what .align() wants
+// direction of travel at u, unit length — what .align() wants. Follows the
+// phase's motion, so it reverses on an open curve's return leg.
 Curve.prototype.tangent = function (u) {
   const f = this._f, wrap = this._wrap;
   const e = 1e-3;
-  const tan = (uu, t) => {
+  const diff = (uu, t) => {
     const a = f(wrap(uu - e), t), b = f(wrap(uu + e), t);
-    const x = b[0] - a[0], y = b[1] - a[1], z = b[2] - a[2];
-    const len = Math.hypot(x, y, z);
-    return len > 1e-9 ? [x / len, y / len, z / len] : [0, 1, 0];
+    return [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
   };
-  return evaluate(tan, wrap, this._dynamic, u);
+  const tan = (uu, t) => {
+    let d = diff(uu, t);
+    let len = Math.hypot(d[0], d[1], d[2]);
+    if (len < 1e-9) {
+      // exactly on a fold the two samples land on the same point — step just
+      // inside, so a station at either end still aims along the path
+      d = diff(wrap(uu) < 0.5 ? uu + e : uu - e, t);
+      len = Math.hypot(d[0], d[1], d[2]);
+    }
+    return len > 1e-9 ? [d[0] / len, d[1] / len, d[2] / len] : [0, 1, 0];
+  };
+  // the raw phase goes through — wrapping happens per sample inside diff, so
+  // u = 1.3 knows it's on the return leg rather than collapsing to 0.7
+  return evaluate(tan, (x) => x, this._dynamic, u);
 };
 
 const vec3 = (v, d) => (Array.isArray(v) ? [v[0] ?? d[0], v[1] ?? d[1], v[2] ?? d[2]] : d);
