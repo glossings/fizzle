@@ -179,6 +179,10 @@ html, body {
   color: #d8dce6;
 }
 .td-doc-sig {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
   color: #7ee787;
   font-weight: 600;
   margin-bottom: 3px;
@@ -228,6 +232,44 @@ html, body {
   font-style: normal;
   margin-left: 8px;
 }
+
+/* what kind of thing the tooltip is describing — the signature says what it
+   takes, never which chain it belongs to */
+.td-doc-kind {
+  flex: none;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+}
+/* Completion list: the icon's glyph says call or value, its color says what
+   the name makes, and a browse with nothing typed comes back under headings.
+   !important where CodeMirror's own base theme sets the same property — it
+   ships a silver rule under every heading, which reads as a table. */
+.cm-tooltip-autocomplete .cm-completionIcon { opacity: 0.85; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-geo { color: #98c379; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-texture { color: #61afef; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-signal { color: #d19a66; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-light { color: #e5c07b; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-particle { color: #e06c75; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-midi,
+.cm-tooltip-autocomplete .cm-completionIcon-k-gamepad { color: #56b6c2; }
+.cm-tooltip-autocomplete .cm-completionIcon-k-layout,
+.cm-tooltip-autocomplete .cm-completionIcon-k-curvens,
+.cm-tooltip-autocomplete .cm-completionIcon-k-data,
+.cm-tooltip-autocomplete .cm-completionIcon-k-segments { color: #c678dd; }
+.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {
+  border-bottom: none !important;
+  opacity: 1 !important;
+  padding: 7px 3px 2px 6px !important;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section:first-child { padding-top: 3px !important; }
 
 /* touch controls: run / pause / hide-code, built only on a touch screen
    (touch.js). Glass rather than a solid chip because they sit permanently over

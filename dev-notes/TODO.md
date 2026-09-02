@@ -50,6 +50,34 @@ category strings at [src/docs.js:541](../src/docs.js#L541) that drive completion
 
 ---
 
+## no way to browse the API without leaving the editor
+
+ctrl+space on an empty word now answers with every global grouped under the
+headings in `GLOBAL_SECTIONS` ([src/docs.js](../src/docs.js)), and each row's
+icon is colored by what the name makes. That covers *I half-remember the name*.
+It doesn't cover *I don't remember what exists*: the gesture is invisible, the
+popup is ten lines tall, and reading an entry means arrowing onto it one at a
+time. The fallback is the docs page, which is another tab and a lost train of
+thought mid-set.
+
+[ ] **A palette: one key, the whole catalog, inserted at the cursor.**
+
+  - Grouped by the same `GLOBAL_SECTIONS` the completion list reads, so there
+    is one catalog and not two that drift apart.
+  - Typing filters names and opening lines both, so `checker` turns up under
+    "grid" — the word you have is rarely the name.
+  - The row under the cursor shows its entry beside the list — `docDom()`
+    already renders one, badge and all — so browsing *is* reading the docs.
+  - Enter inserts the canonical call, `circle(` with the cursor inside it;
+    esc leaves the sketch untouched.
+  - Globals first. Methods have the dot, which is a better gesture than a
+    list of 59.
+
+  Two things to settle before writing it: which key (ctrl+p is the sidebar,
+  ctrl+a the audio manager, ctrl+r rewind, ctrl+e record), and whether it
+  belongs in [src/sidebar.js](../src/sidebar.js) or gets its own overlay the
+  way the Poly Haven browser has one.
+
 ## `camera()` has nowhere to put roll or the lens
 
 `camera()` is a position plus a look-at target ([src/api.js:1159](../src/api.js#L1159)),

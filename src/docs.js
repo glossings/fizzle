@@ -1034,6 +1034,44 @@ for (const [kind, list] of Object.entries(methodKinds)) {
   for (const n of names(list)) (METHOD_KINDS[n] ??= new Set()).add(kind);
 }
 
+// The badge a tooltip prints: what the thing you're looking at is. The name
+// alone doesn't say — noise() is a texture and .noise() a deformer.
+export const KIND_LABEL = {
+  geo: 'geometry', particle: 'particles', evolve: 'particle', light: 'light',
+  texture: 'texture', signal: 'signal', midi: 'midi', midikey: 'midi',
+  gamepad: 'gamepad', layout: 'layout', cursor: 'cursor', inst: 'copy',
+  curve: 'curve', curvens: 'curve', data: 'data', pairs: 'pairs', segments: 'segments',
+};
+
+// The globals as a catalog, for a completion popup opened with nothing typed:
+// 68 names in table order is a wall, the same names under seven headings is a
+// menu. The sections run in the order to meet them; inside one the names are
+// alphabetical, so a list you come back to keeps every name where you last
+// found it.
+export const GLOBAL_SECTIONS = [
+  ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
+  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene text video videofile voronoi'],
+  ['signals', 'audio audiofile B band beat gamepad midi mouse rand restartMedia select sig T tempo'],
+  ['structure', 'curve data layout link segments spread'],
+  ['lights', 'ambient directional hdri hemi point spot'],
+  ['scene', 'bg camera fog hsl hsv resolution'],
+  ['escape hatches', 'bufferId Geometry onFrame Signal Texture THREE'],
+].map(([name, list]) => [name, names(list)]);
+
+export const GLOBAL_SECTION = {};
+for (const [name, list] of GLOBAL_SECTIONS) for (const n of list) GLOBAL_SECTION[n] = name;
+
+// A global left out of the catalog is missing from the one list that claims to
+// show everything, and nothing else would say so.
+if (import.meta.env?.DEV) {
+  for (const n of Object.keys(GLOBALS)) {
+    if (!GLOBAL_SECTION[n]) console.warn(`docs: ${n} is in no catalog section`);
+  }
+  for (const n of Object.keys(GLOBAL_SECTION)) {
+    if (!GLOBALS[n]) console.warn(`docs: the catalog lists ${n}, which no longer exists`);
+  }
+}
+
 // A callback parameter's kind, by the method that hands it over:
 // .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
 export const CALLBACK_KIND = {
@@ -1099,9 +1137,14 @@ function tailNodes(blocks, extra) {
   return out;
 }
 
-export function docDom([sig, info, extra]) {
+export function docDom([sig, info, extra], kind) {
   const dom = el('div', 'td-doc');
-  dom.append(el('div', 'td-doc-sig', sig));
+  // the kind rides on the signature line: which chain this belongs to is the
+  // one thing the signature never says
+  const head = el('div', 'td-doc-sig');
+  head.append(el('span', null, sig));
+  if (kind) head.append(el('span', 'td-doc-kind', kind));
+  dom.append(head);
   const [lead, ...rest] = blocksOf(info);
   dom.append(el('div', 'td-doc-lead', lead));
   const tail = tailNodes(rest, extra);

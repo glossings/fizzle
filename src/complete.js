@@ -27,26 +27,60 @@ import { midiPortNames } from './control.js';
 import { bandStore } from './bands.js';
 import {
   GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
-  GLOBAL_ARGS, METHOD_ARGS,
-  GLOBAL_KIND, METHOD_KINDS, CALLBACK_KIND, docDom, keyEntry,
+  GLOBAL_ARGS, METHOD_ARGS, GLOBAL_SECTIONS,
+  GLOBAL_KIND, METHOD_KINDS, KIND_LABEL, CALLBACK_KIND, docDom, keyEntry,
 } from './docs.js';
 
 // no detail: the info panel's own header is the signature, and printing it on
 // the row too just says it twice
 // T and B are values you read rather than calls — same rule as the methods below
-const globalOptions = Object.entries(GLOBALS).map(([label, entry]) => ({
-  label, type: entry[0].includes('(') ? 'function' : 'variable', info: () => docDom(entry),
-}));
+// The icon's glyph says call or value; a second class colors it by what the
+// name makes, so `noise` in a list of forty reads as a texture without opening
+// anything. Prefixed, so a kind of ours can't land on one of CodeMirror's own
+// icon names.
+const globalOption = ([label, entry], extra) => {
+  const kind = GLOBAL_KIND[label];
+  return {
+    label,
+    type: (entry[0].includes('(') ? 'function' : 'variable') + (kind ? ` k-${kind}` : ''),
+    info: () => docDom(entry, KIND_LABEL[kind]),
+    ...extra,
+  };
+};
+const globalOptions = Object.entries(GLOBALS).map((e) => globalOption(e));
+
+// The same names grouped, for a popup opened with nothing typed. Section rank
+// sets the order of the groups; inside one, CodeMirror sorts equal scores by
+// label, which is the alphabetical order the catalog is written in.
+const catalogOptions = GLOBAL_SECTIONS.flatMap(([name, list], rank) =>
+  list.filter((label) => GLOBALS[label]).map((label) =>
+    globalOption([label, GLOBALS[label]], { section: { name, rank } }))
+);
+
 // a midi()/gamepad() member that takes no argument is a signal you read, not a
 // call — the signature says which, and the icon in the list should agree
-const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
-  label, type: entry[0].includes('(') ? 'method' : 'property', info: () => docDom(entry),
-}));
+const methodOption = ([label, entry], kind) => ({
+  label,
+  type: entry[0].includes('(') ? 'method' : 'property',
+  info: () => docDom(entry, KIND_LABEL[kind]),
+});
 
-// one filtered method list per chain kind, built once
+// The kind a method belongs to, when there's only one: .kaleido is a texture
+// op wherever you meet it, .position is four different methods.
+const soleKind = (label) => {
+  const kinds = METHOD_KINDS[label];
+  return kinds?.size === 1 ? [...kinds][0] : undefined;
+};
+
+const methodOptions = Object.entries(METHODS).map((e) => methodOption(e, soleKind(e[0])));
+
+// one filtered method list per chain kind, built once — and inside one, the
+// kind is known, so every entry can say so
 const methodsByKind = {};
 for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
-  methodsByKind[kind] = methodOptions.filter((o) => METHOD_KINDS[o.label]?.has(kind));
+  methodsByKind[kind] = Object.entries(METHODS)
+    .filter(([label]) => METHOD_KINDS[label]?.has(kind))
+    .map((e) => methodOption(e, kind));
 }
 
 // globals grouped by what they produce, for boosting at a value position
@@ -304,9 +338,14 @@ export function apiCompletions(context) {
       : keyCompletions(context, config);
   }
 
+  // Nothing typed is a different question from a prefix: asking with an empty
+  // line is browsing, so it gets the catalog — grouped, in catalog order. A
+  // prefix is a search, and sections would reorder its answers by group rather
+  // than by how well they match, so that list stays flat. (No validFor on the
+  // catalog: the first keystroke should re-ask rather than filter it in place.)
   const word = context.matchBefore(/\w+$/);
-  if (!word && !context.explicit) return null;
-  return { from: word ? word.from : pos, options: globalOptions, validFor: /^\w*$/ };
+  if (!word) return context.explicit ? { from: pos, options: catalogOptions } : null;
+  return { from: word.from, options: globalOptions, validFor: /^\w*$/ };
 }
 
 function keyCompletions(context, { label: call, keys }) {
@@ -475,7 +514,9 @@ export function docAt(state, pos) {
 
   const isMethod = range.from > 0 && state.doc.sliceString(range.from - 1, range.from) === '.';
   const entry = isMethod ? METHODS[word] : GLOBALS[word] ?? METHODS[word];
-  return entry ? { range, entry } : null;
+  if (!entry) return null;
+  const kind = !isMethod && GLOBALS[word] ? GLOBAL_KIND[word] : soleKind(word);
+  return { range, entry, kind: KIND_LABEL[kind] };
 }
 
 export const apiHover = hoverTooltip((view, pos) => {
@@ -486,6 +527,6 @@ export const apiHover = hoverTooltip((view, pos) => {
     pos: found.range.from,
     end: found.range.to,
     above: true,
-    create: () => ({ dom: docDom(found.entry) }),
+    create: () => ({ dom: docDom(found.entry, found.kind) }),
   };
 }, { hoverTime: 120 });
