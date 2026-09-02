@@ -151,6 +151,37 @@ stack step.
 [ ] Whatever the fix, say the sampling rule in the tooltip. "Radius in pixels"
   is what it reads as now, and that is not what it does.
 
+## `.edge()` in feedback locked to the texel grid (fixed)
+
+Same disease as the blur comb above, in a different operator: a loop audits its
+operator's frequency response, and whatever the operator likes best is all you
+get to see. `.feedback(0.4, s => s.edge())` is `source + 0.4 × edge(last)`,
+which amplifies exponentially, so the pattern with the highest gain outgrows
+everything else within a couple of seconds. Sobel's peak gain varies 8.14% with
+edge angle, always favouring the axes, so that pattern was fine horizontal and
+vertical stripes at the kernel's 4-texel resonance — every time, on any source.
+
+Classic now runs [4,13,4] scaled by 1/5.25 instead of Sobel's [1,2,1]
+([src/textures.js:550](../src/textures.js#L550)). The ratio 2a/b = 8/13
+equalizes on-axis and on-diagonal peak gain; the scale is chosen so the response
+to a straight edge is exactly Sobel's old 4.0, and peak gain stays 8.0. Measured
+across 0–45°, orientation spread goes 8.14% → 0.022%. So a single pass renders
+as it always did (diagonals differ by up to 8.9% at most, under a mode that
+clips 4x hot), and only iterated loops change: stripes now follow whatever
+seeded them, in patches at content angles rather than one global grid.
+
+Deliberately not done: no new mode name. "Use this one inside feedback" is a
+defect notice, not a look, and the visible menu stays fat-or-clean. Crisp keeps
+Sobel — it normalizes, so the diagonal difference would survive to screen, and
+it has no feedback story to fix. Classic slope/normal move to the balanced
+weights too, which lands them nearer Scharr's direction accuracy at identical
+amplitude.
+
+[ ] `spread > 1` under iteration is still haunted, and no weighting fixes it:
+  the taps move to `±spread` texels ([src/textures.js:553](../src/textures.js#L553))
+  and leave everything between them unattenuated, exactly the blur comb. Wants
+  the same tap-count treatment.
+
 ## `.field()` reads the chain through point sampling
 
 The readback copy samples the full-res chain once per field texel

@@ -555,20 +555,26 @@ const SPECS = {
         float tl = lum(vec2(-1.0,  1.0)), tc = lum(vec2(0.0,  1.0)), tr = lum(vec2(1.0,  1.0));
         float ml = lum(vec2(-1.0,  0.0)),                            mr = lum(vec2(1.0,  0.0));
         float bl = lum(vec2(-1.0, -1.0)), bc = lum(vec2(0.0, -1.0)), br = lum(vec2(1.0, -1.0));
-        // Sobel [1,2,1], except crisp slope/normal, which take Scharr's
-        // [3,10,3]: ~10x truer gradient *direction* on smooth sources, the only
-        // thing those two encode. edge() shows magnitude, where Scharr is the
-        // worse of the two (its peak varies twice as much with edge angle).
-        bool scharr = uCrisp > 0.5 && uMode > 0.5;
-        float kc = scharr ?  3.0 : 1.0;    // corner taps
-        float km = scharr ? 10.0 : 2.0;    // middle tap
+        // Sobel [1,2,1] under crisp, and Scharr's [3,10,3] for crisp
+        // slope/normal: ~10x truer gradient *direction* on smooth sources, the
+        // only thing those two encode.
+        // classic takes [4,13,4] scaled to Sobel's step response — same numbers
+        // on a straight edge, but gain flat to 0.02% across edge angle where
+        // Sobel's swings 8%. Nothing sees that once, and a feedback loop sees
+        // nothing else: the 8% compounds per frame until the loop locks to the
+        // texel grid, which is why edge() fed back on itself used to make only
+        // horizontal and vertical lines.
+        bool crisp = uCrisp > 0.5;
+        bool scharr = crisp && uMode > 0.5;
+        float kc = scharr ?  3.0 : (crisp ? 1.0 : 0.7619048);    // corner taps
+        float km = scharr ? 10.0 : (crisp ? 2.0 : 2.4761905);    // middle tap
         float gx = (kc * tr + km * mr + kc * br) - (kc * tl + km * ml + kc * bl);
         float gy = (kc * tl + km * tc + kc * tr) - (kc * bl + km * bc + kc * br);
         // classic runs the kernel unnormalized — a ~4x-hot magnitude that clips
         // across its whole 3-texel support, and that fat stepped line is the
         // look. crisp divides by the positive weights, so strength 1 is a full
         // black-to-white step and the source's antialiasing survives.
-        if (uCrisp > 0.5) { float n = 1.0 / (2.0 * kc + km); gx *= n; gy *= n; }
+        if (crisp) { float n = 1.0 / (2.0 * kc + km); gx *= n; gy *= n; }
         if (uMode < 0.5) {
           float m = length(vec2(gx, gy)) * uStrength;
           // coverage is the edge, not the source's: no line, no image. The
