@@ -173,6 +173,7 @@ export const METHODS = {
   counter: ['.counter(max?, threshold = 0.5)', 'Signal: counts rising edges; wraps at max.'],
   select: ['.select([a, b, c, ...])', 'Signal: index the array by the value (floored, wrapped). Items may be numbers, colors, strings, or fns of t.'],
   sin: ['.sin()', 'Signal: sine shape of the value-as-phase (0..1 out, one cycle per whole unit).'],
+  cos: ['.cos()', 'Signal: cosine shape of the value-as-phase (0..1 out) — .sin() a quarter cycle ahead, so it starts at 1.'],
   tri: ['.tri()', 'Signal: triangle shape of the value-as-phase (0..1 out).'],
   saw: ['.saw()', 'Signal: fractional part of the value — a ramp per cycle.'],
   sqr: ['.sqr(width = 0.5)', 'Signal: 1 while the phase is below width, else 0 — square LFO / rhythmic gate.'],
@@ -520,7 +521,7 @@ const GLOBAL_KEY_DOCS = {
     phase: 'Slides the sweep along itself, in cycles. Default 0. With period or shape named it wraps, so animating it scrolls the bands forever.',
     period: 'How much of the frame one cycle of the sweep spans. Default 1, a single gradient; below that it repeats into bands — 0.5 is two, and with type angular or radial that gives a pinwheel or rings. The useful range is 0..1, so a bare signal drops in.',
     freq: 'How many cycles span the frame — the reciprocal of period, and the easier spelling for fine bands: freq: 80 is scanlines. Naming either one is what makes phase wrap.',
-    shape: "Waveshape of each period, the same four signals have: 'saw' (default — plain ramp, hard seam), 'tri' (seamless, what soft stripes want), 'sin' (smoother still), 'sqr' (hard bands).",
+    shape: "Waveshape of each period, as on signals: 'saw' (default — plain ramp, hard seam), 'tri' (seamless, what soft stripes want), 'sin' (smoother still), 'sqr' (hard bands).",
   },
   circle: {
     radius: 'Radius in UV units, so 0.5 touches the frame edge. Default 0.25. A texture here is the radius at that pixel — noise({ freq: 3 }).mul(0.1).add(0.25) is a wobbling blob.',
@@ -889,7 +890,7 @@ const methodKinds = {
         remap lookup tint alpha displace comp mask blur bloom delay feedback when tile instance particles points lines wire out
         ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
-           sin tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
+           sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that
   // take a number. midikey is what .key(38) narrows to: the same key signals,
   // minus the device-wide ones.

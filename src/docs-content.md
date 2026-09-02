@@ -2444,9 +2444,12 @@ videofile('clip.mp4', { restart: beat(1) })          // rewinds every bar
 scene().when(beat(4, 0.25), s => s.invert())         // first quarter of each beat
 ```
 
-- `.sin()` `.tri()` `.saw()` `.sqr(width)` — waveshapes of value-as-phase (one
-  cycle per whole unit, 0..1 out). `B.mul(2).sin()` = two-beat LFO,
-  `T.mul(0.1).sin()` = a slow free-running one, `.saw()` = the ramp itself.
+- `.sin()` `.cos()` `.tri()` `.saw()` `.sqr(width)` — waveshapes of
+  value-as-phase (one cycle per whole unit, 0..1 out). `B.mul(2).sin()` =
+  two-beat LFO, `T.mul(0.1).sin()` = a slow free-running one, `.saw()` = the
+  ramp itself. `.cos()` is `.sin()` a quarter cycle ahead, for a second
+  oscillator in quadrature: `x` on one, `z` on the other, and the motion is a
+  circle.
 - `.beat(perBar?)` — tempo-synced sample-and-hold. `rand().beat(1)` = a new
   random value per bar. Shorthand for `.hold(beat(perBar))`.
 - `.hold(trigger, threshold?)` — the same thing on any trigger, so it takes

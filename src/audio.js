@@ -309,6 +309,7 @@ export function sig(fn, ae = null) {
   // waveshapes: treat the value as a phase ramp (beat(), or anything);
   // one cycle per whole unit, all outputs 0..1
   f.sin = () => mk((t) => 0.5 + 0.5 * Math.sin(f(t) * Math.PI * 2));
+  f.cos = () => mk((t) => 0.5 + 0.5 * Math.cos(f(t) * Math.PI * 2));
   f.tri = () => mk((t) => 1 - Math.abs(2 * frac(f(t)) - 1));
   f.saw = () => mk((t) => frac(f(t)));
   f.sqr = (width = 0.5) => mk((t) => (frac(f(t)) < resolve(width, t) ? 1 : 0));
