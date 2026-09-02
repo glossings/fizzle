@@ -1233,6 +1233,10 @@ scene()
 ### sources
 
 - `scene()` — the lit 3D render of everything sent to a naked `.out()`.
+  `scene({ bg })` swaps the backdrop for that one read: a color stands in for
+  `bg()`, a chain shows through behind the geometry, and `null` leaves it
+  transparent so it comps `'over'` whatever sits below. See **geometry
+  layers** for the pattern.
 - `input()` — last frame's display output (a feedback loop; survives re-runs,
   frozen while paused). Comp it back in for trails.
 - `input('name')` — a named bus published elsewhere with `.out('name')`. See
@@ -1973,6 +1977,20 @@ icosa({ radius: 1.2 }).noise({ amp: 0.3, speed: 0.4 }).color('#ff5f9e').out('blo
 input('knot').edge({ strength: 2 })
   .comp(input('blob').pixellate(90), 'add')
   .out()
+```
+
+To put the whole scene over a texture, skip the layer round trip:
+`scene({ bg })` renders the 3D pass on its own backdrop. A chain there shows
+through behind the geometry, `null` leaves the render transparent so it comps
+`'over'` other outs, and a color stands in for `bg()` in that one read.
+
+```js
+ambient({ intensity: 0.4 })
+point({ intensity: 70 }).position(4, 4, 4).out()
+
+torusKnot({ res: 96 }).rotation(0, t => t * 0.4, 0).color('#ff7f50').out()
+
+scene({ bg: noise({ period: 0.5, speed: 0.1, b: '#2a1a4a' }) }).out()
 ```
 
 ### texture chains as material maps

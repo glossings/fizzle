@@ -1343,6 +1343,8 @@ function bindTexParams(kind, params, inputs) {
   // a texture left in a slot with no texture form would reach a uniform as NaN
   for (const [name, v] of Object.entries(params)) {
     if (!asMap(v)) continue;
+    // scene({ bg: chain }) renders the chain itself, not through a uniform
+    if (kind === 'scene' && name === 'bg') continue;
     warn(`${kind}: ${name} does not take a texture — the default is used instead`);
     delete params[name];
   }
@@ -2257,10 +2259,58 @@ export class TextureOp {
     }
   }
 
+  // scene({ bg }): this read's own 3D pass, so the backdrop is per-op rather
+  // than the sketch-wide bg()/hdri() slot. null clears transparent — real
+  // coverage alpha, like a geometry layer, with the same tradeoff (blended
+  // materials thin out over nothing). A chain renders transparent and comps
+  // 'over' it in display space; through scene.background it would be
+  // tone-mapped a second time. A color paints the backdrop for this pass only.
+  _renderSceneBg(ctx, bg) {
+    if (bg != null && typeof bg === 'object' && !(bg instanceof TextureOp)
+        && !bg.isColor && !Array.isArray(bg)) {
+      warn('scene: bg is a color, a texture chain, or null for transparent');
+      bg = null;
+    }
+    const chain = bg instanceof TextureOp ? bg : null;
+    // pulled before the 3D pass below flips render targets around
+    const under = chain ? chain.renderNode(ctx) : null;
+    const clear = bg == null;
+    // own linear HDR target — the shared sceneRT stays the plain scene()/depth() pass
+    let lin = this._lin;
+    if (!lin || lin.width !== ctx.w || lin.height !== ctx.h) {
+      lin?.dispose();
+      lin = this._lin = new THREE.WebGLRenderTarget(ctx.w, ctx.h, { type: THREE.HalfFloatType, samples: 4 });
+    }
+    const { renderer } = ctx;
+    const scene = this.engine.scene;
+    const prevBg = scene.background;
+    const prevAlpha = renderer.getClearAlpha();
+    if (clear || chain) {
+      scene.background = null;
+      renderer.setClearAlpha(0);
+    } else {
+      scene.background = writeColor(this._bgColor ??= new THREE.Color(), bg, ctx.t);
+    }
+    renderer.setRenderTarget(lin);
+    renderer.render(scene, this.engine.camera);
+    scene.background = prevBg;
+    renderer.setClearAlpha(prevAlpha);
+    const out = this._rt(ctx);
+    if (!chain) {
+      runPass(ctx, MAT_TONEMAP, lin.texture, null, out, (u) => { u.uKeepAlpha.value = clear ? 1 : 0; });
+      return out.texture;
+    }
+    const over = this._rt(ctx, 'auxA');
+    runPass(ctx, MAT_TONEMAP, lin.texture, null, over, (u) => { u.uKeepAlpha.value = 1; });
+    runPass(ctx, MAT_OVER, under, over.texture, out);
+    return out.texture;
+  }
+
   _render(ctx) {
     ensurePassMaterials();
 
     if (this.kind === 'scene') {
+      if (this.params.bg !== undefined) return this._renderSceneBg(ctx, this.params.bg);
       const out = this._rt(ctx);
       runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out, (u) => { u.uKeepAlpha.value = 0; });
       return out.texture;
@@ -2737,6 +2787,7 @@ export class TextureOp {
     // every context this node rendered in has a target set of its own, hence
     // the scan rather than the three names (see _rt)
     for (const key in this) if (key.startsWith('_tgt_')) this[key]?.dispose();
+    this._lin?.dispose();
     this._lut?.dispose();
     this._ctex?.dispose();
     this._atlas?.tex.dispose();
@@ -2881,7 +2932,8 @@ export function renderTextures(engine) {
   // material map) — it still goes through the offscreen render, so that
   // scene() and input() mean the same thing they always do.
   const outs = engine.textureOutputs;
-  const needsScene = !outs.length || needsDepth || engine.textureNodes.some((n) => n.kind === 'scene');
+  const needsScene = !outs.length || needsDepth
+    || engine.textureNodes.some((n) => n.kind === 'scene' && n.params.bg === undefined);
   if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y
       || (needsDepth && !st.sceneRT.depthTexture))) {
     st.sceneRT?.depthTexture?.dispose();

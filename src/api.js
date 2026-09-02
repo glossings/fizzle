@@ -1449,7 +1449,10 @@ export function makeApi(engine) {
     },
 
     // textures — texture operators (see textures.js). Chains render only with .out()
-    scene: () => new TextureOp(engine, 'scene'),
+    // scene({ bg }): a backdrop for this read only — null renders it transparent
+    // (comps 'over' like a layer), a chain shows through behind the geometry,
+    // a color stands in for bg()
+    scene: (o) => new TextureOp(engine, 'scene', o ?? {}),
     // the same render as scene(), as a grayscale distance map: black near,
     // white far. depth({ near, far }) sets the world-space range it spans
     // (defaulting to the sketch's fog, else 0..20); depth({ focus, range })

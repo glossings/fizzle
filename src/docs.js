@@ -41,7 +41,7 @@ export const GLOBALS = {
   tempo: ['tempo(bpm)', "Tempo for beat() and B, overriding the audio manager's for this sketch. Drop the call to hand it back."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
-  scene: ['scene()', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space).'],
+  scene: ['scene({ bg? })', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space). bg swaps the backdrop for this read: a color stands in for bg(), a chain shows through behind the geometry, null leaves it transparent so it comps over whatever sits below.'],
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far. With { focus, range } it measures distance from a focal plane instead — a depth-of-field mask."],
   input: ['input(name?)', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite)."],
   constant: ['constant(color)', "Texture generator: one flat color, whole frame. Any color form, or a fn of t; null, [r, g, b, a] and '#rrggbbaa' carry transparency, like every texture color slot."],

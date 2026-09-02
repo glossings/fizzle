@@ -209,6 +209,38 @@ wrong slot has to say so or it costs an hour.
   the six-number form as one of its four branches; kept here because it's a
   silent failure today and that's what this section is for.
 
+## One world per sketch: view and atmosphere aren't per-read
+
+Every render of a frame — the display, `scene()`, `depth()`, every geometry
+layer — is a view of one shared world. Membership is scopable (geometry
+`.out('name')`, and a light's `.out('name')` restricts it to one layer), and
+`scene({ bg })` made the backdrop per-read; the rest of the world state is
+still all-or-nothing. None of these need a multi-scene rewrite — the shape
+that fits the API is opt-in per-read overrides, defaults unchanged, like
+`scene({ bg })` was.
+
+[ ] **`depth()` only sees the display scene.** The depth texture comes from the
+  main render, where the camera's layer mask excludes layered meshes — so
+  `input('knot').mask(depth(), ...)` quietly masks with a depth map the knot
+  isn't in ([src/textures.js:2884](../src/textures.js#L2884) allocates it, the
+  camera mask does the excluding). Silent-wrong class. Either render depth per
+  layer on request (`input('knot', { depth: true })`-ish, or a `depth('knot')`)
+  or warn when a layer pull and `depth()` meet in one chain.
+[ ] **Fog reaches every layer.** `scene.fog` stays on during layer renders, so
+  an overlay layer fogs with the world and can't opt out. A `{ fog: false }`
+  on the layer pull (or on `scene({ bg })`'s options, which already exist) is
+  the whole feature.
+[ ] **One camera.** Every pass looks through the orbit camera
+  ([src/textures.js:2935](../src/textures.js#L2935) and the shared pass), so
+  there's no picture-in-picture, no fixed-frame overlay while the main view
+  orbits, no rendering a shape head-on as a map for a material. The big one;
+  probably a second camera as an op a layer pull can name, and worth waiting
+  for a sketch that demands it before designing.
+[ ] **Environment lights everything.** `scene.environment` reaches every
+  material on every layer; three has no per-layer environment, so a stylized
+  unlit layer next to a PBR one takes manual material discipline. Cheapest
+  honest fix is a docs note; a real one means per-layer material overrides.
+
 ## Simulation in the texture graph
 
 A named bus that reads itself (`.out('a')` + `input('a')`) is already a working
