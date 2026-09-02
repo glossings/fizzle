@@ -246,7 +246,9 @@ const recorder = initRecorder({
   flash,
   onChange: () => touchbar?.refresh(),
 });
-engine.onFrame = recorder.frame;
+// Both want this frame while it's still in the drawing buffer: the recorder
+// composites it, the projector snapshots it for the audience's window.
+engine.onFrame = () => { recorder.frame(); projector.frame(); };
 
 function togglePause() {
   if (engine.togglePause()) {

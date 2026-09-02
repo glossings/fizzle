@@ -89,6 +89,8 @@ function copyStyles(doc) {
   doc.head.appendChild(own);
 }
 
+const NO_PUSH = () => {};
+
 // Copy the framebuffer across documents once a frame. Costs a texture readback
 // per frame, so it's the fallback, not the path.
 function blit(canvas, doc, holder) {
@@ -105,14 +107,55 @@ function blit(canvas, doc, holder) {
     raf = doc.defaultView.requestAnimationFrame(frame);
   };
   frame();
-  return () => doc.defaultView?.cancelAnimationFrame(raf);
+  return { stop: () => doc.defaultView?.cancelAnimationFrame(raf), push: NO_PUSH };
+}
+
+// An ImageBitmap is pixels and a size, with no color space riding along, so
+// what lands over there is what was in the buffer. captureStream's frames are
+// *video* frames and carry one: Chrome tags them linear and the compositor
+// sRGB-encodes a second time on the way to the screen, which lifts every
+// shadow — side by side on one display, the same frame reads black here and
+// washed blue there. Hence this first and the stream only as a fallback.
+function mirrorBitmap(canvas, doc, holder) {
+  const copy = doc.createElement('canvas');
+  const ctx = copy.getContext?.('bitmaprenderer');
+  if (!ctx) return null;
+  holder.appendChild(copy);
+  let pending = false; // one in flight is enough — a frame late is a frame dropped
+  let stopped = false;
+  return {
+    stop() { stopped = true; },
+    // Called from inside the render loop with this frame still in the drawing
+    // buffer: createImageBitmap snapshots its source at the call, and a later
+    // task would find the buffer already cleared.
+    push() {
+      if (stopped || pending) return;
+      pending = true;
+      createImageBitmap(canvas).then(
+        (bmp) => {
+          pending = false;
+          if (stopped) return bmp.close();
+          // object-fit measures the element's intrinsic ratio, which is these
+          // attributes — a transferred bitmap doesn't set them, and the default
+          // 300×150 is wider than any screen, so the picture would letterbox
+          // inside the stage and come out stretched
+          if (copy.width !== bmp.width || copy.height !== bmp.height) {
+            copy.width = bmp.width;
+            copy.height = bmp.height;
+          }
+          ctx.transferFromImageBitmap(bmp);
+        },
+        () => { pending = false; }
+      );
+    },
+  };
 }
 
 // captureStream hands the compositor frames the canvas has already drawn — no
 // readback, and it follows resizes on its own. Some engines hand back a stream
 // that never produces a frame for a WebGL canvas, though, so a stream that has
 // shown nothing shortly after opening is abandoned for the blit.
-function mirrorCanvas(canvas, doc, holder) {
+function mirrorStream(canvas, doc, holder) {
   let stop = () => {};
   const stream = canvas.captureStream?.();
   if (!stream) return blit(canvas, doc, holder);
@@ -127,11 +170,14 @@ function mirrorCanvas(canvas, doc, holder) {
     if (video.videoWidth) return;
     stop();
     video.remove();
-    stop = blit(canvas, doc, holder);
+    stop = blit(canvas, doc, holder).stop;
   }, 1500);
 
-  return () => { doc.defaultView?.clearTimeout(guard); stop(); };
+  return { stop: () => { doc.defaultView?.clearTimeout(guard); stop(); }, push: NO_PUSH };
 }
+
+const mirrorCanvas = (canvas, doc, holder) =>
+  mirrorBitmap(canvas, doc, holder) ?? mirrorStream(canvas, doc, holder);
 
 // Give the window the render's exact size and shape, shrunk to fit the screen.
 // resizeTo is *outer* size, so the chrome has to come off first — the pop-up
@@ -159,7 +205,7 @@ export function initProjector(canvas, getResolution, onPointer) {
   let view = null;
   let codeEl = null;
   let stageEl = null;
-  let stopMirror = null;
+  let mirror = null;
 
   const isOpen = () => !!win && !win.closed;
 
@@ -190,10 +236,10 @@ export function initProjector(canvas, getResolution, onPointer) {
   window.addEventListener('resize', layoutStage);
 
   function close() {
-    stopMirror?.();
+    mirror?.stop();
     view?.destroy();
     if (isOpen()) win.close();
-    stopMirror = view = win = codeEl = stageEl = null;
+    mirror = view = win = codeEl = stageEl = null;
   }
 
   // Scroll is mirrored by line and a fraction of it — see editor.js. Runs on
@@ -254,7 +300,7 @@ export function initProjector(canvas, getResolution, onPointer) {
     stage.append(visual, code);
     doc.body.appendChild(stage);
 
-    stopMirror = mirrorCanvas(canvas, doc, visual);
+    mirror = mirrorCanvas(canvas, doc, visual);
     view = new EditorView({
       parent: code,
       state: EditorState.create({
@@ -297,6 +343,10 @@ export function initProjector(canvas, getResolution, onPointer) {
     });
     win.addEventListener('dblclick', fullscreen);
     win.addEventListener('resize', layoutStage);
+    // entering fullscreen usually fires a resize too, but not dependably
+    // before the new viewport is readable — the stage would keep the windowed
+    // size and sit in the middle of the screen
+    doc.addEventListener('fullscreenchange', layoutStage);
     // mouse() over here too: the stage is the mirrored image and nothing else,
     // so its rect normalizes to the same -1..1 the main canvas does
     win.addEventListener('pointermove', (e) =>
@@ -327,6 +377,11 @@ export function initProjector(canvas, getResolution, onPointer) {
     scrollTo,
 
     isOpen,
+
+    // Hand the audience this frame, from inside the render loop while the
+    // drawing buffer still holds it. A no-op with no projector up, and on the
+    // fallback paths, which feed themselves.
+    frame() { mirror?.push(); },
 
     // What a recording should lay over the picture, or null when this window's
     // code is hidden. #proj-code fills the stage, and the stage is the picture
