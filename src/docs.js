@@ -1,4 +1,4 @@
-import { MATERIAL_GROUPS, MATERIAL_DOCS } from './materials.js';
+import { MATERIAL_GROUPS, MATERIAL_DOCS, PRESET_NAMES } from './materials.js';
 import { BLEND_MODE_NAMES, COPY_BLEND_NAMES, ASCII_SET_NAMES, WRAP_MODE_NAMES } from './textures.js';
 
 // One docs table drives both autocomplete and ctrl+hover tooltips.
@@ -164,7 +164,7 @@ export const METHODS = {
   life: ['.life', "Particle data: each slot's lifespan in seconds."],
   list: ['.list', "Pairs: this frame's pairs, as an array of [a, b] point indices — b indexes the second set when the pairing crossed two."],
   tris: ['.tris', 'Pairs: trios of points that are all within reach of one another, as [a, b, c] index triples. Only within one set.'],
-  material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. Empty .material() opens the Poly Haven browser."],
+  material: [".material('preset', { … }) | .material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })", "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. .material('glass') starts from a named preset, keys beside it overriding. Empty .material() opens the Poly Haven browser."],
   color: ['.color(c) | .color(birth, death)', {
     'particle evolve': 'The dot color — one value, or a second that fades each particle from birth to death.',
     '*': "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.",
@@ -415,6 +415,10 @@ METHOD_ARGS.feedback = [null, BLEND_MODE_NAMES, BLEND_MODE_NAMES];
 // can express rather than .comp()'s eighteen — the list textures.js checks the
 // key against.
 METHOD_CONFIG.instance.get('blend').values = COPY_BLEND_NAMES;
+
+// preset names complete in both spellings: .material('… and { preset: '…
+METHOD_CONFIG.material.get('preset').values = PRESET_NAMES;
+METHOD_ARGS.material = [PRESET_NAMES];
 
 // These signatures spell `{ wrap }` bare — the value list lives in each key's
 // doc line, where completion can't parse it — so it's wired from the table

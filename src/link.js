@@ -465,6 +465,10 @@ export class SegmentsOp {
   }
 
   material(o = {}) {
+    if (typeof o === 'string') {
+      warn('segments: presets shade surfaces — color and opacity are the material on a line');
+      return this;
+    }
     for (const k of Object.keys(o)) {
       if (k === 'color') this._color = o.color;
       else if (k === 'opacity') this._opacity = o.opacity;

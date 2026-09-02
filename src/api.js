@@ -5,7 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
-import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, tileSources, applyTileMap, applyPointSize } from './materials.js';
+import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, expandMaterial, tileSources, applyTileMap, applyPointSize } from './materials.js';
 import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
 import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
@@ -413,6 +413,10 @@ class InstanceHandle {
   // this fn runs every frame, so throwing here would take the video down for a
   // line that only ever needed moving.
   material(o = {}) {
+    if (typeof o === 'string') {
+      warn(`instance: a preset is one material for the whole batch — .material('${o}') goes on the chain`);
+      return this;
+    }
     const extra = Object.keys(o).filter((k) => k !== 'color');
     if (extra.length) {
       // a misspelling is worth saying so, rather than explaining why the
@@ -764,14 +768,19 @@ class GeoOp {
   // it opens the Poly Haven browser and fills the pick back into this very
   // call, the same way an empty videofile() opens a picker. .material({})
   // is still an explicit no-op.
-  material(o) {
+  material(o, overrides) {
     if (o === undefined) this.engine.requestBrowse('material', 'textures');
     else {
+      // .material('glass') and .material({ preset: 'glass' }) expand to the
+      // preset's keys with the caller's on top, so from here down a preset is
+      // indistinguishable from having typed the keys
+      const { spec, warn: unknown } = expandMaterial(o, overrides);
+      if (unknown) warn(unknown);
       // checked here rather than at .out() so the error lands on the line that
       // wrote the typo, and before a half-configured material is ever built
-      const bad = checkMaterialKeys(o);
+      const bad = checkMaterialKeys(spec);
       if (bad) warn(bad);
-      Object.assign(this._material, o);
+      Object.assign(this._material, spec);
     }
     return this;
   }

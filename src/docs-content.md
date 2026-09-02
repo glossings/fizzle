@@ -516,6 +516,34 @@ every color slot takes.
 overlapping transparent shapes pops as the camera turns. A misspelled property
 warns in the console rather than silently doing nothing.
 
+### presets
+
+A preset is a look by name — the handful of keys that make it, set at once.
+Keys named beside it override it, and later `.material()` calls still merge on
+top:
+
+```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 1.2 }).position(4, 6, 3).out()
+hdri('kloofendal_43d_clear_puresky_1k.hdr', { background: false })
+
+const ball = (preset, x) => sphere({ radius: 0.75, res: 64 }).material(preset).position(x, 0, 0)
+ball('chrome', -3.4).out()
+ball('glass', -1.7).out()
+ball('velvet', 0).out()
+ball('pearl', 1.7).out()
+ball('candy', 3.4).out()
+```
+
+`chrome` · `glass` `frosted` `water` `soap` · `plastic` `rubber` `candy`
+`velvet` `pearl` — the names complete inside `.material('…')`. Metals and the
+glass family are mostly reflection, so they want an `hdri()`. A preset's keys
+are ordinary keys, so overriding restyles the same machine:
+`material('frosted', { color: '#8fd' })` is frosted in another color, and
+`material('chrome', { color: 'gold', roughness: 0.25 })` is gold — a metal
+tints its reflections by its color, so the CSS color names make every metal
+there is.
+
 ### glass & coatings
 
 Naming any of these upgrades the mesh to a physical material. That's the

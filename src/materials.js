@@ -67,10 +67,54 @@ const MAP_KEYS = [
 ];
 const BLEND_KEYS = ['opacity', 'transparent', 'depthWrite'];
 
+// A preset is a look by name: the handful of keys that make it, set at once.
+// Expanded when .material() is called, so keys named beside it override it and
+// later .material() calls merge on top the way they always did. Metals and the
+// glass family are mostly reflection, so they come alive under an hdri().
+export const MATERIAL_PRESETS = {
+  chrome: { color: '#ffffff', metalness: 1, roughness: 0.05 },
+  glass: { transmission: 1, thickness: 0.6, ior: 1.5, roughness: 0.05 },
+  frosted: { transmission: 1, thickness: 0.6, ior: 1.5, roughness: 0.35 },
+  water: { transmission: 1, thickness: 2, ior: 1.33, roughness: 0, attenuationColor: '#2fa8c4', attenuationDistance: 1 },
+  soap: { transmission: 1, thickness: 0.05, ior: 1.35, roughness: 0, iridescence: 1, iridescenceIOR: 1.9, iridescenceThickness: 600 },
+  plastic: { roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.15 },
+  rubber: { color: '#1c1d20', roughness: 0.8, specularIntensity: 0.5 },
+  candy: { color: '#7c1220', metalness: 0.85, roughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.03 },
+  velvet: { color: '#4a1428', roughness: 1, sheen: 1, sheenRoughness: 0.3, sheenColor: '#ffb08a' },
+  pearl: { color: '#f6eee6', metalness: 0.35, roughness: 0.25, iridescence: 1, iridescenceIOR: 1.8, iridescenceThickness: 550 },
+};
+export const PRESET_NAMES = Object.keys(MATERIAL_PRESETS);
+
+// The two spellings of a preset — .material('glass', { … }) and
+// .material({ preset: 'glass', … }) — resolved to one plain spec, with the
+// caller's keys winning. An unknown name comes back as a warning instead of a
+// half-made look.
+export function expandMaterial(o, overrides) {
+  let name = null, rest;
+  if (typeof o === 'string') {
+    name = o;
+    rest = overrides !== null && typeof overrides === 'object' ? overrides : {};
+  } else {
+    rest = o !== null && typeof o === 'object' ? { ...o } : {};
+    if ('preset' in rest) { name = rest.preset; delete rest.preset; }
+  }
+  if (name === null) return { spec: rest };
+  const preset = MATERIAL_PRESETS[name];
+  if (!preset) {
+    const near = nearestOf(String(name).toLowerCase(), PRESET_NAMES);
+    return {
+      spec: rest,
+      warn: `material: no preset '${name}'${near ? ` — did you mean ${near}?` : ''} (presets: ${PRESET_NAMES.join(' ')})`,
+    };
+  }
+  return { spec: { ...preset, ...rest } };
+}
+
 // One line per key, because 45 names in a tooltip tell you nothing about which
 // one you want. Read out on ctrl+hover and in the completion popup, so this is
 // the documentation — keep it to a sentence that fits over the cursor.
 export const MATERIAL_DOCS = {
+  preset: "A look by name, its keys set at once: chrome glass frosted water soap plastic rubber candy velvet pearl. Keys named beside it override it; .material('glass', { … }) is the same call.",
   color: 'Base color: hex, CSS name, 0xrrggbb, or [r, g, b] 0..1. The color, or any one channel of the array, may be a fn of t.',
   roughness: '0 mirror-smooth .. 1 fully diffuse. Multiplies roughnessMap if there is one.',
   metalness: '0 dielectric .. 1 metal. Metal has nothing to reflect without an hdri().',
@@ -128,7 +172,7 @@ export const MATERIAL_DOCS = {
 // what autocomplete shows after `.material({`, and the flattened set is what
 // checkMaterialKeys tests against — so offering and checking can't disagree.
 export const MATERIAL_GROUPS = [
-  ['base', BASE_KEYS],
+  ['base', ['preset', ...BASE_KEYS]],
   ['maps', [...MAP_SLOTS, ...MAP_KEYS]],
   ['blending', BLEND_KEYS],
   ['glass & coatings', [...PHYSICAL_KEYS]],
@@ -159,17 +203,18 @@ function editDistance(a, b, max) {
 // The known key `key` was most likely meant to be, or null if it's not close
 // to anything. The budget scales with length so `ior` can't match `pbr` while
 // `iridescenceThicknes` still finds its home.
-function nearestKey(key) {
+function nearestOf(key, names) {
   const budget = Math.max(1, Math.min(4, Math.floor(key.length / 4)));
   const lower = key.toLowerCase();
   let best = null;
   let bestDist = budget + 1;
-  for (const known of MATERIAL_KEYS) {
+  for (const known of names) {
     const d = editDistance(lower, known.toLowerCase(), budget);
     if (d < bestDist) { bestDist = d; best = known; }
   }
   return best;
 }
+const nearestKey = (key) => nearestOf(key, MATERIAL_KEYS);
 
 // What's wrong with a .material()'s keys, as a message, or null if nothing is.
 // Said out loud rather than ignored — the whole point of a property is the
@@ -490,4 +535,13 @@ export function applyHdri(engine, h, o) {
     scene.environmentRotation.set(0, rot, 0);
     scene.backgroundRotation.set(0, resolve(o.backgroundRotation ?? rot, t), 0);
   };
+}
+
+// a preset holding a key outside the vocabulary would be silently ignored
+// downstream, which is the exact failure checkMaterialKeys exists to catch
+if (import.meta.env?.DEV) {
+  for (const [name, keys] of Object.entries(MATERIAL_PRESETS)) {
+    const bad = checkMaterialKeys(keys);
+    if (bad) console.warn(`preset '${name}': ${bad}`);
+  }
 }
