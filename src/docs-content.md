@@ -1145,6 +1145,146 @@ do: they occlude each other and show up in `depth()`. `.noise()` on the
 source shape carries through to the births; `.displace()` maps don't. The
 ceiling is ~1M; phones are happiest under ~100k alive.
 
+## linking points
+
+`.link()` draws a line between every pair of points that drift close enough,
+and drops the line when they part. On particles it connects the live swarm:
+
+```js
+bg('#04050a')
+
+particles({ rate: 25, life: 8, speed: 0.8, spread: 1 })
+  .turbulence({ amp: 0.4, freq: 0.3 })
+  .drag(0.3)
+  .size(0.06)
+  .color('#8df')
+  .link({ within: 1.4, max: 5 })
+  .out()
+
+scene().bloom({ threshold: 0.3, strength: 0.8 }).out()
+```
+
+`within` is the connection distance, `max` caps the links per point so a dense
+clump stays a web rather than a mass. Each line fades out as its ends part and
+dies with its particles (`fade: false` holds full opacity to the cutoff).
+Lines take the dot color unless `color` says otherwise. The system's
+`.out()` draws them. `fill: 0.1` also shades every trio of linked points as a
+soft triangle:
+
+On a geometry it connects the surface scatter. `.noise()` on the chain
+moves the points and the connections follow:
+
+```js
+bg('#04050a')
+
+icosa({ radius: 3 })
+  .noise({ amp: 0.5, speed: 0.25 })
+  .link({ count: 250, within: 1.1, fill: 0.08 })
+  .material({ color: '#6ff' })
+  .out()
+
+scene().bloom({ threshold: 0.3, strength: 0.9 }).out()
+```
+
+Lines and fills draw flat by default, with glow coming from `.bloom()`.
+`lit: true` hands them to the scene's lights instead: fills shade by which way
+they face, lines by where they sit in the cloud. For links with thickness, see
+[.between](#between-a-copy-spanning-two-points) below.
+
+### data — points as arrays
+
+`.link()` is shorthand for a few smaller pieces, all of which take plain
+arrays. Anywhere one wants points, a JS array of `[x, y, z]` works:
+
+```js
+bg('#04050a')
+
+const pts = []
+onFrame(t => {
+  for (let i = 0; i < 60; i++) {
+    pts[i] = [Math.sin(i + t * 0.3) * 3, Math.cos(i * 0.7 + t * 0.2) * 2, Math.sin(i * 1.3) * 2]
+  }
+})
+
+link(pts, { within: 1.2 }).out()
+```
+
+Two calls hand back richer sets, as parallel arrays refreshed once per frame:
+
+- `shape.scatter(n)`: `.pos` is the shape's surface scatter, the same
+  deterministic points `.sample(i)` reads with `.noise()` and transform
+  applied; `.normal` sits beside it
+- `particles().read()`: the live swarm, read back to the CPU one frame
+  behind (the [.field()](#field-a-texture-read-back-as-numbers) contract).
+  `.pos[i]` is slot i, `.alpha[i]` its fade envelope (0 while the slot waits
+  between lives), `.vel`, `.age` and `.life` beside them
+
+They're ordinary arrays: `d.pos.length`, `d.pos.filter(...)`, `d.alpha[i]`.
+`.pairs()` turns proximity into data of the same kind: `.list` is this
+frame's `[a, b]` index pairs, every pair closer than `within`, spatial-hashed
+so the cost is the pairs found rather than every point against every other,
+and `.tris` the trios that are all in reach of one another. `segments(pairs)` draws them,
+which is all `.link()` does inside.
+
+Sets connect across as well as within: `a.link(b, { within })` runs each of
+a's points to b's nearby ones; both calls take a plain array in either
+slot. A particle system tethers to its own emitter surface with `sample`,
+read at that many points. Here each particle links back to the shape it was
+born from:
+
+```js
+bg('#04050a')
+
+icosa({ radius: 2.5 })
+  .noise({ amp: 0.4, speed: 0.2 })
+  .particles({ rate: 15, life: 6, speed: 0.3 })
+  .size(0.05).color('#fa8')
+  .link({ sample: 150, within: 0.9 })
+  .out()
+
+scene().bloom({ threshold: 0.3, strength: 0.8 }).out()
+```
+
+For data of your own with more than positions, `data({ pos, alpha })` adopts
+named channels, each an array or a fn of `t` returning one. Points streamed
+from a sensor or a model plug in there. `Data` is in
+scope for [custom methods](#custom-methods) like `Texture` and `Geometry`
+are, so helpers can grow on every set at once.
+
+### .between — a copy spanning two points
+
+`.between(a, b)` on an instance copy places it at the midpoint, aims it along
+the gap and scales its height to the distance, so any geometry can be the
+connector. Build the shape unit-height and it spans exactly; `.scale()` before
+it sets the thickness. `.list[i]` is a pair as `[a, b]` indices, gone past
+`.count`, so the fn over-allocates and skips:
+
+```js
+bg('#05060c')
+ambient({ intensity: 0.4 })
+directional({ intensity: 2 }).position(4, 6, 3).out()
+
+const pts = icosa({ radius: 2.5 }).noise({ amp: 0.5, speed: 0.3 }).scatter(80)
+const links = pts.pairs({ within: 1.3, max: 4 })
+
+sphere({ radius: 0.05, res: 8 })
+  .instance(80, (x, i) => x.position(pts.pos[i]))
+  .material({ emissive: '#6ff', color: '#fff' })
+  .out()
+
+cylinder({ radius: 1, height: 1, res: 6 })
+  .instance(300, (x, i) => {
+    const pair = links.list[i]
+    if (!pair) return x.scale(0)
+    return x.scale(0.012).between(pts.pos[pair[0]], pts.pos[pair[1]])
+  })
+  .material({ color: '#8899ff', roughness: 0.4 })
+  .out()
+```
+
+An instance count is fixed up front, so give it the most pairs the sketch
+expects and let the rest collapse to nothing.
+
 ## lights, camera, scene
 
 ```js
@@ -1854,8 +1994,8 @@ circle({ radius: 0.08, soft: 0.02, color: '#ff5f9e', bg: null })
 
 ### custom methods
 
-`Texture`, `Geometry` and `Signal` are in scope. Adding to a prototype adds an
-op to every chain of that kind:
+`Texture`, `Geometry`, `Signal` and `Data` are in scope. Adding to a prototype
+adds an op to every chain of that kind:
 
 ```js
 Texture.prototype.trail = function (amt = 0.9) {

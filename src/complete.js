@@ -45,7 +45,7 @@ const methodOptions = Object.entries(METHODS).map(([label, entry]) => ({
 
 // one filtered method list per chain kind, built once
 const methodsByKind = {};
-for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'midi', 'midikey', 'gamepad']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad']) {
   methodsByKind[kind] = methodOptions.filter((o) => METHOD_KINDS[o.label]?.has(kind));
 }
 
@@ -63,6 +63,8 @@ const MEMBER_KIND = {
   particles: 'particle',
   // an image drawn as dots or scanlines is a geometry chain from there on
   points: 'geo', lines: 'geo', wire: 'geo',
+  // data sets and back out of them: .link() draws segments wherever it's called
+  scatter: 'data', read: 'data', pairs: 'pairs', link: 'segments',
   // .apply(x, i) hands the copy handle back, so the chain past it is the
   // handle's — the layout is where it came from, not what it is now
   apply: 'inst',
@@ -145,6 +147,9 @@ function kindOfName(state, node) {
   let init = null, m;
   while ((m = re.exec(before))) init = m[1];
   if (!init) return null;
+  if (/\.link\s*\(/.test(init)) return 'segments';
+  if (/\.pairs\s*\(/.test(init)) return 'pairs';
+  if (/\.(read|scatter)\s*\(/.test(init)) return 'data';
   if (/\.particles\s*\(/.test(init)) return 'particle';
   const first = init.match(/[A-Za-z_$][\w$]*/);
   return first ? GLOBAL_KIND[first[0]] ?? null : null;

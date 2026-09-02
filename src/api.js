@@ -12,6 +12,7 @@ import { ParticleOp } from './particles.js';
 import { lineGeometry } from './lines.js';
 import { makePointSet } from './sample.js';
 import { makeLayout, Layout } from './layout.js';
+import { Data, ChannelData, ScatterData, SegmentsOp, asData } from './link.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
@@ -372,6 +373,23 @@ class InstanceHandle {
     return this;
   }
   align(v) { this.dir = v; return this; }
+  // between(a, b) — span this copy from a to b: midpoint, aimed along the
+  // gap, y scaled to its length. A unit-height shape (cylinder({ height: 1 }))
+  // spans exactly; .scale() before it still sets the thickness.
+  between(a, b) {
+    const va = asVec(a), vb = asVec(b);
+    if (!va || !vb) {
+      warn('instance: .between(a, b) takes two points — [x, y, z] arrays or Vector3s');
+      return this;
+    }
+    const dx = (vb[0] ?? 0) - (va[0] ?? 0), dy = (vb[1] ?? 0) - (va[1] ?? 0), dz = (vb[2] ?? 0) - (va[2] ?? 0);
+    this.px = (va[0] ?? 0) + dx / 2;
+    this.py = (va[1] ?? 0) + dy / 2;
+    this.pz = (va[2] ?? 0) + dz / 2;
+    this.dir = [dx, dy, dz];
+    this.sy = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    return this;
+  }
   // tints this copy: multiplied with the chain's .material() color
   color(c) { this.col = c; return this; }
   // which picture this copy wears, out of the set in .material({ map: [...] }).
@@ -503,6 +521,22 @@ class GeoOp {
     if (c) displacedNormal(set.point(i), n, c, n);
     if (this._displaces.length) this._warnDisplacedSource();
     return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
+  }
+
+  // scatter(n) — the first n scatter points as a data set: .pos is .sample(i)
+  // said all at once, .normal rides along, .pairs()/.link() connect it. Like
+  // a layout source, the shape needn't be in the scene.
+  scatter(n = 200) {
+    return new ScatterData(this.engine, this, n);
+  }
+
+  // link({ count, within, max, fill, fade, color, opacity, blend }) —
+  // segments between every pair of scatter points closer than within; fill
+  // shades the triangles they close. With .noise() on the chain the points
+  // move and the connections follow: the plexus look. Ends in its own
+  // .out(): icosa().noise().link({ within: 1 }).out()
+  link(o = {}) {
+    return this.scatter(o.count ?? 200).link(o);
   }
 
   // The shape as a particle emitter: births scattered over the surface (the
@@ -1259,6 +1293,28 @@ export function makeApi(engine) {
     // .instance() draws the result: box().instance(l).out().
     layout: (depth, rule) => makeLayout(engine, depth, rule),
 
+    // The sketch's own points as a data set: data(array) views a live
+    // [x, y, z][] the sketch moves in onFrame(), data({ pos, alpha }) adopts
+    // any source — each channel an array or a fn of t returning one. Renders
+    // nothing; .pairs()/.link() connect it, geo .instance() places onto it.
+    data: (spec) => new ChannelData(engine, spec),
+
+    // Line segments between paired points, rebuilt every frame — see link.js.
+    // Takes a .pairs(), a data set, or a plain array of [x, y, z] (paired
+    // with the given within/max); link() is the same call said quicker.
+    segments: (pairs, o) => new SegmentsOp(engine, pairs, o),
+
+    // link(points, { within, max, fill, … }) — the plexus one-liner over any
+    // array or data set; .link() on shapes, particles and sets is the same.
+    link(pts, o = {}) {
+      const d = asData(engine, pts);
+      if (!d) {
+        warn('link: points first — a plain array of [x, y, z], a data set, or .link() on a shape or particle system');
+        return new SegmentsOp(engine, null, o);
+      }
+      return d.link(o);
+    },
+
     // A GPU particle system emitting from a point — see particles.js, and
     // GeoOp.particles() for the form that emits from a shape's surface.
     // The pool sizes itself from rate × life (capped by max); forces chain on
@@ -1717,6 +1773,7 @@ export function makeApi(engine) {
     Geometry: GeoOp,
     Signal,
     Layout,
+    Data,
 
     // A bus name nothing else will take, one per call site — what a helper
     // closing a feedback loop by hand needs, since a literal name would collide

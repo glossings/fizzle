@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SNOISE_GLSL, noiseParamsGlsl, noiseFieldGlsl } from './noise.js';
 import { Quad, reciprocal } from './textures.js';
 import { carried } from './carry.js';
+import { ParticleData, SegmentsOp, asData } from './link.js';
 import { warn } from './warn.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 
@@ -783,6 +784,28 @@ export class ParticleOp {
     return this;
   }
 
+  // read() — the swarm as data: .pos[i] is slot i's position, .alpha[i] its
+  // fade envelope (0 while the slot waits between lives), .vel/.age/.life
+  // ride along. The state lives on the GPU, so this is the one place
+  // particles cross back — .field()'s contract: on the CPU one frame behind,
+  // read once per frame. Filled by the system's updater, so the set stays
+  // empty until .out() puts it in the scene.
+  read() {
+    return (this._readView ??= new ParticleData(this.engine));
+  }
+
+  // link({ within, max, sample, fill, fade, color, opacity, blend }) —
+  // segments between every pair of particles closer than within, the plexus
+  // look; fill: alpha shades the triangles they close. Sugar over
+  // segments(read().pairs()), drawn by the same .out() as the dots.
+  // `sample: n` tethers across to n points of this system's own emitter
+  // surface instead; any other far end goes through read().link(other).
+  link(o = {}) {
+    if (this._built) warn('particles: .link() before .out() — the links draw with the system');
+    this._link = o;
+    return this;
+  }
+
   out(name) {
     if (this._built) {
       warn('particles: this system is already in the scene — one .out() per particles() call');
@@ -1218,7 +1241,28 @@ export class ParticleOp {
       if (drawUniforms.uRampColor) drawUniforms.uRampColor.value = colorSet ? 1 : 0;
       rampTex.needsUpdate = true;
     };
+    // .read()/.link(): last frame's state, read back before this frame's step
+    // touches it — the GPU finished it a frame ago, so the read barely waits.
+    // Two buffers, w×h texels: pos+age and vel+life.
+    let readBufs = null;
+    const readBack = (t) => {
+      const view = this._readView;
+      if (!view) return;
+      if (!readBufs) {
+        readBufs = {
+          pos: new Float32Array(w * h * 4),
+          vel: new Float32Array(w * h * 4),
+        };
+        if (count > 20000) warn(`particles: .read() copies ${count} particles to the CPU every frame — a smaller pool links faster`);
+      }
+      engine.renderer.readRenderTargetPixels(state.read, 0, 0, w, h, readBufs.pos, undefined, 0);
+      engine.renderer.readRenderTargetPixels(state.read, 0, 0, w, h, readBufs.vel, undefined, 1);
+      view._ingest(readBufs.pos, readBufs.vel, count,
+        resolve3(this._pos, t), resolve3(this._rot, t), resolve3(this._scale, t), this._fade);
+    };
+
     const updater = (t, dt) => {
+      readBack(t);
       // colors first: the ramp bake starts from them, and the sim reads the
       // ramp's force row, so the bake has to land before the step
       if (isDynamicColor(colorA)) setColor(drawUniforms.uColorA.value, colorA, t);
@@ -1279,6 +1323,26 @@ export class ParticleOp {
     updater(engine.time, 0);
     if (name != null) points.layers.set(engine.geoLayer(String(name)));
     engine.add(points, updater);
+
+    // .link(): the plexus lines, registered after the sim so they read this
+    // frame's ingest. Color follows the dots unless said otherwise; 'solid'
+    // has no line equivalent, so it falls back to over.
+    if (this._link) {
+      const l = this._link;
+      // the far end: sample: n is the emitter surface, read at n points
+      let to = null;
+      if (l.sample != null) {
+        if (typeof l.sample === 'number' && surf) to = src.scatter(l.sample);
+        else if (typeof l.sample !== 'number') warn('link: sample is how many points to read off the emitter surface — another set links through read().link(other)');
+        else warn('link: sample reads the emitter surface, and this system has none — emit from a shape, or link through read().link(other)');
+      }
+      new SegmentsOp(engine, this.read().pairs(to, { within: l.within, max: l.max }), {
+        ...l,
+        sample: undefined,
+        color: l.color ?? colorA,
+        blend: l.blend ?? (this._blend === 'solid' ? 'over' : this._blend),
+      }).out(name);
+    }
     return this;
   }
 }

@@ -65,6 +65,9 @@ export const GLOBALS = {
   layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
+  data: ['data(array) | data({ pos, alpha })', "Your own points as a data set: a live array of [x, y, z], or named channels, each an array or a fn of t. Renders nothing; .pairs() and .link() connect it, .instance() places onto it."],
+  segments: ['segments(pairs | points, { within, max, fill, lit, fade, color, opacity, blend })', "Line segments between paired points, redrawn every frame. Takes a .pairs(), a data set, or a plain array of [x, y, z]. Flat 1px lines unless lit; .material({ color, opacity }), then .out()."],
+  link: ['link(points, { within, max, fill, lit, fade, color, opacity, blend })', "segments() over any array or data set: a line between every pair of points closer than within. Ends in .out()."],
 
   beat: ['beat(perBar = 4, width = 0.5)', 'Tempo-synced gate: 1 for width of each cycle, 0 the rest. perBar cycles per bar of four beats (tempo in the audio manager), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.\nThis is what the trigger slots want: restart, jump, .when(), .hold(). They fire on the rising edge and ignore the width, so width is really for .when(), where it sets how long the branch shows. For a value that moves on the grid rather than a pulse, use B.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input loudness (0..1, dB scale) as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
@@ -108,13 +111,23 @@ export const METHODS = {
   filter: [".filter('leaf') | .filter((p, i) => …)", "Layout: some of the copies, as a layout of its own, so each slice can take a shape of its own. A label keeps the copies placed under it; a function keeps the copies it says yes to, handed { label, data, depth } and the copy's index."],
   grow: ['.grow(amount)', 'Layout: open the structure out from the root. amount is 0..1 in place order and takes any signal; copies past that front are scaled away.'],
   apply: ['.apply(x, i)', 'Layout: place copy i on an instance handle and hand the handle back. .instance(l) is this call already made; the long form is for putting more on top of it.'],
-  age: ['.age(i)', 'Layout: where copy i falls in place order, 0..1, which runs outward a generation at a time. What .grow() measures against.'],
+  age: ['.age(i)  ·  particle data: .age', 'Layout: where copy i falls in place order, 0..1, which runs outward a generation at a time. What .grow() measures against.\nParticle data: seconds into the current life, per slot — negative while the slot waits to be born.'],
   data: ['.data(i)', 'Layout: whatever .place() was handed alongside its label, for copy i.'],
-  count: ['.count', 'Layout: how many copies the rule placed.'],
+  count: ['.count', 'Layout: how many copies the rule placed.\nData set / pairs: how many points the set holds, or how many pairs there are this frame.'],
 
   align: ['.align(v)', "Aim the shape's +Y axis along a direction vector. .rotation() still applies, in the shape's own frame before the aim; components take fns of t."],
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
-  normal: ['.normal(i)', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there.'],
+  normal: ['.normal(i)  ·  scatter data: .normal', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. A .scatter() set carries them all as .normal.'],
+  scatter: ['.scatter(n)', "Geometry: the first n surface scatter points as a data set — the same points .sample(i) reads, with .noise() and the transform applied. Renders nothing."],
+  read: ['.read()', "Particles: the swarm as a data set — .pos, .alpha (the fade envelope; 0 in an empty slot), .vel, .age, .life. Read back one frame behind; filled once the system's .out() runs."],
+  pairs: ['.pairs({ within, max })  ·  .pairs(other, { within, max })', "Data set: every pair of points closer than within, at most max per point. Handed another set (or plain array) it pairs across the two instead. .list holds the [a, b] index pairs, .tris the trios that are all in reach of one another."],
+  link: ['.link({ within, max, fill, lit, fade, color, opacity, blend })  ·  .link(other, { … })  ·  particles: { sample }  ·  geometry: { count }', "Draw a line between every pair of points closer than within. On a geometry it connects its scatter; on particles, the swarm, drawn by the system's own .out(); on a data set it ends in its own .out(), and .link(other) pairs across to the other's points."],
+  between: ['.between(a, b)', "Instance copy: span this copy between two points — midpoint, aimed along the gap, y scaled to the distance. Build the shape unit-height (cylinder({ height: 1 })) so it spans exactly; .scale() before it sets the thickness."],
+  pos: ['.pos', 'Data set: the points, a live array of [x, y, z], rebuilt each frame.\nElsewhere .pos() is short for .position().'],
+  vel: ['.vel', 'Particle data: velocity per slot, as [x, y, z] in world units per second.\nmidi: how hard the last key was struck, 0..1. Latched, so it holds between notes; after .key(38) it follows that pad alone.'],
+  life: ['.life', "Particle data: each slot's lifespan in seconds."],
+  list: ['.list', "Pairs: this frame's pairs, as an array of [a, b] point indices — b indexes the second set when the pairing crossed two."],
+  tris: ['.tris', 'Pairs: trios of points that are all within reach of one another, as [a, b, c] index triples. Only within one set.'],
   material: ['.material({ color, roughness, metalness, emissive, opacity, transmission, clearcoat, iridescence, pbr, map, normalMap, repeat, flatShading, wireframe, doubleSide })', "How the surface takes light: standard PBR, upgraded to three's physical material the moment you name a glass or coating key. Empty .material() opens the Poly Haven browser. Every value takes a fn of t; every map slot takes an imported image by name, or a live texture chain."],
   color: ['.color(c) | .color(birth, death)', "Shorthand for .material({ color }). Four forms, everywhere a color is taken: '#4fd1c5', a CSS name, 0x4fd1c5, or [r, g, b] 0..1 — the whole color, or each channel of the array, may be a fn of t or a signal.\nOn particles a second color fades each particle from birth to death."],
   target: ['.target(x, y, z) | .target(v)', 'Light: where a directional() or spot() points (the origin without one). Components take fns of t, so the beam can sweep, and one vector argument works like .position(v). Point and hemisphere lights have no direction and reject it.'],
@@ -125,7 +138,6 @@ export const METHODS = {
   cc: ['.cc(num, channel?)', "midi: a knob, fader or button by its CC number, 0..1. Without a channel the number answers to whichever channel sent it last, which is what a controller on its factory setting wants.\nEmpty .cc() learns instead — move a control and the numbers are written into the call."],
   key: ['.key(num?)', 'midi: narrows .note .vel .gate .touch to one key or pad, so a drum pad drives one thing on its own. Empty .key() learns the next key played.'],
   note: ['.note', 'midi: the pitch last played, 0..1 across the MIDI range — .mul(127) for the note number back. Latched: it holds after the key is released.'],
-  vel: ['.vel', 'midi: how hard the last key was struck, 0..1. Latched, so it holds between notes; after .key(38) it follows that pad alone.'],
   gate: ['.gate', 'midi: 1 while a key is held, 0 when none is. After .key(38), that pad alone. Feed it .smooth() for a ramp or .counter() to step per press.'],
   touch: ['.touch', 'midi: aftertouch — pressure on a key that is already down, 0..1. Channel pressure or polyphonic, whichever the gear sends; not every controller has it.'],
   bend: ['.bend', 'midi: the pitch wheel, -1..1 with 0 centered. Springs back to 0 on release, like the wheel does.'],
@@ -208,7 +220,7 @@ export const METHODS = {
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
   displace: ['.displace(map, { amount, mid, smooth })', "Geometry: move each vertex along its normal by the map's brightness, normals rebuilt so the relief takes light. It only moves vertices the shape already has — raise res if nothing happens; calls stack.\nTexture: push each pixel sideways by the map's R and G. The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either."],
   comp: [".comp(layer, { mode, opacity, swap })", "Texture: composite layer over this chain. The layer's alpha gates it per pixel — 'over' is true source-over, so a transparent-bg shape lands only where it's drawn. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color."],
-  alpha: ['.alpha(v)  ·  .alpha(v) on a copy', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.\nInstance copy: fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch."],
+  alpha: ['.alpha(v)  ·  .alpha(v) on a copy', "Texture: scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.\nInstance copy: fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch.\nData set: how visible each point is, 0..1, as an array — a particle's fade envelope; 1 unless the source sets it."],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
   ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
@@ -396,6 +408,30 @@ METHODS.material[2] = MATERIAL_GROUPS
 // next to the list that validates them.
 
 const GLOBAL_KEY_DOCS = {
+  data: {
+    pos: 'The points: an array of [x, y, z], or a fn of t returning one.',
+    alpha: 'Optional visibility per point, 0..1 — an array or fn of t. 0 drops a point from pairing and fades its lines out; confidence from a tracker goes here.',
+  },
+  segments: {
+    within: 'When handed points rather than pairs: the connection distance. Default 1.',
+    max: 'When handed points: at most this many pairs per point. Default 6.',
+    fill: 'Shade every trio of paired points as a triangle, at this alpha. true is 0.12. Default off.',
+    lit: "Shade the lines and fills with the scene's lights instead of the flat color. Default false.",
+    fade: 'Fade each line out as its ends drift apart, gone at the pairing distance. Default true.',
+    color: 'Line color. Default #8899ff. Takes a fn of t.',
+    opacity: 'Line opacity, 0..1, on top of the fade. Default 1.',
+    blend: "'over' (default) or 'add' — additive stacks crossings into glow.",
+  },
+  link: {
+    within: 'Connection distance in world units. Default 1. Takes a fn of t.',
+    max: 'At most this many links per point. Default 6.',
+    fill: 'Shade every trio of linked points as a triangle, at this alpha. true is 0.12. Default off.',
+    lit: "Shade the lines and fills with the scene's lights instead of the flat color. Default false.",
+    fade: 'Fade each line out as its ends drift apart, gone at within. Default true.',
+    color: 'Line color. Default #8899ff. Takes a fn of t.',
+    opacity: 'Line opacity, 0..1, on top of the fade. Default 1.',
+    blend: "'over' (default) or 'add' — additive stacks crossings into glow.",
+  },
   sphere: {
     radius: 'Radius in world units. Default 1.',
     res: 'Segments around the equator, half that pole to pole. Default 64. Raise it only when .noise() needs finer vertices to push around.',
@@ -651,6 +687,22 @@ const GLOBAL_KEY_DOCS = {
 };
 
 const METHOD_KEY_DOCS = {
+  pairs: {
+    within: 'Connection distance in world units — two points closer than this pair up. Default 1. Takes a fn of t, so the web can breathe.',
+    max: 'At most this many pairs per point. Default 6. Keeps a dense clump from turning into a solid mass, and bounds the cost.',
+  },
+  link: {
+    count: 'Geometry only: how many scatter points to connect. Default 200.',
+    within: 'Connection distance in world units. Default 1. Takes a fn of t.',
+    max: 'At most this many links per point. Default 6.',
+    sample: 'Particles only: link each particle to the emitter surface instead of to other particles, read at this many points.',
+    fill: 'Shade every trio of linked points as a triangle, at this alpha. true is 0.12. Default off.',
+    lit: "Shade the lines and fills with the scene's lights instead of the flat color. Default false.",
+    fade: 'Fade each line out as its ends drift apart, gone at within. Default true; false holds full opacity to the cutoff.',
+    color: 'Line color. Defaults to the dot color on particles, #8899ff elsewhere.',
+    opacity: 'Line opacity, 0..1, on top of the fade. Default 1.',
+    blend: "'over' or 'add'. Particle links follow the system's blend.",
+  },
   push: {
     amount: 'How hard the map pushes, in frame-heights per second. Default 1. Takes a fn of t; it scales an [x, y] direction too.',
     mid: 'The value in the map that means no push. Default 0.5, so an unsigned map pushes both ways around its midpoint; 0 for a map that is already signed. Nothing to do with an [x, y] direction.',
@@ -900,6 +952,8 @@ const globalKinds = {
   particle: 'particles',
   light: 'ambient directional point spot hemi',
   layout: 'layout',
+  data: 'data',
+  segments: 'segments link',
   texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile imagefile imageseq noise voronoi text fluid',
   signal: 'beat audio audiofile band rand select sig T B mouse',
   midi: 'midi',
@@ -907,12 +961,16 @@ const globalKinds = {
 };
 
 const methodKinds = {
-  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal particles out',
-  particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale out',
+  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal scatter link particles out',
+  particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale read link out',
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
   light: 'position target out',
-  inst: 'position rotation scale align color alpha tile material',
+  inst: 'position rotation scale align between color alpha tile material',
+  // data sets (data(), .scatter(), particles .read()) and their pairings
+  data: 'pos alpha normal vel age life count pairs link',
+  pairs: 'list tris count',
+  segments: 'material blend position rotation scale out',
   // the cursor a layout rule steers, and the structure it hands back
   cursor: 'span forward turn scale place branch rand depth size distance position',
   layout: 'filter grow apply age depth data size count',

@@ -112,3 +112,32 @@ name, and delay rings live in [carry.js](../src/carry.js) keyed by call order.
 That's what lets a trail survive the edit that changed it — and it's why
 `.feedback()` names its buffer after a carried key rather than a fresh id, since
 a new name per run would blank the loop on every keystroke.
+
+## scene() is not a no-op on an HDR frame
+
+`scene().out()` is meant to show what a direct render would have: three only
+tone-maps at the canvas, so the scene lands in its RT linear and
+[`MAT_TONEMAP`](../src/textures.js#L1550) replicates the renderer's ACES +
+sRGB at the boundary. On an LDR scene the two paths match. Push the lights
+into HDR (an `intensity: 20` directional, say) and they visibly diverge, for
+two reasons:
+
+- **Antialiasing resolves on opposite sides of the tone map.** Direct: the
+  canvas MSAA averages *display-space* values, so a half-covered pixel of a
+  hot 1px line is `avg(1.0, 0.02)` — mid-grey. Through `scene()`: the HalfFloat
+  RT resolves its 4× MSAA in *linear HDR* — `avg(20, 0.02)` is still far past
+  white — and tone-maps after. Edge pixels stay blown out, so thin lit
+  geometry (`.link({ lit })`, wires, dots) reads brighter and fatter, a free
+  bloom-adjacent glow. This is the physically correct resolve (AA should
+  average light, not encoded values); the direct path is the standard-but-
+  wrong one.
+
+- **Raw ShaderMaterials skip renderer tone mapping.** Particle sprites reach
+  the canvas untouched on the direct path, but through `scene()` they sit in
+  the HDR buffer and get ACES'd with everything else — slightly dimmer,
+  slightly warmer.
+
+So "adding any texture op changed the lighting" is expected under HDR, and
+mostly for the better. Making the paths match would mean routing the no-chain
+render through the same RT — an extra pass, and a look change to every
+existing sketch — so the divergence is documented rather than fixed.
