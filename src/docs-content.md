@@ -4,9 +4,9 @@ Fizzle is a livecoding environment for visual art: a fullscreen canvas behind a
 live code editor, with a two-sided pipeline. 3D **geometry**, lights and
 cameras on one side, a **texture** graph of shader passes on the other.
 
-**Every code block below is a real editor.** Change anything and press **▶**
-(or `ctrl+enter` inside the block) to run it in the preview; **⧉** opens it in
-the full app. Try it:
+**Every code block below is a real editor.** Press **play** to run it right
+under the code, **update** (or `ctrl+enter` inside the block) after an edit,
+and **open** to carry it into the full app. Try it:
 
 ```js autorun
 bg('#05060a')

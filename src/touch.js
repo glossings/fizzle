@@ -12,6 +12,8 @@
 //
 // A trackpad iPad reports hover, and it has the keys anyway — so the gate is
 // coarse *and* hoverless, and on a laptop none of this exists.
+import { ICON } from './icons.js';
+
 export const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches;
 
 // Prose that names a key has to name something else here.
@@ -51,21 +53,6 @@ export function blockPageZoom() {
   // double-tap-to-zoom is the same gesture with fewer fingers
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 }
-
-const svg = (inner, stroke = true) =>
-  `<svg viewBox="0 0 24 24" fill="${stroke ? 'none' : 'currentColor'}" ${
-    stroke ? 'stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"' : ''
-  } aria-hidden="true">${inner}</svg>`;
-
-const ICON = {
-  play: svg('<path d="M7.5 4.7 19.3 12 7.5 19.3z"/>', false),
-  pause: svg('<rect x="7" y="5" width="3.6" height="14" rx="1.6"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.6"/>', false),
-  run: svg('<polyline points="21.5 4.5 21.5 10 16 10"/><polyline points="2.5 19.5 2.5 14 8 14"/><path d="M4.6 9.2a8 8 0 0 1 13.2-3L21.5 10M2.5 14l3.7 3.8a8 8 0 0 0 13.2-3"/>'),
-  code: svg('<polyline points="15.5 17.5 21 12 15.5 6.5"/><polyline points="8.5 6.5 3 12 8.5 17.5"/>'),
-  codeOff: svg('<polyline points="15.5 17.5 21 12 15.5 6.5"/><polyline points="8.5 6.5 3 12 8.5 17.5"/><line x1="3.5" y1="20.5" x2="20.5" y2="3.5"/>'),
-  rec: svg('<circle cx="12" cy="12" r="6.5"/>', false),
-  recStop: svg('<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>', false),
-};
 
 // The controls, bottom right, over whichever corner of the picture is there —
 // always, since they're the only way to run, pause or get the code back, and

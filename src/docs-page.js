@@ -1,7 +1,12 @@
 // Interactive docs: prose from docs-content.md, every js code block a live
-// CodeMirror editor that runs on a real Engine in the preview panel, plus a
-// searchable reference generated from the same table that powers
-// autocomplete (docs.js) so it can't drift from the app.
+// CodeMirror editor that runs on a real Engine, plus a searchable reference
+// generated from the same table that powers autocomplete (docs.js) so it
+// can't drift from the app.
+//
+// There is one engine and one canvas, and playing a block moves them into it —
+// so the picture is always directly under the code that made it, and starting
+// a second block is how you stop the first. Scroll that block off the screen
+// and the picture follows you into a corner (see floatOut).
 
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
@@ -17,6 +22,7 @@ import { initPolyhaven } from './polyhaven.js';
 import { mediaPut, pickFiles, nameList } from './media.js';
 import { fillCall } from './editor.js';
 import { learnMidi, learnPad } from './control.js';
+import { ICON } from './icons.js';
 import CONTENT from './docs-content.md?raw';
 
 // --- preview engine --------------------------------------------------------
@@ -38,10 +44,13 @@ canvas.style.height = '';
 engine.resize();
 new ResizeObserver(() => engine.resize()).observe(canvas);
 
+const park = document.getElementById('preview-park');
 const statusEl = document.getElementById('preview-status');
+const hintEl = document.getElementById('preview-hint');
 const pauseBtn = document.getElementById('preview-pause');
+pauseBtn.innerHTML = ICON.pause;
 const polyhaven = initPolyhaven();
-let activeEx = null;
+let active = null; // the block holding the canvas, if any
 
 // a tagged Poly Haven asset an example named is on its way (see fetchAsset)
 window.addEventListener('fizzle-notice', (e) => {
@@ -49,17 +58,100 @@ window.addEventListener('fizzle-notice', (e) => {
   statusEl.className = '';
 });
 
-function runExample(code, exEl, ctx) {
+// Keep watching while you read on. The stage is the last thing in its block, so
+// `position: sticky` has nowhere to travel to — instead the picture moves to a
+// corner once the block it belongs to has scrolled away, and comes back when
+// the block does. Wide screens only: a floating box is exactly what a phone
+// hasn't got room for.
+const floatBox = document.getElementById('preview-float');
+const floatSlot = floatBox.querySelector('.ex-slot');
+const backBtn = document.getElementById('float-back');
+const wide = matchMedia('(min-width: 701px)');
+let floating = false;
+
+const away = new IntersectionObserver((entries) => {
+  if (!active) return;
+  if (!entries[entries.length - 1].isIntersecting && wide.matches) floatOut();
+  else floatIn();
+});
+
+function floatOut() {
+  if (floating || !active) return;
+  floating = true;
+  // the block holds on to the space the picture had, so the scroll position
+  // you're reading at doesn't jump out from under you
+  // the fractional height, not offsetHeight: rounding it shifts the page 1px
+  active.stage.style.height = `${active.stage.getBoundingClientRect().height}px`;
+  active.stage.classList.add('lent');
+  floatBox.prepend(canvas);
+  floatSlot.append(statusEl, hintEl, pauseBtn);
+  floatBox.classList.add('on');
+}
+
+function floatIn() {
+  if (!floating) return;
+  floating = false;
+  floatBox.classList.remove('on');
+  if (!active) return;
+  active.stage.style.height = '';
+  active.stage.classList.remove('lent');
+  active.stage.appendChild(canvas);
+  active.slot.append(statusEl, hintEl, pauseBtn);
+}
+
+backBtn.innerHTML = ICON.back;
+backBtn.addEventListener('click', () => active?.ex.scrollIntoView({ block: 'nearest' }));
+// Crossing the breakpoint — a phone turned sideways, a window dragged wider —
+// changes the answer without changing what's on screen, and the observer only
+// speaks up when that changes. Re-observing asks it again.
+wide.addEventListener('change', () => {
+  if (!wide.matches) floatIn();
+  if (active) {
+    away.disconnect();
+    away.observe(active.stage);
+  }
+});
+
+// Give the canvas back and leave nothing of the sketch behind: paused first so
+// the rewind below freezes media rather than playing it on into a page with no
+// picture in it.
+function stopActive() {
+  if (!active) return;
+  away.disconnect();
+  floatIn();
+  disarmLearn?.();
+  disarmLearn = null;
+  engine.paused = true;
+  engine.clearPatch();
+  engine.restartSketch();
+  // the last good sketch belongs to the block that ran it; a later block
+  // whose code throws shouldn't get this one restored under its own editor
+  engine._lastGood = null;
+  park.append(canvas, statusEl, hintEl, pauseBtn);
+  statusEl.textContent = '·';
+  statusEl.className = '';
+  active.setRunning(false);
+  active = null;
+}
+
+// A different block is a different sketch, so it takes the canvas and starts
+// clean; re-running the one that's already playing is an edit of it, which
+// keeps its trails and counters like the app does.
+function runBlock(block, { reveal = false } = {}) {
+  const fresh = block !== active;
+  if (fresh) {
+    stopActive();
+    block.stage.appendChild(canvas);
+    block.slot.append(statusEl, hintEl, pauseBtn);
+    active = block;
+    block.setRunning(true);
+    away.observe(block.stage);
+    engine.resize();
+  }
   engine.paused = false;
-  pauseBtn.textContent = '⏸';
-  // one preview for every block on the page, so a different block is a
-  // different sketch and starts clean; re-running the same one is an edit of
-  // it, which keeps its trails and counters like the app does
-  if (exEl !== activeEx) engine.restartSketch();
-  const err = engine.run(code, api);
-  activeEx?.classList.remove('running');
-  activeEx = exEl ?? null;
-  activeEx?.classList.add('running');
+  pauseBtn.innerHTML = ICON.pause;
+  const ctx = { view: block.view, rerun: () => runBlock(block) };
+  const err = engine.run(block.view.state.doc.toString(), api);
   if (err) {
     statusEl.textContent = String(err.message ?? err);
     statusEl.className = 'err';
@@ -67,8 +159,10 @@ function runExample(code, exEl, ctx) {
     statusEl.textContent = '✓ running';
     statusEl.className = 'ok';
   }
-  if (!err && engine.pendingPick && ctx) handlePick(ctx);
-  if (!err && ctx) handleLearn(ctx);
+  // only on the way in: an update shouldn't pull the page off the caret
+  if (reveal && fresh) block.stage.scrollIntoView({ block: 'nearest' });
+  if (!err && engine.pendingPick) handlePick(ctx);
+  if (!err) handleLearn(ctx);
 }
 
 // An empty videofile()/imagefile()/… asks for a file picker, an empty
@@ -151,7 +245,8 @@ function handleLearn({ view, rerun }) {
 }
 
 function togglePause() {
-  pauseBtn.textContent = engine.togglePause() ? '▶' : '⏸';
+  if (!active) return;
+  pauseBtn.innerHTML = engine.togglePause() ? ICON.play : ICON.pause;
 }
 pauseBtn.addEventListener('click', togglePause);
 window.addEventListener('keydown', (e) => {
@@ -165,17 +260,32 @@ window.addEventListener('keydown', (e) => {
 
 const HANDOFF_KEY = 'fizzle-handoff';
 
+// the press landing, for a button whose effect might look like nothing
+function flash(btn) {
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 260);
+}
+
+function button(label, icon, onClick) {
+  const b = document.createElement('button');
+  b.innerHTML = icon;
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.addEventListener('click', onClick);
+  return b;
+}
+
 function makeExample(code, autorun) {
   const ex = document.createElement('div');
   ex.className = 'ex';
 
   // the block runs itself: also how a filled-in pick re-runs (see handlePick)
-  const rerun = () => runExample(view.state.doc.toString(), ex, { view, rerun });
+  const start = (reveal) => runBlock(block, { reveal });
 
   const runKeys = Prec.highest(
     keymap.of([
-      { key: 'Ctrl-Enter', run: () => { rerun(); return true; } },
-      { key: 'Shift-Enter', run: () => { rerun(); return true; } },
+      { key: 'Ctrl-Enter', run: () => { start(true); return true; } },
+      { key: 'Shift-Enter', run: () => { start(true); return true; } },
       { key: 'Tab', run: acceptCompletion },
       { key: 'Tab', run: indentMore, shift: indentLess },
     ])
@@ -193,23 +303,46 @@ function makeExample(code, autorun) {
     ],
   });
 
-  const btns = document.createElement('div');
-  btns.className = 'ex-btns';
-  const runBtn = document.createElement('button');
-  runBtn.textContent = '▶';
-  runBtn.title = 'run in the preview (ctrl+enter)';
-  runBtn.addEventListener('click', rerun);
-  const openBtn = document.createElement('button');
-  openBtn.textContent = '⧉';
-  openBtn.title = 'open in the app editor';
-  openBtn.addEventListener('click', () => {
+  const playBtn = button('play (ctrl+enter)', ICON.play, () =>
+    block === active ? stopActive() : start(true)
+  );
+  playBtn.className = 'ex-play';
+  // a re-run of the sketch already playing looks like nothing happened unless
+  // the edit changed something, so the button says it landed
+  const updBtn = button('update with your edits (ctrl+enter)', ICON.run, () => {
+    start(false);
+    flash(updBtn);
+  });
+  updBtn.hidden = true;
+  const openBtn = button('open in the app editor', ICON.open, () => {
     localStorage.setItem(HANDOFF_KEY, view.state.doc.toString());
     window.open('/', '_blank');
   });
-  btns.append(runBtn, openBtn);
-  ex.appendChild(btns);
+  const slot = document.createElement('span');
+  slot.className = 'ex-slot';
 
-  if (autorun) queueMicrotask(rerun);
+  const bar = document.createElement('div');
+  bar.className = 'ex-bar';
+  bar.append(playBtn, updBtn, slot, openBtn);
+  const stage = document.createElement('div');
+  stage.className = 'ex-stage';
+  ex.append(bar, stage);
+
+  const block = {
+    ex,
+    view,
+    slot,
+    stage,
+    setRunning(on) {
+      ex.classList.toggle('running', on);
+      playBtn.innerHTML = on ? ICON.stop : ICON.play;
+      playBtn.title = on ? 'stop' : 'play (ctrl+enter)';
+      playBtn.setAttribute('aria-label', playBtn.title);
+      updBtn.hidden = !on;
+    },
+  };
+
+  if (autorun) queueMicrotask(() => start(false));
   return ex;
 }
 

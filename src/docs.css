@@ -24,7 +24,7 @@ body {
   font-size: 13.5px;
   line-height: 1.65;
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr) minmax(360px, 440px);
+  grid-template-columns: 210px minmax(0, 1fr);
   gap: 0 36px;
 }
 
@@ -76,8 +76,10 @@ body {
 /* --- content -------------------------------------------------------------- */
 
 #content {
-  max-width: 74ch;
-  padding: 22px 0 45vh;
+  width: 100%;
+  max-width: 78ch;
+  margin: 0 auto;
+  padding: 22px 24px 45vh;
 }
 
 #content h2 {
@@ -116,7 +118,10 @@ body {
   border-radius: 4px;
   padding: 0.5px 5px;
   font-size: 12.5px;
-  white-space: nowrap;
+  /* pre-wrap, not nowrap: a signature keeps its spacing but a long one wraps
+     rather than making the whole page scroll sideways */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 #content ul { padding-left: 22px; margin: 10px 0; }
@@ -154,7 +159,6 @@ pre.static {
 /* --- live example blocks -------------------------------------------------- */
 
 .ex {
-  position: relative;
   border: 1px solid var(--line);
   border-radius: 8px;
   margin: 14px 0;
@@ -170,30 +174,61 @@ pre.static {
 .ex .cm-editor .cm-scroller {
   font-family: var(--mono);
   line-height: 1.55;
-  padding: 10px 64px 10px 4px;
+  padding: 10px 12px 10px 4px;
 }
 .ex .cm-editor .cm-gutters { display: none; }
 .ex .cm-editor.cm-focused { outline: none; }
 .ex .cm-editor .cm-activeLine { background: rgba(255, 255, 255, 0.04); }
 
-.ex-btns {
-  position: absolute;
-  top: 6px;
-  right: 6px;
+/* the block's own controls, and — while it's the one playing — the preview's
+   status line and pause button, moved in from the park */
+.ex-bar {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11.5px;
+  color: var(--dim);
 }
-.ex-btns button {
-  background: rgba(11, 13, 19, 0.85);
+.ex-bar button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  background: none;
   color: var(--dim);
   border: 1px solid var(--line);
   border-radius: 5px;
   font: inherit;
-  font-size: 12px;
-  padding: 2px 8px;
   cursor: pointer;
 }
-.ex-btns button:hover { color: var(--accent); border-color: var(--accent); }
+.ex-bar button svg { width: 13px; height: 13px; }
+/* the rule above outranks the browser's own [hidden] */
+.ex-bar button[hidden] { display: none; }
+.ex-bar button:hover { color: var(--accent); border-color: var(--accent); }
+.ex-bar button.flash { color: var(--accent); border-color: var(--accent); }
+.ex.running .ex-play { color: var(--accent); border-color: rgba(126, 231, 135, 0.55); }
+
+/* status · hint · pause land here while this block is the one playing */
+.ex-slot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the preview, once it's been moved in; nothing to show until then */
+.ex-stage:empty { display: none; }
+.ex-stage {
+  border-top: 1px solid var(--line);
+  background: #000;
+}
+/* empty because the picture is out in the corner — the block holds the space */
+.ex-stage.lent { display: block; }
 
 /* doc tooltips inside example editors (shared .td-doc styles live in the
    app stylesheet; docs pages carry their own copy) */
@@ -259,69 +294,56 @@ table.ref td:first-child { width: 46%; }
   white-space: normal !important;
 }
 
-/* --- preview panel -------------------------------------------------------- */
+/* --- preview --------------------------------------------------------------- */
 
-#preview { padding: 22px 20px 22px 0; }
+/* where the canvas and its controls sit when no example is playing */
+#preview-park { display: none; }
 
-#preview-box {
-  position: sticky;
-  top: 22px;
+/* and where they sit while the block that's playing is scrolled off screen */
+#preview-float {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: min(320px, 32vw);
+  z-index: 50;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 9px;
   overflow: hidden;
   background: #000;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.65);
 }
+#preview-float.on { display: block; }
+#preview-float .ex-bar { border-top: 1px solid var(--line); }
 
 #preview-gl {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 11;
+  aspect-ratio: 16 / 10;
 }
 
-#preview-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-top: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
-  font-size: 11.5px;
-  color: var(--dim);
-}
 #preview-status { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #preview-status.ok { color: var(--accent); }
 #preview-status.err { color: var(--err); }
 #preview-hint { white-space: nowrap; }
-#preview-bar button {
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  color: var(--text);
-  font: inherit;
-  padding: 1px 8px;
-  cursor: pointer;
-}
-#preview-bar button:hover { border-color: var(--accent); color: var(--accent); }
 
-/* --- narrow screens: preview floats bottom-right -------------------------- */
-
-@media (max-width: 1120px) {
-  body { grid-template-columns: 190px minmax(0, 1fr); }
-  #preview { padding: 0; }
-  #preview-box {
-    position: fixed;
-    right: 14px;
-    bottom: 14px;
-    width: min(340px, 44vw);
-    z-index: 50;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-  }
-  #preview-hint { display: none; }
-  #content { padding-right: 18px; }
-}
+/* --- narrow screens -------------------------------------------------------- */
 
 @media (max-width: 700px) {
   body { grid-template-columns: minmax(0, 1fr); }
   #toc { display: none; }
-  #content { padding-left: 16px; padding-right: 16px; }
+  #content { padding-left: 14px; padding-right: 14px; }
+  #preview-hint { display: none; }
+  #preview-gl { aspect-ratio: 4 / 3; }
+
+  /* a table can't shrink past its cells, so the narrow ones scroll in place
+     rather than dragging the whole page sideways */
+  #content table { display: block; overflow-x: auto; }
+  /* the reference is two columns of prose, which stacks better than it scrolls */
+  table.ref, table.ref tbody, table.ref tr, table.ref td { display: block; width: auto; }
+  table.ref tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  table.ref td { border: none; padding: 0; }
+  table.ref td:first-child { margin-bottom: 4px; }
+  /* the rules above outrank the browser's own [hidden]; the search sets it */
+  table.ref tr[hidden] { display: none; }
 }

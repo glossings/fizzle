@@ -29,16 +29,21 @@
   <main id="content">
     <p id="doc-byline">brought to you by <a href="https://glossing.dev" target="_blank" rel="noopener">Glossing ↗</a></p>
   </main>
-  <aside id="preview">
-    <div id="preview-box">
-      <canvas id="preview-gl"></canvas>
-      <div id="preview-bar">
-        <span id="preview-status">·</span>
-        <span id="preview-hint">drag to orbit · scroll to zoom</span>
-        <button id="preview-pause" title="pause / play (ctrl+.)">⏸</button>
-      </div>
+  <!-- The one preview there is. Playing an example moves these into that
+       block; scrolling the block away moves them to #preview-float; stopping
+       parks them back here, out of the page. -->
+  <div id="preview-park">
+    <canvas id="preview-gl"></canvas>
+    <span id="preview-status">·</span>
+    <span id="preview-hint">drag to orbit · scroll to zoom</span>
+    <button id="preview-pause" title="pause / play (ctrl+.)"></button>
+  </div>
+  <div id="preview-float">
+    <div class="ex-bar">
+      <button id="float-back" title="back to the code"></button>
+      <span class="ex-slot"></span>
     </div>
-  </aside>
+  </div>
   <script type="module" src="/src/docs-page.js"></script>
 </body>
 </html>
