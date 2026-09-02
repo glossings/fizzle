@@ -223,7 +223,7 @@ cursor. `name` matches on a case-insensitive substring, so `model('ship')`
 finds `ship_final_v2.fbx`. A model is a geometry op like any other. Every
 chain method works on it, `.instance()` included.
 
-```js
+```js static
 ambient({ intensity: 0.2 })
 directional({ intensity: 1.4 }).position(4, 6, 3).out()
 
@@ -1522,6 +1522,10 @@ geometry.
   that keep their falloff, about four times dimmer, so raise `strength` to match.
 
   ```js
+  ambient({ intensity: 0.3 })
+  directional({ intensity: 1.5 }).position(4, 6, 3).out()
+  torusKnot({ res: 96 }).rotation(0, t => t * 0.4, 0).out()
+
   scene()
     .edge({ mode: 'crisp', strength: 4 })
     .threshold(0.4)
@@ -1975,7 +1979,7 @@ without the loops colliding.
 The mode is how last frame comes back, `add` by default. A bare mode name
 stands in for the options, in whichever slot is free:
 
-```js
+```js static
 .feedback(0.9, 'screen')                       // no treatment
 .feedback(0.9, p => p.rotate(0.01), 'screen')  // with one
 .feedback(0.9, { mode: 'screen', swap: true }) // the long form
@@ -2380,7 +2384,7 @@ runs on their machine. Files you drop in yourself stay untagged.
 **URLs fetch themselves too.** Any filename here can be an `https://` link
 instead, which is the easy way to send someone a sketch that just runs:
 
-```js
+```js static
 imagefile('https://raw.githubusercontent.com/you/art/main/cat.jpg')
   .out()
 ```
@@ -2829,7 +2833,7 @@ torusKnot({ radius: 1, tube: 0.3, res: 128 })
 `.key(38)` narrows all four to one pad, which is what a drum controller wants:
 one pad per parameter, each with its own gate.
 
-```js
+```js static
 const pad = midi().key(38)
 scene().feedback(pad.gate.smooth(0.02, 0.5).range(0, 0.9)).out()
 ```
@@ -2840,7 +2844,7 @@ Bare `midi()` reads every connected device at once, which is what one
 controller on the desk wants. A name picks one input by case-insensitive
 substring, so two of them can drive different things:
 
-```js
+```js static
 const knobs = midi('launchkey')
 const pads = midi('maschine')
 ```

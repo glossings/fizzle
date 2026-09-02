@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
+    "check:docs": "node scripts/check-docs.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
