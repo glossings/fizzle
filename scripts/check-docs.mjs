@@ -10,29 +10,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { root, MESH, UNLIT, LIGHT, TEXTURE, calls, freeNames } from './lint-lib.mjs';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = process.argv[2] ?? path.join(root, 'src/docs-content.md');
 const src = fs.readFileSync(file, 'utf8');
-
-// Globals straight from the completion table, so the two can't drift.
-const docs = fs.readFileSync(path.join(root, 'src/docs.js'), 'utf8');
-const API = new Set(
-  [...docs.matchAll(/export const (GLOBALS|METHODS) = \{([\s\S]*?)\n\};/g)]
-    .flatMap((m) => [...m[2].matchAll(/^ {2}'?([A-Za-z_$][\w$]*)'?:/gm)].map((x) => x[1]))
-);
-
-// geometry that needs a light to be anything but black; the unlit paths draw
-// through Points/LineBasicMaterial and carry their own color
-const MESH = 'sphere box plane torus torusKnot cylinder capsule icosa model text3d'.split(' ');
-const UNLIT = 'particles link lines segments'.split(' ');
-const LIGHT = 'ambient directional point spot hemi hdri'.split(' ');
-const TEXTURE = `scene depth input constant ramp circle ring rect polygon checker video person
-  videofile imagefile imageseq noise fluid voronoi text data layout`.split(/\s+/).filter(Boolean);
-
-const JS_GLOBALS = `Math JSON Date Array Object String Number Boolean console window document
-  Promise Set Map performance parseInt parseFloat isNaN structuredClone requestAnimationFrame`.split(/\s+/);
 
 // --- parse the fences the way docs-page.js does, indent and all -------------
 
@@ -51,29 +32,6 @@ function blocks(md) {
     out.push({ fence, lang, flags, code: body.join('\n') });
   }
   return out;
-}
-
-// code with comments and string bodies blanked, so words inside them don't count
-const bare = (code) =>
-  code.replace(/\/\/.*/g, '').replace(/'[^']*'|"[^"]*"|`[^`]*`/g, "''");
-
-const calls = (code) => new Set([...bare(code).matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
-
-// identifiers the block reads but never defines: they were defined in some
-// earlier block, and every block here runs on its own
-function freeNames(code) {
-  const c = bare(code);
-  const declared = new Set();
-  const add = (s) => (s.match(/[A-Za-z_$][\w$]*/g) ?? []).forEach((n) => declared.add(n));
-  for (const m of c.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
-  for (const m of c.matchAll(/\b(?:const|let|var)\s*[[{]([^\]}]*)[\]}]/g)) add(m[1]);
-  for (const m of c.matchAll(/\(([^()]*)\)\s*=>/g)) add(m[1]);
-  for (const m of c.matchAll(/(?:^|[^.\w])([A-Za-z_$][\w$]*)\s*=>/g)) declared.add(m[1]);
-  for (const m of c.matchAll(/function\s*\w*\s*\(([^()]*)\)/g)) add(m[1]);
-  const used = c.replace(/\.\s*[A-Za-z_$][\w$]*/g, '').replace(/([A-Za-z_$][\w$]*)\s*:/g, '');
-  return [...new Set([...used.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map((m) => m[1]))]
-    .filter((n) => !API.has(n) && !declared.has(n) && !JS_GLOBALS.includes(n) && !/^[A-Z]/.test(n))
-    .filter((n) => !/^(true|false|null|undefined|new|typeof|of|in|return|if|else|for|while|const|let|var|function|async|await|class|extends|do|break|continue|try|catch|finally|throw|switch|case|default|delete|void|instanceof|yield|this)$/.test(n));
 }
 
 // --- the checks -------------------------------------------------------------

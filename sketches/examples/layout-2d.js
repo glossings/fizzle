@@ -3,13 +3,13 @@
 
 bg('#03060f')
 
-const spread = (t) => Math.PI / 3 + Math.sin(t * 0.3) * 0.1
+const splay = (t) => Math.PI / 3 + Math.sin(t * 0.3) * 0.1
 
 const arm = (e) => {
   e.span(0.26, 'ice')
   if (e.size < 0.05) { e.place('tip'); return }
-  e.branch((x) => x.turn(spread).scale(0.45), arm)
-  e.branch((x) => x.turn((t) => -spread(t)).scale(0.45), arm)
+  e.branch((x) => x.turn(splay).scale(0.45), arm)
+  e.branch((x) => x.turn((t) => -splay(t)).scale(0.45), arm)
   e.branch((x) => x.scale(0.78))
 }
 

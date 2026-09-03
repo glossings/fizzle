@@ -4,9 +4,10 @@
   "description": "A livecoding visual synth: a 3D geometry + texture pipeline behind a live code editor.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run check:docs && npm run check:examples",
     "dev": "vite",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:examples": "node scripts/check-examples.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

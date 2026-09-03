@@ -1897,6 +1897,33 @@ export function runPass(ctx, material, tex0, tex1, target, setup, layer = 0) {
   ctx.quad.render(ctx.renderer, material, target, layer);
 }
 
+// A 9-tap gaussian pass holds together to a tap spacing of a couple of
+// texels; past that the gaps between its taps show up as blocks. A big
+// radius is walked in doubling steps instead — each pass reads pixels the
+// passes before it already smoothed, so the wide spacings stay smooth. Blur
+// widths add in quadrature, so the steps are sized so their squares sum to
+// the radius asked for. Ping-pongs between the two targets and returns
+// whichever texture holds the result.
+function gaussianBlur(ctx, src, a, b, rx, ry) {
+  const R = Math.max(rx, ry);
+  if (!(R > 0)) return src;
+  const steps = [];
+  let sum = 0;
+  for (let s = 1; sum + s * s < R * R; s *= 2) { steps.push(s); sum += s * s; }
+  const rest = Math.sqrt(R * R - sum);
+  if (rest > 0.25 || !steps.length) steps.push(rest);
+  let cur = src, dst = a;
+  for (const s of steps) {
+    const fx = (rx / R) * s, fy = (ry / R) * s;
+    for (const [dx, dy] of fx > 0 && fy > 0 ? [[fx, 0], [0, fy]] : [[fx, fy]]) {
+      runPass(ctx, MAT_BLUR, cur, null, dst, (u) => u.uDir.value.set(dx, dy));
+      cur = dst.texture;
+      dst = dst === a ? b : a;
+    }
+  }
+  return cur;
+}
+
 // Font files for the 2D text generator: a .ttf/.otf/.woff/.woff2 URL is
 // registered as a FontFace once; the text node redraws when it finishes
 // loading (canvas falls back to the default face until then).
@@ -3147,9 +3174,12 @@ export class TextureOp {
             depthBuffer: false,
           });
           hist.layers = layers;
-          // a layer's pixels are undefined until something renders into it,
-          // and the whole ring is readable before it has been written round once
-          for (let i = 0; i < layers; i++) runPass(ctx, MAT_COPY, blackTex(), null, arr, null, i);
+          // a layer's pixels are undefined until something renders into it, and
+          // the whole ring is readable before it has been written round once.
+          // Seeded with the current frame, not black: a delay with no history
+          // yet answers "the past looked like now", so a diff starts at zero
+          // and echoes don't pop in from a black hole
+          for (let i = 0; i < layers; i++) runPass(ctx, MAT_COPY, ins[0], null, arr, null, i);
           hist.slot = 0;
         }
         if (!this.engine.paused) {
@@ -3170,8 +3200,11 @@ export class TextureOp {
         disposeRing(hist);
         ring = hist.ring = Array.from({ length: fit.frames + 1 }, () => this._wrap(makeRT(w, h)));
         // a target's pixels are undefined until something renders into it, and
-        // the whole ring is readable before it has been written round once
-        for (const rt of ring) runPass(ctx, MAT_COPY, blackTex(), null, rt);
+        // the whole ring is readable before it has been written round once.
+        // Seeded with the current frame, not black: a delay with no history
+        // yet answers "the past looked like now", so a diff starts at zero
+        // and echoes don't pop in from a black hole
+        for (const rt of ring) runPass(ctx, MAT_COPY, ins[0], null, rt);
         hist.slot = 0;
       }
       const len = ring.length;
@@ -3355,15 +3388,7 @@ export class TextureOp {
       // a zero axis is a pass that would only copy — with both zero the blur
       // is a no-op, so hand back the input untouched
       if (rx <= 0 && ry <= 0) return ins[0];
-      const out = this._rt(ctx);
-      if (rx <= 0 || ry <= 0) {
-        runPass(ctx, MAT_BLUR, ins[0], null, out, (u) => u.uDir.value.set(rx, ry));
-        return out.texture;
-      }
-      const a = this._rt(ctx, 'auxA');
-      runPass(ctx, MAT_BLUR, ins[0], null, a, (u) => u.uDir.value.set(rx, 0));
-      runPass(ctx, MAT_BLUR, a.texture, null, out, (u) => u.uDir.value.set(0, ry));
-      return out.texture;
+      return gaussianBlur(ctx, ins[0], this._rt(ctx), this._rt(ctx, 'auxA'), rx, ry);
     }
 
     if (this.kind === 'bloom') {
@@ -3371,9 +3396,8 @@ export class TextureOp {
       const radius = resolve(p.radius ?? 1, ctx.t);
       const a = this._rt(ctx, 'auxA', 0.5), b = this._rt(ctx, 'auxB', 0.5), out = this._rt(ctx);
       runPass(ctx, MAT_BRIGHT, ins[0], null, a, (u) => { u.uThresh.value = resolve(p.threshold ?? 0.7, ctx.t); });
-      runPass(ctx, MAT_BLUR, a.texture, null, b, (u) => u.uDir.value.set(radius, 0));
-      runPass(ctx, MAT_BLUR, b.texture, null, a, (u) => u.uDir.value.set(0, radius));
-      runPass(ctx, MAT_COMBINE, ins[0], a.texture, out, (u) => { u.uStrength.value = resolve(p.strength ?? 1, ctx.t); });
+      const glow = gaussianBlur(ctx, a.texture, b, a, radius, radius);
+      runPass(ctx, MAT_COMBINE, ins[0], glow, out, (u) => { u.uStrength.value = resolve(p.strength ?? 1, ctx.t); });
       return out.texture;
     }
 
