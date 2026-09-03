@@ -1548,7 +1548,15 @@ export function makeApi(engine) {
     depth: (o) => new TextureOp(engine, 'depth', o ?? {}),
     // input() = last frame's display output; input('name') = the buffer
     // published by .out('name'). ('in' is a JS reserved word, hence 'input'.)
-    input: (name) => new TextureOp(engine, 'in', name != null ? { name: String(name) } : {}),
+    // input('name', { reset }) blanks the held frame when reset's value goes
+    // truthy — a code-driven cut of the loop.
+    input: (name, o) => {
+      if (name != null && typeof name === 'object') { o = name; name = undefined; }
+      return new TextureOp(engine, 'in', {
+        ...(name != null ? { name: String(name) } : {}),
+        ...(o?.reset != null ? { reset: o.reset } : {}),
+      });
+    },
     // constant('#f0f') — a flat fill. The object form is tolerated so that
     // constant({ color }) behaves like every other generator's signature.
     constant: (color) => new TextureOp(engine, 'constant', color?.color !== undefined ? color : { color }),

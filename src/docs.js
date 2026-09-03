@@ -43,7 +43,7 @@ export const GLOBALS = {
 
   scene: ['scene({ bg? })', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space). bg swaps the backdrop for this read: a color stands in for bg(), a chain shows through behind the geometry, null leaves it transparent so it comps over whatever sits below.'],
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far. With { focus, range } it measures distance from a focal plane instead — a depth-of-field mask."],
-  input: ['input(name?)', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite)."],
+  input: ['input(name?, { reset })', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite). reset blanks the held frame on the rising edge of its value — a fn of t cuts a feedback loop from code, true cuts it once per run."],
   constant: ['constant(color)', "Texture generator: one flat color, whole frame. Any color form, or a fn of t; null, [r, g, b, a] and '#rrggbbaa' carry transparency, like every texture color slot."],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it. period/freq repeat it into bands, shape waveshapes each cycle, phase scrolls."],
   circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (soft feathers it), or a ring once thickness cuts the middle out. radius, thickness, soft and center take fns of t, or textures.'],
@@ -213,6 +213,7 @@ export const METHODS = {
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other; for a whole-image flip use .scale(-1, 1). A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
   radial: ['.radial(s => ...)', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam."],
+  through: ['.through(s => change, p => ...)', "Texture: run the second fn in the space the first fn moves the frame into, then move it back. .through(s => s.rotate(0.4), p => p.pixellate(40)) lays a tilted grid. The change has to be one that can be undone: a move, a warp, a tone or color adjust. Anything else warns and stays where it went."],
   polar: ['.polar({ inverse })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
   edge: [".edge({ strength, spread, mode: 'classic'|'crisp' })", 'Texture: edge magnitude (grayscale). Lines on nothing — the gaps are transparent, so edges comp without plating what they sit on. Thick and clipped by default; crisp mode gives thin antialiased ones.'],
   slope: [".slope({ strength, spread, mode })", 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
@@ -253,7 +254,7 @@ export const METHODS = {
   gamma: ['.gamma(v)', 'Texture: gamma curve (1 = unchanged, above 1 lifts the shadows; the exponent is 1/v). A texture in place of v sets it per pixel.'],
   posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel. A texture in place of steps sets the count per pixel — scale it first (.mul(8)), since a raw map only ever says 0..1.'],
   dither: [".dither(levels, { mode: 'bayer2'|'bayer4'|'bayer8'|'random', cells })", 'Texture: ordered dither — posterize with a threshold pattern scattering the error, so gradients become texture instead of bands. Default levels 2 with bayer8 is the 1-bit classic; { cells } dithers on a chunky pixel grid instead of the texel grid, which is where the classic look lives. A texture in place of levels sets it per pixel — scale it first, like posterize.'],
-  pixelSort: ['.pixelSort({ threshold, dir, passes, scale })', "Texture: partial pixel sort — bright neighbors swap along an axis until a below-threshold pixel walls them off, so highlights smear into streaks. Fresh each frame; run it over a feedback bus to let the smear keep flowing.\nCost is passes × pixels — the one op priced by a knob. { scale: 0.5 } is ~8× cheaper for the same look."],
+  pixelsort: ['.pixelsort({ threshold, dir, length, size, jitter })', "Texture: spans of pixels brighter than threshold sort into gradient streaks running toward dir. Darker pixels are walls: they stay put and bound each span."],
   jpeg: ['.jpeg(quality, { corrupt, seed })', 'Texture: real DCT compression artifacts — the frame in 8×8 blocks, coefficients quantized harder as quality (0..1, fn of t) falls: flat slabs, ringing, chroma fringing at block edges. Default 0.25. corrupt re-rolls random blocks into garbage for the broken-file look.'],
   flow: ['.flow({ gain, blur, scale })', "Texture: the chain's frame-to-frame motion as a velocity picture, centered on mid-grey like fluid's .velocity() — so .displace(src.flow()) drags the image along its own movement, and .push(f.flow()) stirs a sim with it. Coarse and blurred by design: a look, not measurement."],
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
@@ -291,7 +292,7 @@ export const METHODS = {
   pressure: ['.pressure({ scale })', 'Fluid: the pressure the solve landed on, centered on mid-grey. Mostly worth looking at when a sim is misbehaving.'],
   delay: ['.delay(frames, { scale, max })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it.\nA texture in place of frames delays per pixel: its luma picks how far back each pixel looks, black now, white the whole { max } frames — slit-scan from a ramp, melt from noise."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
-  feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
+  feedback: ['.feedback(amount, prev => chain, { mode, swap, reset })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run; reset cuts them (see the key)."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', {
     texture: 'Tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.',
     inst: 'Which picture this copy wears, out of the set in .material({ map: [a, b, c] }). Counts round, so .tile(i) over a longer grid repeats the set.',
@@ -470,6 +471,9 @@ for (const keys of [GLOBAL_CONFIG.text, GLOBAL_CONFIG.text3d, METHOD_CONFIG.asci
 const GLOBAL_KEY_DOCS = {
   scene: {
     bg: "Swap the backdrop for this read only: a color stands in for bg(), a texture chain shows through behind the geometry, and null leaves it transparent so the read comps over whatever sits below.",
+  },
+  input: {
+    reset: 'Blanks the buffer on the rising edge of its value — a loop reading it starts from black again. A fn of t fires it from code (reset: t => t % 4 < 0.1 cuts every four seconds; a kick trigger cuts on the beat); true cuts once per run, a clean start on every ctrl+enter.',
   },
   curve: {
     closed: "Loop u instead of turning back at the ends — for a lifted fn whose end meets its start. curve.circle() is already closed.",
@@ -950,11 +954,12 @@ const METHOD_KEY_DOCS = {
     mode: "The threshold pattern: 'bayer2' | 'bayer4' | 'bayer8' are ordered matrices, coarse to fine; 'random' is a per-pixel hash. Default 'bayer8'.",
     cells: 'Dither on this grid instead of the texel grid: the source reads at cell centers and the matrix indexes by cell, so the pattern is the visible pixels. One count makes square cells, [x, y] sets both. Use this rather than .pixellate() before it, which leaves the matrix churning at sub-cell scale — grain, not pattern.',
   },
-  pixelSort: {
-    threshold: 'Luma a pixel must exceed to join a sortable span — anything darker is a wall the smear stops at. Default 0.35. Takes a fn of t.',
-    dir: "Which edge the bright pixels crawl toward: 'up', 'down', 'left' or 'right'. Default 'down'.",
-    passes: 'Sort steps per frame. Each moves a pixel at most one texel, so this is also the streak length in pixels. Default 32; more converges further and costs a full-frame pass each. Takes a fn of t.',
-    scale: 'Fraction of the frame the sort runs at. Cheaper twice over: fewer pixels per pass, and each swap covers 1/scale screen pixels, so the same streak takes fewer passes — 0.5 is ~8× cheaper for the look. Default 1.',
+  pixelsort: {
+    threshold: 'Luma a pixel must exceed to join a sortable span; darker is a wall that stays put and bounds the sort. Default 0.35. Below the background’s luma the streaks run out across the background, and at 0 nothing walls at all. Unlit shadows tone-map to exactly 0 luma, so they wall at any positive threshold, however tiny. Takes a fn of t, or a texture to set it per pixel.',
+    dir: "Which edge the bright pixels sort toward: 'up', 'down', 'left' or 'right', or an [x, y] vector for any angle — [1, 1] is down-right, and the components take fns of t, so the direction can swing live. Default 'down'.",
+    length: 'Longest streak, in screen pixels — spans longer than this are cut into segments that sort separately, the cuts phased per column so they don’t line up. Default 0: uncapped, the span is the streak. Takes a fn of t.',
+    size: 'Screen pixels per sorted chunk — the sort runs on a grid this coarse, hard-edged. Default 2. Chunkier is cheaper twice over: fewer pixels per pass, and shorter columns take a smaller sorting network. A plain number, not a fn of t.',
+    jitter: 'Per-column scatter on the threshold — columns break their spans at different lumas, so streak ends go ragged instead of tracing the content’s outline. Default 0, the clean geometric sort; ~0.3 is distinctly ragged. Near a threshold of 0 or 1 the scatter turns binary — sliced, not ragged. Takes a fn of t.',
   },
   jpeg: {
     corrupt: 'Chance per 8×8 block of its coefficients being re-rolled into garbage — ringing static in exactly those blocks. 0..1, default 0; takes a fn of t.',
@@ -968,6 +973,7 @@ const METHOD_KEY_DOCS = {
   feedback: {
     mode: "How last frame comes back in. Default 'add', which piles light up; 'over' stacks it in front, 'under' leaves it behind this frame's drawing.",
     swap: "Feed last frame and this one to the mode in the other order. Default false.",
+    reset: 'Blanks the held frame on the rising edge of its value — trails cut to black and rebuild. A fn of t fires it from code (reset: t => t % 4 < 0.1 cuts every four seconds; a kick trigger cuts on the beat); true cuts once per run, a clean start on every ctrl+enter.',
   },
   field: {
     res: 'Readback size, pixels per side. Default 64 — plenty for a layout, cheap to read. The sampler interpolates between texels.',
@@ -1086,8 +1092,8 @@ const methodKinds = {
   layout: 'filter grow apply age depth data size count',
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
   // has them only to say so; offering them here would invite the mistake)
-  texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
-        posterize dither pixelSort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
+  texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
+        posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
         remap lookup tint alpha displace comp mask blur bloom delay feedback flow when tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
@@ -1167,7 +1173,7 @@ export const CALLBACK_KIND = {
   instance: 'inst',
   layout: 'cursor', branch: 'cursor',
   evolve: 'evolve',
-  tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture',
+  tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture', through: 'texture',
   displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',
 };
 

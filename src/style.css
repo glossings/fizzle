@@ -33,6 +33,9 @@ html, body {
 
 #editor.hidden { display: none; }
 
+/* a camera drag is live: one cursor until the button comes back up */
+html.cam-drag, html.cam-drag * { cursor: default !important; }
+
 .cm-editor {
   background: transparent !important;
   font-size: var(--editor-font, 15px);

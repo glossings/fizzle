@@ -1980,32 +1980,135 @@ box({ res: 2 })
 scene().polar({ inverse: true }).out()
 ```
 
+### through
+
+`.through(s => change, p => ...)` does the work somewhere else and comes back.
+The first function moves or bends the frame. The second works in that space.
+The move is undone afterwards, so `.pixellate()` through a rotation lays a
+tilted grid:
+
+```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+
+sphere({ radius: 1.2, res: 96 })
+  .material({ color: '#ffd08a', roughness: 0.3 })
+  .out()
+
+scene()
+  .through(s => s.rotate(0.4), p => p.pixellate(48))
+  .out()
+```
+
+`.radial()` is this call with `.polar()` as the change.
+
+It pays off for anything that measures the frame in its own coordinates: a
+direction, a grid, a level. An op that ignores the change comes back exactly
+as it went in, since a blur is round whichever way you turn it first.
+
+| through | inside | what you get |
+| --- | --- | --- |
+| `.rotate(r)` | `.pixellate()`, `.ascii()`, `.dither()` | a tilted grid |
+| `.warp({ twist })` | `.pixelsort()` | streaks that rake along the curve |
+| `.displace(map, 0.12)` | `.pixelsort()` | streaks that follow a field |
+| `.gamma(2.6)` | `.posterize()`, `.dither()` | levels spent in the shadows, not spread evenly |
+
+```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+
+sphere({ radius: 1.2, res: 96 })
+  .material({ color: '#ffd08a', roughness: 0.3 })
+  .out()
+
+scene()
+  .through(s => s.warp({ twist: 2.2 }), p => p.pixelsort({ threshold: 0.25, length: 300 }))
+  .out()
+```
+
+The change has to be one that can be undone: `.translate` `.rotate` `.scale`
+`.displace`, `.warp` with **one** of `zoom` or `twist`, `.polar`, `.invert`,
+`.hue` `.gamma` `.contrast` `.saturation`, `.add` `.sub` `.mul` `.div`
+`.pow`, `.chroma`. Several in a row is fine. They undo in reverse. A map in
+the slot works wherever undoing it is a sign flip, so `.mul(map)` comes back
+as `.div(map)` and `.displace(map, a)` as `.displace(map, -a)`, but not where
+it would need a reciprocal per pixel like `.scale(map)`. Anything else, a blur
+or a posterize, warns and leaves the chain in the space it went to. So does a
+`.warp` holding both knobs at once, since its twist measures a radius the zoom
+has already changed.
+
+Two things to expect. A frame can't hold its own rotation, so whatever the
+change pushes past the edge has nowhere to come back from: the border band
+returns as a smear of what was nearest the border. That's invisible for a
+small change and plain for a big one. Both halves of the trip clamp by
+default so the picture stays whole rather than opening a notch in itself.
+Set `wrap` on the op for something else, `'transparent'` showing exactly what
+was lost. The round trip is also two extra resamples, which softens the frame
+a little. Twice in one chain is visible.
+
 ### pixel sorting
 
-`.pixelSort({ threshold, dir, passes })` — a partial sort along one axis:
-bright neighbors swap places until a pixel below `threshold` walls them off,
-so spans of similar luma sort into monotonic streaks toward `dir`. Each pass
-moves a pixel one texel, so `passes` is also the streak length in pixels.
-
-The look wants long, *textured* spans — footage, or a busy field. A smooth
-gradient is already nearly sorted, so a plain shaded object barely changes.
+`.pixelsort({ threshold, dir, length, size, jitter })` — spans of pixels
+brighter than `threshold` sort into monotonic gradient streaks toward
+`dir`; anything darker is a wall that stays put and bounds its span. Each
+frame is fully sorted from scratch, so the output is a pure function of the
+frame: stable on video, static on stills, never a half-finished shuffle.
 
 ```js
 voronoi({ freq: 4, speed: 0.15, a: '#1a0533', b: '#ff9e5e' })
   .comp(noise({ freq: 6, octaves: 4, speed: 0.2 }), 'screen', 0.55)
-  .pixelSort({ threshold: 0.3, passes: 200, scale: 0.5 })
+  .pixelsort({ threshold: 0.3 })
   .out()
 ```
 
-The cost is `passes` full-frame draws every frame — the one op whose price is
-a knob, and a few hundred at full resolution is real GPU work. `scale` runs
-the sort coarse and pays twice: fewer pixels per pass, and each swap covers
-`1/scale` screen pixels, so the same streak length takes proportionally fewer
-passes. `scale: 0.5` is roughly 8× cheaper for the look.
+`threshold` decides where streaks can go: above the background's luma the
+sort stays inside bright regions; below it the streaks run across the
+background too, and at 0 each whole column collapses into one gradient with
+its brightest pixels at the `dir` edge. `length` caps how far that goes —
+spans longer than it are cut into segments that sort separately, the cuts
+phased per column so they don't line up — which dials the effect from
+short dripping fringe to full-column curtains. `jitter` (default 0)
+scatters the threshold per column so neighboring columns break their spans
+at different lumas — around 0.3 the streak ends go ragged instead of
+tracing the content's outline.
 
-Each frame sorts the current picture from scratch, so the effect is stable on
-video. To let the smear accumulate instead, put it in a feedback loop:
-`.feedback(0.5, p => p.pixelSort())`.
+`dir` also takes an `[x, y]` vector — `[1, 1]` sorts down-right, and the
+components take fns of t, so the direction can swing live. And a texture
+in the `threshold` slot sets it per pixel: its luma decides, point by
+point, where streaks may happen, so a drifting noise field switches the
+sort on and off in moving patches.
+
+For streaks that *bend* along a field, sandwich the sort between a
+displacement and its inverse — the sort runs on straight lines in the
+displaced picture, which are curves in the real one:
+
+```js
+const f = noise({ freq: 1.5, speed: 0.05, channels: 3 })
+voronoi({ freq: 5, a: '#1a7a2e', b: '#ff7a1e' })
+  .comp(noise({ freq: 3, octaves: 3, channels: 3 }), 'overlay', 0.6)
+  .displace(f, { amount: 0.12 })
+  .pixelsort({ threshold: 0.3, length: 250 })
+  .displace(f, { amount: -0.12 })
+  .out()
+```
+
+The sort runs a full sorting network over the frame every frame, so its
+cost scales with resolution. `size` runs it on hard-edged chunks that many
+screen pixels across and pays twice: `size: 2` (the default) touches a
+quarter of the pixels per pass and sorts columns half as long; raise it
+further if a big canvas drops frames.
+
+A sorted image re-sorts to itself, so a bare feedback loop settles into a
+still. For the melting-over-time treatment, give the loop a nudge — a
+slight translate keeps handing the sort new work, and the picture drips
+frame over frame:
+
+```js
+voronoi({ freq: 4, speed: 0.15, a: '#1a0533', b: '#ff9e5e' })
+  .comp(noise({ freq: 6, octaves: 4, speed: 0.2 }), 'screen', 0.55)
+  .feedback(0.92, p => p.pixelsort({ length: 200 }).translate(0, -0.004), 'over')
+  .out()
+```
 
 ### jpeg — compression artifacts
 
@@ -2214,6 +2317,12 @@ stands in for the options, in whichever slot is free:
 `{ mode: 'under' }` lays the trail down *behind* what the chain draws this
 frame, so the source stays crisp on top of its own smear instead of blowing
 out where the two pile up.
+
+`{ reset }` blanks the held frame on the rising edge of its value, cutting
+the trails to black to rebuild: `reset: t => t % 4 < 0.1` cuts every four
+seconds, a kick trigger cuts on the beat, and `reset: true` cuts once per
+run — a clean start on every ctrl+enter. `input('name', { reset })` does
+the same for a loop wired by hand.
 
 ```js
 circle({ radius: 0.08, soft: 0.02, color: '#ff5f9e', bg: null })

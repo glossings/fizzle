@@ -1544,6 +1544,8 @@ const disposeRing = (hist) => {
   hist.array = null;
 };
 
+// scratch for ctx.fbClear, which must put the renderer's clear color back
+const clearColorTmp = new THREE.Color();
 const disposeFlow = (hist) => {
   hist.prev?.dispose();
   hist.cur?.dispose();
@@ -1569,7 +1571,7 @@ function delayFit(frames, scale, w, h) {
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
 let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE, MAT_TOLINEAR, MAT_DELAY_MAP,
-  MAT_FLOW, MAT_SORT, MAT_JPEG;
+  MAT_FLOW, MAT_SWALL, MAT_SSCAN, MAT_SKEY, MAT_SOEM, MAT_SGATHER, MAT_SSHEAR, MAT_JPEG;
 function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
   // one Lucas–Kanade step: tex0 this frame, tex1 last, both luma. The estimate
@@ -1640,27 +1642,134 @@ function ensurePassMaterials() {
         gl_FragColor = vec4(acc, texture2D(tex0, vUv).a);
       }`,
   });
-  // one odd-even transposition step of a pixel sort: each pixel looks at its
-  // pair partner along uAxis (which side alternates with uParity) and keeps
-  // the one that belongs at its index — but only where both sit above the
-  // threshold, so darker pixels are walls the bright spans sort between.
-  MAT_SORT ??= makeMaterial({
-    extras: { uAxis: [0, 1], uSign: 1, uParity: 0, uThresh: 0.35 },
+  // Pixel sort, converged every frame. Any *iterated* exchange step shows a
+  // partial state — displaced rows interleaved with stayers, the scanline
+  // combing and ghost-copy artifacts — so instead: build a per-texel key
+  // (span anchor, signed luma, home row), run a full Batcher odd-even merge
+  // network over the keys, and gather the picture through the sorted rows
+  // once. Only the finished sort is ever visible.
+  //
+  // Walls anchor at their own row, so the network puts them straight back;
+  // span pixels share their span's start row, so they sort within it.
+  MAT_SWALL ??= makeMaterial({
+    extras: { uAxis: [0, 1], uThresh: 0.35, uJitter: 0, uThMap: 0, uSlope: 0, uOff: 0, uSTexel: [0, 0] },
+    frag: `
+      float hash(float p) { return fract(sin(p * 127.1) * 43758.5453); }
+      void main() {
+        vec2 idx = floor(vUv / uTexel);
+        float i = dot(idx, uAxis);
+        // a texture in the threshold slot sets it per pixel (its luma). The
+        // frame may be sheared for an off-axis dir while the map is not, so
+        // the map reads through the same shear the frame went through.
+        float th = uThresh;
+        if (uThMap > 0.5) {
+          vec2 idc = idx + 0.5, cross_ = vec2(uAxis.y, uAxis.x);
+          float sc = dot(idc, cross_) - uOff + uSlope * dot(idc, uAxis);
+          th = dot(texture2D(tex1, uAxis * (dot(idc, uAxis) * dot(uSTexel, uAxis)) + cross_ * (sc * dot(uSTexel, cross_))).rgb, LUMA);
+        }
+        // jitter scatters the threshold per column either way, so
+        // neighboring columns break spans at different lumas
+        th += (hash(dot(idx, vec2(uAxis.y, uAxis.x))) - 0.5) * uJitter;
+        vec4 c = texture2D(tex0, vUv);
+        float lum = dot(c.rgb, LUMA);
+        // strictly below: threshold 0 walls nothing, so pure black sorts too
+        // (the tonemap crushes dark backgrounds to exact 0). Transparency is
+        // always a wall — off-frame shear padding must not pour in as black.
+        gl_FragColor = vec4(lum < th || c.a <= 0.0 ? i : -1.0, 0.0, 0.0, 1.0);
+      }`,
+  });
+  // running max along the axis (one jump of 2^k a pass): each texel ends up
+  // knowing the nearest wall at or above it
+  MAT_SSCAN ??= makeMaterial({
+    extras: { uAxis: [0, 1], uJump: 1 },
     frag: `
       void main() {
-        float i = dot(floor(vUv / uTexel), uAxis);     // exact integer index
-        float first = mod(i + uParity, 2.0);           // lower index of the pair
-        vec2 partner = vUv + uAxis * uTexel * (first < 0.5 ? 1.0 : -1.0);
+        float i = dot(floor(vUv / uTexel), uAxis);
+        float me = texture2D(tex0, vUv).r;
+        float prev = (i - uJump) < 0.0 ? -1.0 : texture2D(tex0, vUv - uAxis * uTexel * uJump).r;
+        gl_FragColor = vec4(max(me, prev), 0.0, 0.0, 1.0);
+      }`,
+  });
+  // tex0 = source, tex1 = wall scan. No wall above scans to -1, so the top
+  // span anchors at row 0.
+  MAT_SKEY ??= makeMaterial({
+    extras: { uAxis: [0, 1], uSign: 1, uLen: 0 },
+    frag: `
+      float hash(float p) { return fract(sin(p * 127.1) * 43758.5453); }
+      void main() {
+        vec2 idx = floor(vUv / uTexel);
+        float i = dot(idx, uAxis);
+        float wall = texture2D(tex1, vUv).r;
+        float lum = dot(texture2D(tex0, vUv).rgb, LUMA);
+        bool isWall = wall == i;
+        float anchor = isWall ? i : wall + 1.0;
+        // a length cap cuts the span into uLen-long segments that sort
+        // separately, the cuts phased per column so they don't line up into
+        // a horizontal seam. 0 = uncapped: the span is the streak.
+        if (!isWall && uLen > 0.5) {
+          float off = floor(hash(dot(idx, vec2(uAxis.y, uAxis.x)) + 7.7) * uLen);
+          anchor = max(anchor + floor((i - anchor + off) / uLen) * uLen - off, anchor);
+        }
+        gl_FragColor = vec4(anchor, isWall ? -2.0 : lum * uSign, i, 1.0);
+      }`,
+  });
+  // one comparator layer of Batcher's odd-even merge sort (stage uP,
+  // substage uK). Every comparator sends the min to the lower index, so a
+  // column shorter than the padded power of two behaves as if padded with
+  // +inf keys that never move — arbitrary heights just work.
+  MAT_SOEM ??= makeMaterial({
+    extras: { uAxis: [0, 1], uP: 1, uK: 1, uCount: 2 },
+    frag: `
+      bool lessK(vec4 a, vec4 b) { return a.r < b.r || (a.r == b.r && a.g < b.g); }
+      void main() {
+        float i = dot(floor(vUv / uTexel), uAxis);
         vec4 me = texture2D(tex0, vUv);
-        if (partner.x < 0.0 || partner.x > 1.0 || partner.y < 0.0 || partner.y > 1.0) {
-          gl_FragColor = me;
+        float k2 = uK * 2.0;
+        float base = mod(uK, uP);
+        vec2 stepv = uAxis * uTexel;
+        float r = mod(i, k2);
+        if (r >= base && r < base + uK && i + uK < uCount
+            && floor(i / (uP * 2.0)) == floor((i + uK) / (uP * 2.0))) {
+          vec4 other = texture2D(tex0, vUv + stepv * uK);
+          gl_FragColor = lessK(other, me) ? other : me;   // low side keeps the min
           return;
         }
-        vec4 other = texture2D(tex0, partner);
-        float lm = dot(me.rgb, LUMA), lo = dot(other.rgb, LUMA);
-        bool takeOther = first < 0.5 ? lo < lm : lo > lm;   // ascending along +axis
-        if (uSign < 0.0) takeOther = !takeOther;
-        gl_FragColor = (min(lm, lo) > uThresh && takeOther) ? other : me;
+        float r2 = mod(i - uK, k2);
+        if (i - uK >= 0.0 && r2 >= base && r2 < base + uK
+            && floor((i - uK) / (uP * 2.0)) == floor(i / (uP * 2.0))) {
+          vec4 other = texture2D(tex0, vUv - stepv * uK);
+          gl_FragColor = lessK(me, other) ? other : me;   // high side keeps the max
+          return;
+        }
+        gl_FragColor = me;
+      }`,
+  });
+  // tex0 = source, tex1 = sorted keys: each row reads the source row that
+  // belongs at it, so payloads (alpha included) move whole
+  MAT_SGATHER ??= makeMaterial({
+    extras: { uAxis: [0, 1] },
+    frag: `
+      void main() {
+        float row = texture2D(tex1, vUv).b;
+        vec2 uv = vUv - uAxis * dot(vUv, uAxis) + uAxis * ((row + 0.5) * dot(uTexel, uAxis));
+        gl_FragColor = texture2D(tex0, uv);
+      }`,
+  });
+  // shear resample for off-axis dirs: the requested direction becomes exactly
+  // vertical (or horizontal) in a wider buffer, the sort runs on integer
+  // texel lines as always, and the inverse shear puts it back. Off-frame
+  // reads land transparent black, which the sorter treats as walls.
+  MAT_SSHEAR ??= makeMaterial({
+    extras: { uAxis: [0, 1], uSlope: 0, uOff: 0, uSTexel: [0, 0] },
+    frag: `
+      void main() {
+        vec2 idx = floor(vUv / uTexel) + 0.5;
+        vec2 cross_ = vec2(uAxis.y, uAxis.x);
+        float along = dot(idx, uAxis);
+        float sc = dot(idx, cross_) - uOff + uSlope * along;
+        vec2 suv = uAxis * (along * dot(uSTexel, uAxis)) + cross_ * (sc * dot(uSTexel, cross_));
+        gl_FragColor = (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0)
+          ? vec4(0.0) : texture2D(tex0, suv);
       }`,
   });
   // per-pixel delay: tex0 is the frames map (luma 0..1 spans 0..uMax frames
@@ -1925,6 +2034,97 @@ function markPolar(node, src, seen = new Set()) {
 }
 
 // ---------------------------------------------------------------------------
+// inverses — what .through() needs in order to come back
+//
+// One entry per op that can be undone exactly, returning the nodes that undo
+// it in the order they go on the chain. A node holding several knobs undoes
+// them in the reverse of its own order: a UV op's sampling maps compose
+// backwards and a colour op's stages run forwards, but either way the last
+// thing done is the first undone. A missing entry — or a null return — means
+// this particular setting throws something away (a blur, a posterize, a scale
+// driven by a map, a saturation of 0), and .through() says so rather than
+// guessing.
+
+const negp = (v) => (typeof v === 'function' ? (t) => -v(t) : -v);
+// undefined counts as untouched: the knob's default is what the shader ran
+const untouched = (v, d) => v === undefined || v === d || (Array.isArray(v) && v.every((x) => x === d));
+const isMap = (v) => v?.map instanceof TextureOp;
+const negAmt = (v) => (isMap(v) ? { ...v, amount: negp(v.amount) } : negp(v));
+const recipAmt = (v) => (Array.isArray(v) ? v.map(reciprocal) : reciprocal(v));
+
+// a texture-valued param arrives on a built node as a slot marker; put the map
+// back so the inverse node can bind it again with an amount of its own
+function unbind(kind, params, inputs) {
+  const spec = SPECS[kind];
+  if (!spec?.texParams) return params;
+  let out = params;
+  for (const name of Object.keys(spec.texParams)) {
+    const m = params[name];
+    if (typeof m?.tex !== 'number') continue;
+    if (out === params) out = { ...params };
+    out[name] = { map: inputs[m.tex], amount: m.amount ?? 1, mid: m.mid ?? 0 };
+  }
+  return out;
+}
+
+const INVERSES = {
+  polar: (p) => [{ kind: 'polar', params: { inverse: !p.inverse } }],
+  invert: () => [{ kind: 'invert', params: {} }],
+
+  transform(p) {
+    if (isMap(p.scale)) return null;            // 1 / a map has no spelling here
+    const steps = [];
+    const keep = p.wrap !== undefined ? { wrap: p.wrap } : {};
+    if (!untouched(p.rotate, 0)) steps.push({ rotate: negAmt(p.rotate) });
+    if (!untouched(p.scale, 1)) steps.push({ scale: recipAmt(p.scale) });
+    if (isMap(p.translate)) steps.push({ translate: negAmt(p.translate) });
+    else if (p.translate && !untouched(p.translate, 0))
+      steps.push({ translate: [negp(p.translate[0]), negp(p.translate[1])] });
+    return steps.map((s) => ({ kind: 'transform', params: { ...s, ...keep } }));
+  },
+
+  adjust(p) {
+    // only hue has a texture form that inverts: negating an amount turns the
+    // wheel back, while 1/gamma and 1/contrast aren't values a map can carry
+    if (isMap(p.gamma) || isMap(p.contrast) || isMap(p.saturation)) return null;
+    if (p.saturation === 0) return null;        // grey keeps no way back
+    const steps = [];
+    if (!untouched(p.gamma, 1)) steps.push({ gamma: recipAmt(p.gamma) });
+    if (!untouched(p.hue, 0)) steps.push({ hue: negAmt(p.hue) });
+    if (!untouched(p.saturation, 1)) steps.push({ saturation: recipAmt(p.saturation) });
+    if (!untouched(p.contrast, 1)) steps.push({ contrast: recipAmt(p.contrast) });
+    return steps.map((s) => ({ kind: 'adjust', params: s }));
+  },
+
+  math(p) {
+    if (isMap(p.pow)) return null;
+    const steps = [];
+    // swapping the slots is the whole inverse, which is why a map in one of
+    // them needs nothing done to it: .mul(map) comes back as .div(map)
+    if (!untouched(p.add, 0) || !untouched(p.sub, 0)) steps.push({ add: p.sub ?? 0, sub: p.add ?? 0 });
+    if (!untouched(p.mul, 1) || !untouched(p.div, 1)) steps.push({ mul: p.div ?? 1, div: p.mul ?? 1 });
+    if (!untouched(p.pow, 1)) steps.push({ pow: recipAmt(p.pow) });
+    return steps.map((s) => ({ kind: 'math', params: s }));
+  },
+
+  warp(p) {
+    if (isMap(p.zoom) || isMap(p.twist) || isMap(p.barrel)) return null;
+    if (!untouched(p.barrel, 0)) return null;   // undoing a barrel is a cubic
+    const keep = { center: p.center, wrap: p.wrap };
+    const z = !untouched(p.zoom, 1), tw = !untouched(p.twist, 0);
+    // the twist reads its radius after the zoom, so a node holding both can't
+    // be undone by two nodes holding one each
+    if (z && tw) return null;
+    if (z) return [{ kind: 'warp', params: { ...keep, zoom: recipAmt(p.zoom) } }];
+    if (tw) return [{ kind: 'warp', params: { ...keep, twist: negAmt(p.twist) } }];
+    return [];
+  },
+
+  // the channels never mix, so each one's offset just goes back
+  chroma: (p) => [{ kind: 'chroma', params: { ...p, amount: negAmt(p.amount ?? 0.005) } }],
+};
+
+// ---------------------------------------------------------------------------
 // auto-named buffers
 //
 // A helper that closes a feedback loop needs a bus name of its own, and a
@@ -2017,11 +2217,56 @@ export class TextureOp {
   // around the ring. Both resamples are ours: an unbalanced pair isn't a look
   // anyone means, and only this end knows the span is angular (see markPolar).
   radial(fn) {
-    const src = this._n('polar');
-    const inner = src._texture(fn, 'radial');   // fn's arg is the chain *in* polar space
+    return this.through((s) => s.polar(), fn);
+  }
+
+  // .through(change, fn) — do the work somewhere else and come back:
+  // .through(s => s.rotate(0.125), p => p.pixelsort()) sorts along a diagonal,
+  // .through(s => s.warp({ twist: 2 }), ...) sorts along curves,
+  // .through(s => s.gamma(2.2), p => p.dither()) spends the levels where the
+  // eye is. The change has to be undoable — a move, a warp, a curve on the
+  // colour — and both halves are ours, since an unbalanced pair is a look
+  // nobody means. .radial() is this call with .polar() as the change.
+  //
+  // What comes back is only different if the two disagree: an op that ignores
+  // the change (a blur through a rotate, which is round either way) returns
+  // the frame it was given. Anything that measures the frame in its own
+  // coordinates — a direction, a grid, a level — is where this pays.
+  through(change, fn) {
+    const outer = this._texture(change, 'through');
+    if (!outer) return this;
+    const span = [];                            // outermost first, which is also undo order
+    for (let n = outer; n !== this; n = n.inputs[0]) {
+      if (!n?.inputs?.length) {
+        warn('through: the first fn has to build on the chain it is handed — .through(s => s.rotate(0.1), p => p.pixelsort())');
+        return this;
+      }
+      span.push(n);
+    }
+    // A frame can't hold its own rotation: what the change pushes past the
+    // edge has nowhere to come back from, and left transparent that reads as
+    // the round trip cutting a notch out of the picture — 7 degrees takes
+    // triangles off all four sides. So the way out fills instead of emptying,
+    // and the way back reads real pixels everywhere. The band nearest the edge
+    // comes back as a smear of what was nearest the edge, which is the honest
+    // price and an invisible one until the change is large. wrap on the op
+    // itself overrides, 'transparent' showing exactly what was lost.
+    for (const n of span) {
+      if ((n.kind === 'transform' || n.kind === 'warp') && n.params.wrap === undefined) n.params.wrap = 'clamp';
+    }
+    const inner = outer._texture(fn, 'through');
     if (!inner) return this;
-    markPolar(inner, src);
-    return inner._n('polar', { inverse: true });
+    for (const n of span) if (n.kind === 'polar' && !n.params.inverse) markPolar(inner, n);
+    let out = inner;
+    for (const n of span) {
+      const steps = INVERSES[n.kind]?.(unbind(n.kind, n.params, n.inputs), n.inputs);
+      if (!steps) {
+        warn(`through: ${n.kind} can't be undone as it's set here, so the chain stays in the space it went to`);
+        return inner;
+      }
+      for (const s of steps) out = out._n(s.kind, s.params);
+    }
+    return out;
   }
 
   // one way, as an effect rather than a coordinate change: forward unrolls the
@@ -2048,12 +2293,22 @@ export class TextureOp {
     if (typeof o === 'string') o = { mode: o };
     return this._n('dither', { ...o, levels });
   }
-  // .pixelSort({ threshold, dir, passes }) — a partial sort along one axis:
-  // each pass is one odd-even transposition step, so bright pixels crawl one
-  // texel per pass toward `dir` until a below-threshold pixel walls them off.
-  // Stateless — each frame sorts the current picture from scratch; run it over
-  // a feedback bus if the smear should keep flowing.
-  pixelSort(o = {}) { return this._n('pixelSort', o); }
+  // .pixelsort({ threshold, dir, size, jitter }) — interval pixel sort:
+  // spans of pixels brighter than `threshold` sort into monotonic gradient
+  // streaks toward `dir`; darker pixels are walls that stay put and bound
+  // each span. Fully sorted every frame — a pure function of the frame, so
+  // it's stable on video. Sorted twice is sorted, so a bare feedback loop
+  // settles; the melting-over-time treatment needs a nudge in the loop:
+  // .feedback(0.92, p => p.pixelsort({ length: 200 }).translate(0, -0.004), 'over')
+  pixelsort(o = {}) {
+    // a texture in the threshold slot sets it per pixel — a field deciding
+    // where streaks may happen
+    if (o.threshold instanceof TextureOp) {
+      const { threshold, ...rest } = o;
+      return this._n('pixelsort', { ...rest, byThMap: true }, [threshold]);
+    }
+    return this._n('pixelsort', o);
+  }
   // .jpeg(0.1) / .jpeg({ quality, corrupt, seed }) — real DCT-domain
   // compression: the frame in 8×8 blocks, coefficients quantized by a
   // quality-scaled table. corrupt re-rolls random blocks for the broken-file
@@ -2247,7 +2502,9 @@ export class TextureOp {
     }
     o = typeof o === 'string' ? { mode: o } : o ?? {};
     const name = autoBuffer(this.engine);
-    let prev = new TextureOp(this.engine, 'in', { name });
+    // { reset } rides on the loop's input: a truthy edge blanks the held
+    // frame, cutting the trails to black
+    let prev = new TextureOp(this.engine, 'in', o != null && typeof o === 'object' && o.reset != null ? { name, reset: o.reset } : { name });
     if (fn != null) {
       const treated = typeof fn === 'function' ? fn(prev) : fn;
       if (treated instanceof TextureOp) prev = treated;
@@ -2568,8 +2825,20 @@ export class TextureOp {
     }
 
     if (this.kind === 'in') {
-      const { name } = this.params;
-      if (name == null) return ctx.feedbackTex;   // last frame's display output
+      const { name, reset } = this.params;
+      // reset fires on the rising edge of its value — reset: true blanks
+      // once per run (a clean start on every ctrl+enter), a fn of t cuts
+      // the loop whenever it goes truthy
+      let firing = false;
+      if (reset != null) {
+        const v = !!resolve(reset, ctx.t);
+        firing = v && !this._resetPrev;
+        this._resetPrev = v;
+      }
+      if (name == null) {
+        if (firing) ctx.fbClear(null);
+        return ctx.feedbackTex;   // last frame's display output
+      }
       const producer = this.engine.textureBuffers.get(name);
       // acyclic: pull the producer fresh this frame (plain routing between
       // chains); cyclic or unpublished: last frame's snapshot (feedback)
@@ -2581,6 +2850,7 @@ export class TextureOp {
       // a geometry layer published with geometry .out('name')
       const bit = this.engine.geoLayers.get(name);
       if (bit != null) return ctx.layerTex(name, bit);
+      if (firing) ctx.fbClear(name);
       return ctx.fbTex(name);
     }
 
@@ -2950,37 +3220,100 @@ export class TextureOp {
       return out.texture;
     }
 
-    // .pixelSort() — `passes` odd-even transposition steps over the current
-    // frame, ping-ponged between two targets. Each step moves a pixel at most
-    // one texel, so passes is also the streak length; the partial state after
-    // them is the look, and rendering fresh each frame keeps it a pure
-    // function of the input.
-    if (this.kind === 'pixelSort') {
+    // .pixelsort() — keys built from the current frame, run through the full
+    // Batcher network, one gather out (see the MAT_S* materials). Stateless
+    // and fully converged: only the finished sort ever shows.
+    if (this.kind === 'pixelsort') {
       const p = this.params;
-      const raw = Math.round(resolve(p.passes ?? 32, ctx.t));
-      const passes = Number.isFinite(raw) ? Math.max(1, Math.min(1024, raw)) : 32;
       const dirs = { up: [0, 1, 1], down: [0, 1, -1], right: [1, 0, 1], left: [1, 0, -1] };
-      let dir = dirs[p.dir ?? 'down'];
-      if (!dir) {
-        warn(`pixelSort: no dir '${p.dir}' — up, down, left or right; sorting down`);
+      // a vector dir ([1, 1] is down-right, screen-wise) splits into its
+      // dominant axis plus a slope; the shear passes make that direction an
+      // exact texel line
+      let dir = dirs[p.dir ?? 'down'], slope = 0;
+      if (Array.isArray(p.dir)) {
+        const vx = Number(resolve(p.dir[0], ctx.t)) || 0, vy = Number(resolve(p.dir[1], ctx.t)) || 0;
+        if (!vx && !vy) dir = dirs.down;
+        else if (Math.abs(vy) >= Math.abs(vx)) { dir = [0, 1, vy > 0 ? -1 : 1]; slope = -vx / vy; }
+        else { dir = [1, 0, vx > 0 ? 1 : -1]; slope = -vy / vx; }
+      } else if (!dir) {
+        warn(`pixelsort: no dir '${p.dir}' — up, down, left, right, or an [x, y] vector; sorting down`);
         dir = dirs.down;
       }
       const th = resolve(p.threshold ?? 0.35, ctx.t);
-      // The cost is passes × pixels, so scale pays twice: fewer pixels each
-      // pass, and each swap covers 1/scale screen pixels, so the same streak
-      // takes proportionally fewer passes. 0.5 is ~8× cheaper for the look.
-      const scale = Math.min(1, Math.max(0.05, p.scale ?? 1));
-      const a = this._rt(ctx, 'auxA', scale), b = this._rt(ctx, 'auxB', scale), out = this._rt(ctx, 'main', scale);
-      let src = ins[0];
-      for (let i = 0; i < passes; i++) {
-        const dst = i === passes - 1 ? out : i % 2 ? b : a;
-        runPass(ctx, MAT_SORT, src, null, dst, (u) => {
-          u.uAxis.value.set(dir[0], dir[1]);
-          u.uSign.value = dir[2];
-          u.uParity.value = i % 2;
-          u.uThresh.value = th;
-        });
-        src = dst.texture;
+      const thMap = p.byThMap ? ins[1] : null;
+      const rawJitter = resolve(p.jitter ?? 0, ctx.t);
+      const jitter = Number.isFinite(rawJitter) ? Math.min(1, Math.max(0, rawJitter)) : 0;
+      const rawSize = Number(p.size ?? 2);
+      const size = Number.isFinite(rawSize) ? Math.min(20, Math.max(1, rawSize)) : 2;
+      const scale = 1 / size;
+      const out = this._rt(ctx, 'main', scale);
+      // hard-edged chunks on the way back up — linear magnification reads
+      // as a translucent blur over the input rather than sorted pixels
+      out.texture.magFilter = THREE.NearestFilter;
+      const w = out.width, h = out.height;
+      const n = dir[0] ? w : h;    // length along the sort axis
+      const sheared = Math.abs(slope) > 1e-6;
+      // the sheared buffer widens to keep every source texel covered; the
+      // width quantizes so an animated dir isn't reallocating every frame
+      const grow = sheared ? Math.min(n, Math.ceil((Math.abs(slope) * n) / 64) * 64) : 0;
+      const off = Math.max(0, slope * n);
+      const ww = dir[0] ? w : w + grow, wh = dir[0] ? h + grow : h;
+      const slotRT = (slot, sw, sh, float) => {
+        let rt = this[slot];
+        if (!rt || rt.width !== sw || rt.height !== sh) {
+          rt?.dispose();
+          rt = this[slot] = new THREE.WebGLRenderTarget(sw, sh, { type: float ? THREE.FloatType : THREE.HalfFloatType, depthBuffer: false });
+          if (float) rt.texture.minFilter = rt.texture.magFilter = THREE.NearestFilter;
+        }
+        return rt;
+      };
+      // key buffers hold exact row indices, which half floats stop
+      // representing past 2048 — so full float, ping-ponged
+      let src = slotRT('_tgt_skeyA', ww, wh, true), dst = slotRT('_tgt_skeyB', ww, wh, true);
+      const axis = (u) => u.uAxis.value.set(dir[0], dir[1]);
+      const shearU = (u, s, o, tw, thh) => { u.uSlope.value = s; u.uOff.value = o; u.uSTexel.value.set(1 / tw, 1 / thh); };
+      let pic = ins[0];
+      if (sheared) {
+        const sh = slotRT('_tgt_sshear', ww, wh, false);
+        runPass(ctx, MAT_SSHEAR, ins[0], null, sh, (u) => { axis(u); shearU(u, slope, off, w, h); });
+        pic = sh.texture;
+      }
+      // walls → running max (each texel learns its nearest wall above) → keys
+      runPass(ctx, MAT_SWALL, pic, thMap, src, (u) => {
+        axis(u);
+        u.uThresh.value = th;
+        u.uJitter.value = jitter;
+        u.uThMap.value = thMap ? 1 : 0;
+        shearU(u, sheared ? slope : 0, sheared ? off : 0, w, h);
+      });
+      for (let j = 1; j < n; j *= 2) {
+        runPass(ctx, MAT_SSCAN, src.texture, null, dst, (u) => { axis(u); u.uJump.value = j; });
+        [src, dst] = [dst, src];
+      }
+      const rawLen = resolve(p.length ?? 0, ctx.t);
+      const len = Number.isFinite(rawLen) && rawLen > 0
+        ? Math.max(1, Math.round(rawLen / (size * Math.sqrt(1 + slope * slope)))) : 0;
+      runPass(ctx, MAT_SKEY, pic, src.texture, dst, (u) => { axis(u); u.uSign.value = dir[2]; u.uLen.value = len; });
+      [src, dst] = [dst, src];
+      // the full merge network, then one gather through the sorted rows
+      for (let pp = 1; pp < n; pp *= 2) {
+        for (let k = pp; k >= 1; k >>= 1) {
+          runPass(ctx, MAT_SOEM, src.texture, null, dst, (u) => {
+            axis(u);
+            u.uP.value = pp;
+            u.uK.value = k;
+            u.uCount.value = n;
+          });
+          [src, dst] = [dst, src];
+        }
+      }
+      if (sheared) {
+        const so = slotRT('_tgt_sshearOut', ww, wh, false);
+        so.texture.magFilter = THREE.NearestFilter;
+        runPass(ctx, MAT_SGATHER, pic, src.texture, so, (u) => axis(u));
+        runPass(ctx, MAT_SSHEAR, so.texture, null, out, (u) => { axis(u); shearU(u, -slope, -off, ww, wh); });
+      } else {
+        runPass(ctx, MAT_SGATHER, pic, src.texture, out, (u) => axis(u));
       }
       return out.texture;
     }
@@ -3384,6 +3717,19 @@ export function renderTextures(engine) {
     sceneDepthTex: needsDepth ? st.sceneRT.depthTexture : null,
     feedbackTex: st.feedbackRT.texture,
     fbTex: (name) => fbRT(name).texture,
+    // a reset trigger fired: blank the held frame, so the loop starts over
+    fbClear: (name) => {
+      const rt = name == null ? st.feedbackRT : st.fbRTs.get(name);
+      if (!rt) return;
+      const prev = renderer.getRenderTarget();
+      const alpha = renderer.getClearAlpha();
+      renderer.getClearColor(clearColorTmp);
+      renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(rt);
+      renderer.clear(true, false, false);
+      renderer.setRenderTarget(prev);
+      renderer.setClearColor(clearColorTmp, alpha);
+    },
     layerTex,
   };
 

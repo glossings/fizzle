@@ -69,6 +69,14 @@ export class Engine {
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
 
+    // A drag on the canvas captures the pointer, but Chrome keeps hit-testing
+    // the code overlay underneath and flickers the cursor between arrow and
+    // I-beam — pin it (html.cam-drag in style.css) for the length of the drag.
+    const doc = canvas.ownerDocument;
+    canvas.addEventListener('pointerdown', () => doc.documentElement.classList.add('cam-drag'));
+    for (const ev of ['pointerup', 'pointercancel'])
+      doc.addEventListener(ev, () => doc.documentElement.classList.remove('cam-drag'));
+
     this.time = 0;        // sketch time; frozen while paused so resume doesn't jump
     this.paused = false;
     this.frames = 0;      // total frames rendered, for the fps readout
