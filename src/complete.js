@@ -281,7 +281,7 @@ const MEDIA_RE = { image: IMAGE_RE, hdri: HDRI_RE, audio: AUDIO_RE, video: VIDEO
 
 // first-argument filename slots
 const MEDIA_ARG = {
-  imagefile: 'image', imageseq: 'image', videofile: 'video',
+  imagefile: 'image', imageseq: 'image', videofile: 'video', videoseq: 'video',
   audiofile: 'audio', model: 'model', hdri: 'hdri',
 };
 const TEXTURE_KEYS = new Set([...MAP_SLOTS, 'arm']);

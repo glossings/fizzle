@@ -15,6 +15,10 @@ const STORE = 'files';
 
 let dbPromise;
 function db() {
+  // Imported media only exists here — without persistence the browser may
+  // quietly evict the whole store under disk pressure, after which sketches
+  // say their files were never imported. Grant is silent; denial changes nothing.
+  if (!dbPromise) navigator.storage?.persist?.().catch(() => {});
   dbPromise ??= new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'name' });

@@ -1586,8 +1586,8 @@ scene()
 - `video(name?)` — live camera (see **video input**).
 - `person(name?)` — a live person mask cut from that same camera (see **video
   input**).
-- `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` —
-  imported media files (see **media files**).
+- `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` /
+  `videoseq([names], index?)` — imported media files (see **media files**).
 
 ```js
 ramp({ type: 'radial', a: '#1a0533', b: '#ff5f9e' })
@@ -1661,6 +1661,18 @@ geometry.
 - `.contrast(v)` · `.saturation(v)` · `.gamma(v)` — 1 = unchanged. Or combined: `.levels({ contrast, saturation, gamma, hue })`.
 - `.hue(v)` — hue rotation in turns: `.hue(0.5)` flips the palette, `.hue(t => t * 0.1)` drifts it.
 - `.posterize(steps)` — quantize values · `.pixellate(x, y?)` — quantize position.
+- `.dither(levels, { mode, cells })` — `.posterize()` with a Bayer threshold
+  pattern scattering the error, so gradients become texture instead of bands.
+  `{ cells }` is the key to the classic 1-bit look: it dithers on a chunky
+  pixel grid, so the pattern is the visible pixels — per-texel dithering on a
+  retina screen just reads as grain.
+
+  ```js
+  ramp({ type: 'radial', b: '#223366' })
+    .comp(noise({ freq: 3, speed: 0.3 }), 'screen', 0.4)
+    .dither(2, { cells: 220 })
+    .out()
+  ```
 - `.ascii({ chars, cols, rows, color, bg, font, weight })` — quantize *both*:
   the frame becomes a grid of characters, each cell drawn with the glyph whose
   ink matches its brightness. `chars` is the vocabulary, ordered dark→bright.
@@ -1968,6 +1980,60 @@ box({ res: 2 })
 scene().polar({ inverse: true }).out()
 ```
 
+### pixel sorting
+
+`.pixelSort({ threshold, dir, passes })` — a partial sort along one axis:
+bright neighbors swap places until a pixel below `threshold` walls them off,
+so spans of similar luma sort into monotonic streaks toward `dir`. Each pass
+moves a pixel one texel, so `passes` is also the streak length in pixels.
+
+The look wants long, *textured* spans — footage, or a busy field. A smooth
+gradient is already nearly sorted, so a plain shaded object barely changes.
+
+```js
+voronoi({ freq: 4, speed: 0.15, a: '#1a0533', b: '#ff9e5e' })
+  .comp(noise({ freq: 6, octaves: 4, speed: 0.2 }), 'screen', 0.55)
+  .pixelSort({ threshold: 0.3, passes: 200, scale: 0.5 })
+  .out()
+```
+
+The cost is `passes` full-frame draws every frame — the one op whose price is
+a knob, and a few hundred at full resolution is real GPU work. `scale` runs
+the sort coarse and pays twice: fewer pixels per pass, and each swap covers
+`1/scale` screen pixels, so the same streak length takes proportionally fewer
+passes. `scale: 0.5` is roughly 8× cheaper for the look.
+
+Each frame sorts the current picture from scratch, so the effect is stable on
+video. To let the smear accumulate instead, put it in a feedback loop:
+`.feedback(0.5, p => p.pixelSort())`.
+
+### jpeg — compression artifacts
+
+`.jpeg(quality)` is the real thing, not a filter that resembles it: the frame
+goes through an 8×8 DCT and its coefficients are quantized, harder as
+`quality` (0..1) falls — flat slabs, ringing around edges, chroma fringing at
+block borders. `quality` takes a function of `t`, so the image can fall apart
+on cue.
+
+```js
+bg('#04040a')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+point({ color: '#66aaff', intensity: 50 }).position(-3, 2, 3).out()
+
+torusKnot({ radius: 1.1, tube: 0.32, res: 160 })
+  .rotation(t => t * 0.4, t => t * 0.3, 0)
+  .material({ color: '#ff5e8a', roughness: 0.3 })
+  .out()
+
+scene().jpeg(0.06).out()
+```
+
+`{ corrupt }` is the chance per block of its coefficients being re-rolled into
+garbage — the broken-file look, ringing static in exactly those blocks. The
+damage sits still; give `{ seed }` a function of `t` to make it flicker:
+`.jpeg(0.1, { corrupt: 0.08, seed: B })` re-deals it every bar.
+
 ## a texture where a number goes
 
 Hand a texture to any of the parameters below and it stops being one number for
@@ -2253,6 +2319,23 @@ than a trail, each ghost a definite age.
 The count takes a function of `t` (`.delay(B.select([1, 6, 20]))`), and
 the ring grows to the longest delay asked for.
 
+A **texture** in the frames slot delays per pixel: its luma says how far back
+each pixel reads — black is now, white is `{ max }` frames ago (default 30).
+A ramp is slit-scan, noise is melt, and fractional depths blend the two frames
+they land between, so a smooth map stays smooth.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+sphere({ radius: 0.9, res: 96 })
+  .position(t => Math.sin(t * 2) * 1.8, t => Math.sin(t * 3.1) * 0.6, 0)
+  .material({ color: '#ffb454' }).out()
+
+scene()
+  .delay(ramp({ angle: Math.PI / 2 }), { max: 45, scale: 0.5 })   // one edge now, the other 45 frames ago
+  .out()
+```
+
 Frames are expensive — ~47 MB each at a retina 1080p buffer — so past a budget
 history is stored **smaller** rather than shorter and says so. `{ scale }`
 sets that size yourself: 0.5 is a quarter of the memory per frame, nearly
@@ -2262,6 +2345,37 @@ against a downscaled past leaves residue on fine detail.
 
 The history outlives a re-run, so editing doesn't punch a delay-length hole of
 black through the show.
+
+### flow — motion as a map
+
+`.flow()` is the chain's frame-to-frame motion as a velocity picture, centered
+on mid-grey like `fluid()`'s `.velocity()` — so it drops into any slot that
+reads a signed map. It's computed coarse and blurred on purpose: a look, not
+measurement.
+
+The classic use is feedback displaced by its own motion — trails that follow
+the movement instead of hanging where it was:
+
+```js
+bg('#05050a')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+point({ color: '#4d9dff', intensity: 50 }).position(-3, 1, 3).out()
+
+sphere({ radius: 0.9, res: 96 })
+  .position(t => Math.sin(t * 2) * 1.8, t => Math.sin(t * 3.1) * 0.6, 0)
+  .material({ color: '#ff5e8a', roughness: 0.3 })
+  .out()
+
+const src = scene()
+const v = src.flow({ blur: 6 })
+src.feedback(0.9, p => p.displace(v, { amount: 0.5 })).out()
+```
+
+`{ gain }` scales what one texel of motion writes, `{ blur }` spreads the
+estimate off the edges (where motion is measurable) onto the surfaces between
+them, and `{ scale }` is the size it's computed at — coarser sees faster
+movement.
 
 ### geometry layers
 
@@ -2564,6 +2678,10 @@ them to a public GitHub repo and copy the **Raw** link.
   `imageseq([...], B.mul(4))` for you. Swap the index for any counter:
   `.counter()` of `.kicks()` steps on kicks, `rand().beat(4).mul(9)` jumps
   randomly each beat. Default: one image per second.
+- `videoseq([names], index?)` — the same for videos: a clip bank. Every clip
+  in the list keeps playing, so a switch lands mid-action like cutting between
+  live feeds. `videoseq([...], rand().mul(3).beat())` flashes a random scene
+  each beat.
 - `audiofile(name?, { volume, speed, loop, restart, chan })` — an audio file,
   played out loud and analyzed like `audio()`: it returns a level **signal**,
   so `.kicks()`, `.lowpass()`, `.smooth()` all work on it.

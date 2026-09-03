@@ -56,6 +56,7 @@ export const GLOBALS = {
   videofile: ["videofile(name?, { speed, loop, mute, restart, phase, jump })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring, or is an https:// URL. ctrl+r or restartMedia() rewinds; phase scrubs it by hand, jump throws it around while it plays."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker), or an https:// URL, which downloads once. An array delegates to imageseq().'],
   imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
+  videoseq: ["videoseq(['a.mp4', ...], index?)", 'Texture generator: several imported videos with a signal picking the current one (floored, wrapped) — a clip bank. All of them keep playing, so a switch lands mid-action like cutting between feeds. Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
   fluid: ["fluid({ res, speed, fade, damping, vorticity, iterations, wrap })", "Texture generator: an incompressible fluid sim. .push(map) drives the field, .ink(chain) pours dye into it, .obstacle(mask) puts solids in its way; the chain itself is the dye, and .velocity()/.curl() read the fields behind it. Contents survive a re-run."],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
@@ -251,6 +252,10 @@ export const METHODS = {
   saturation: ['.saturation(v)', 'Texture: 0 = grayscale, 1 = unchanged, >1 boosts. A texture in place of v sets it per pixel.'],
   gamma: ['.gamma(v)', 'Texture: gamma curve (1 = unchanged, above 1 lifts the shadows; the exponent is 1/v). A texture in place of v sets it per pixel.'],
   posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel. A texture in place of steps sets the count per pixel — scale it first (.mul(8)), since a raw map only ever says 0..1.'],
+  dither: [".dither(levels, { mode: 'bayer2'|'bayer4'|'bayer8'|'random', cells })", 'Texture: ordered dither — posterize with a threshold pattern scattering the error, so gradients become texture instead of bands. Default levels 2 with bayer8 is the 1-bit classic; { cells } dithers on a chunky pixel grid instead of the texel grid, which is where the classic look lives. A texture in place of levels sets it per pixel — scale it first, like posterize.'],
+  pixelSort: ['.pixelSort({ threshold, dir, passes, scale })', "Texture: partial pixel sort — bright neighbors swap along an axis until a below-threshold pixel walls them off, so highlights smear into streaks. Fresh each frame; run it over a feedback bus to let the smear keep flowing.\nCost is passes × pixels — the one op priced by a knob. { scale: 0.5 } is ~8× cheaper for the same look."],
+  jpeg: ['.jpeg(quality, { corrupt, seed })', 'Texture: real DCT compression artifacts — the frame in 8×8 blocks, coefficients quantized harder as quality (0..1, fn of t) falls: flat slabs, ringing, chroma fringing at block edges. Default 0.25. corrupt re-rolls random blocks into garbage for the broken-file look.'],
+  flow: ['.flow({ gain, blur, scale })', "Texture: the chain's frame-to-frame motion as a velocity picture, centered on mid-grey like fluid's .velocity() — so .displace(src.flow()) drags the image along its own movement, and .push(f.flow()) stirs a sim with it. Coarse and blurred by design: a look, not measurement."],
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. chars is a set name ('ascii', 'dense', 'blocks', ...) or any string of your own, dark→bright. Cells keep the image's color until you name one."],
   transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
@@ -284,7 +289,7 @@ export const METHODS = {
   velocity: ['.velocity({ scale })', "Fluid: the velocity field as a picture, centered on mid-grey. Drops into any slot taking a map: .displace(f.velocity()), .transform({ translate: { map: f.velocity(), mid: 0.5 } })."],
   curl: ['.curl({ scale })', 'Fluid: how sharply the field is spinning at each point, centered on mid-grey.'],
   pressure: ['.pressure({ scale })', 'Fluid: the pressure the solve landed on, centered on mid-grey. Mostly worth looking at when a sim is misbehaving.'],
-  delay: ['.delay(frames, { scale })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it."],
+  delay: ['.delay(frames, { scale, max })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it.\nA texture in place of frames delays per pixel: its luma picks how far back each pixel looks, black now, white the whole { max } frames — slit-scan from a ramp, melt from noise."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
   feedback: ['.feedback(amount, prev => chain, { mode, swap })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', {
@@ -339,7 +344,8 @@ function parseConfig(detail) {
   for (const group of braceGroups(detail)) {
     for (const part of splitTop(group, ',')) {
       const colon = part.indexOf(':');
-      const key = (colon < 0 ? part : part.slice(0, colon)).trim();
+      // a trailing ? marks an optional key in the signature — scene({ bg? })
+      const key = (colon < 0 ? part : part.slice(0, colon)).trim().replace(/\?$/, '');
       if (!/^\w+$/.test(key) || keys.has(key)) continue;
       const hint = colon < 0 ? '' : part.slice(colon + 1).trim();
       keys.set(key, { key, hint, values: literalValues(hint) });
@@ -462,6 +468,9 @@ for (const keys of [GLOBAL_CONFIG.text, GLOBAL_CONFIG.text3d, METHOD_CONFIG.asci
 // next to the list that validates them.
 
 const GLOBAL_KEY_DOCS = {
+  scene: {
+    bg: "Swap the backdrop for this read only: a color stands in for bg(), a texture chain shows through behind the geometry, and null leaves it transparent so the read comps over whatever sits below.",
+  },
   curve: {
     closed: "Loop u instead of turning back at the ends — for a lifted fn whose end meets its start. curve.circle() is already closed.",
     even: "Measures the curve's length and remaps u to a fraction of it, so equal steps of u cover equal distance. Built-in curves are already even. Measured once, or per frame when the fn takes t.",
@@ -935,6 +944,26 @@ const METHOD_KEY_DOCS = {
   },
   delay: {
     scale: 'Fraction of the frame size the history is stored at — a ceiling: a delay too long to hold shrinks further rather than shortening. Default 1. Halving it quarters the memory per stored frame.',
+    max: 'Only with a texture in the frames slot: how many frames back a full-white pixel reads. It sizes the history, so it is a plain number, not a fn of t. Default 30.',
+  },
+  dither: {
+    mode: "The threshold pattern: 'bayer2' | 'bayer4' | 'bayer8' are ordered matrices, coarse to fine; 'random' is a per-pixel hash. Default 'bayer8'.",
+    cells: 'Dither on this grid instead of the texel grid: the source reads at cell centers and the matrix indexes by cell, so the pattern is the visible pixels. One count makes square cells, [x, y] sets both. Use this rather than .pixellate() before it, which leaves the matrix churning at sub-cell scale — grain, not pattern.',
+  },
+  pixelSort: {
+    threshold: 'Luma a pixel must exceed to join a sortable span — anything darker is a wall the smear stops at. Default 0.35. Takes a fn of t.',
+    dir: "Which edge the bright pixels crawl toward: 'up', 'down', 'left' or 'right'. Default 'down'.",
+    passes: 'Sort steps per frame. Each moves a pixel at most one texel, so this is also the streak length in pixels. Default 32; more converges further and costs a full-frame pass each. Takes a fn of t.',
+    scale: 'Fraction of the frame the sort runs at. Cheaper twice over: fewer pixels per pass, and each swap covers 1/scale screen pixels, so the same streak takes fewer passes — 0.5 is ~8× cheaper for the look. Default 1.',
+  },
+  jpeg: {
+    corrupt: 'Chance per 8×8 block of its coefficients being re-rolled into garbage — ringing static in exactly those blocks. 0..1, default 0; takes a fn of t.',
+    seed: 'Re-deals which blocks corrupt. A fn of t makes the damage flicker; leave it and the same blocks stay broken. Default 0.',
+  },
+  flow: {
+    gain: 'How much grey one texel of motion writes — output is 0.5 ± gain × texels. Default 1; what reads the map usually scales anyway (.displace amount).',
+    blur: 'Regularizer radius, in texels of the coarse buffer. Motion is only measurable on edges; the blur spreads it across the surfaces between them. Default 4. 0 is the raw estimate.',
+    scale: 'Fraction of the frame the flow is computed at. Default 0.25 — one step of the estimate only sees about a texel of motion, so coarser sees faster movement.',
   },
   feedback: {
     mode: "How last frame comes back in. Default 'add', which piles light up; 'over' stacks it in front, 'under' leaves it behind this frame's drawing.",
@@ -1033,7 +1062,7 @@ const globalKinds = {
   curvens: 'curve',
   data: 'data',
   segments: 'segments link',
-  texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile imagefile imageseq noise voronoi text fluid',
+  texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid',
   signal: 'beat audio audiofile band rand select sig T B mouse',
   midi: 'midi',
   gamepad: 'gamepad',
@@ -1058,8 +1087,8 @@ const methodKinds = {
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
-        posterize pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask blur bloom delay feedback when tile instance particles points lines wire out
+        posterize dither pixelSort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
+        remap lookup tint alpha displace comp mask blur bloom delay feedback flow when tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
@@ -1097,7 +1126,7 @@ export const KIND_LABEL = {
 // found it.
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
-  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene text video videofile voronoi'],
+  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene text video videofile videoseq voronoi'],
   ['signals', 'audio audiofile B band beat gamepad midi mouse rand restartMedia select sig T tempo'],
   ['structure', 'curve data layout link segments spread'],
   ['lights', 'ambient directional hdri hemi point spot'],

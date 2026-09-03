@@ -30,37 +30,72 @@ const NEW_TEMPLATE = `bg('#07070c')\nambient({ intensity: 0.2 })\ndirectional({ 
 // --- storage (disk API with localStorage fallback) -------------------------
 
 // The sketch API is the dev server's (see vite.config.js), so a built site has
-// nothing to ask — hence starting from the build flag rather than finding out
-// through a 404 in the console on every load. It can still drop to false later
-// if the dev server goes away mid-session.
-let onDisk = import.meta.env?.DEV ?? false;
+// nothing to ask and keeps sketches in localStorage instead. Which store is in
+// use is settled at build time: in a dev build the server that sent the page
+// owns the files, and a failed fetch means it's restarting or gone — not a
+// reason to switch stores. (This used to fall back to localStorage on the
+// first failed fetch, after which a session silently read and wrote shadow
+// copies while the files sat untouched on disk.)
+const onDisk = import.meta.env?.DEV ?? false;
+let serverDown = false;
 const lsAll = () => { try { return JSON.parse(localStorage.getItem(LS_SKETCHES)) ?? {}; } catch { return {}; } };
 const lsWrite = (all) => localStorage.setItem(LS_SKETCHES, JSON.stringify(all));
+
+// One retry rides out a dev-server restart; a fetch that still fails after it
+// throws to the caller instead of pretending the sketch isn't there.
+async function api(path, init) {
+  try {
+    const r = await fetch(path, init);
+    serverDown = false;
+    return r;
+  } catch {
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  try {
+    const r = await fetch(path, init);
+    serverDown = false;
+    return r;
+  } catch (e) {
+    serverDown = true;
+    throw e;
+  }
+}
 
 // [{ name, mtime }] — mtime is what the auto-tag cache is keyed on. The
 // localStorage side has no timestamps, so it hands back 0 and the tags are
 // derived from the source in hand instead of cached.
+let lastList = [];
 async function listUser() {
-  if (onDisk) {
-    try {
-      const r = await fetch('/api/sketches');
-      if (r.ok) return (await r.json()).user.map((f) => (typeof f === 'string' ? { name: f, mtime: 0 } : f));
-    } catch { /* no server after all — storage has it */ }
-    onDisk = false;
-  }
-  return Object.keys(lsAll()).sort().map((name) => ({ name, mtime: 0 }));
+  if (!onDisk) return Object.keys(lsAll()).sort().map((name) => ({ name, mtime: 0 }));
+  try {
+    const r = await api('/api/sketches');
+    if (r.ok) return (lastList = (await r.json()).user.map((f) => (typeof f === 'string' ? { name: f, mtime: 0 } : f)));
+  } catch { /* unreachable — keep showing what it last said */ }
+  return lastList;
 }
 async function loadUser(name) {
   if (onDisk) {
-    const r = await fetch(`/api/sketches/user/${encodeURIComponent(name)}`);
-    if (r.ok) return r.text();
+    try {
+      const r = await api(`/api/sketches/user/${encodeURIComponent(name)}`);
+      if (r.ok) return r.text();
+      // a real 404 falls through: a pre-dev-server copy may still be in
+      // localStorage. An unreachable server must not — that copy is stale.
+    } catch { return undefined; }
   }
   return lsAll()[name];
 }
 async function saveUser(name, code) {
   if (onDisk) {
-    const r = await fetch(`/api/sketches/user/${encodeURIComponent(name)}`, { method: 'PUT', body: code });
-    if (r.ok) return;
+    let err = 'dev server unreachable';
+    try {
+      const r = await api(`/api/sketches/user/${encodeURIComponent(name)}`, { method: 'PUT', body: code });
+      if (r.ok) return;
+      err = await r.text();
+    } catch { /* err already says so */ }
+    // the code is still in the editor; a hidden localStorage shadow of it
+    // would be worse than saying the save didn't happen
+    alert(`Save failed: ${err}\nThe sketch is still in the editor — check the dev server and save again.`);
+    return;
   }
   const all = lsAll();
   all[name] = code;
@@ -68,8 +103,14 @@ async function saveUser(name, code) {
 }
 async function deleteUser(name) {
   if (onDisk) {
-    const r = await fetch(`/api/sketches/user/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    if (r.ok) return;
+    try {
+      const r = await api(`/api/sketches/user/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      if (r.ok) return;
+      alert(`Delete failed: ${await r.text()}`);
+    } catch {
+      alert('Delete failed: dev server unreachable.');
+    }
+    return;
   }
   const all = lsAll();
   delete all[name];
@@ -555,7 +596,8 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       // a birthtime — first seen is a fair answer when nothing better exists
       at: f.birthtime || f.mtime || Date.now(),
     })));
-    $('#sb-store').textContent = onDisk ? '· disk: sketches/user/' : '· localStorage';
+    $('#sb-store').textContent = !onDisk ? '· localStorage'
+      : serverDown ? '· dev server unreachable' : '· disk: sketches/user/';
     render();          // names first: reading every sketch for its tags can wait
     await refreshTags();
     render();

@@ -22,7 +22,9 @@ const listDir = (dir) => {
   try {
     return fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.js'))
+      // only names the GET/PUT endpoints will accept — a file that lists but
+      // 400s on load would look like a sketch that can't be found
+      .filter((f) => f.endsWith('.js') && nameOk(f.slice(0, -3)))
       .map((f) => ({ name: f.slice(0, -3), ...stat(path.join(dir, f)) }))
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch {

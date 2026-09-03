@@ -682,6 +682,51 @@ const SPECS = {
     update(u, p, t) { u.uSteps.value = resolve(par(p.steps, 4), t); },
   },
 
+  // ordered dither: quantize like posterize, but add a threshold pattern
+  // before the rounding so the error scatters into texture instead of banding.
+  // The bayerN ladder is the standard recursive matrix — each coarser level
+  // contributes the next-lower bits of the threshold.
+  dither: {
+    extras: { uLevels: 2, uMode: 2, uCellX: 0, uCellY: 0 },
+    texParams: { levels: 'uLevels' },
+    frag: `
+      float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
+      void main() {
+        // cells: dither on that grid instead of the texel grid — the source
+        // reads at cell centers and the matrix indexes by cell, so the pattern
+        // *is* the visible pixels. Dithering after .pixellate() instead leaves
+        // the matrix churning at sub-cell scale under the fat pixels: grain.
+        vec2 uv = vUv;
+        vec2 px;
+        if (uCellX > 0.5) {
+          vec2 grid = vec2(uCellX, uCellY > 0.5 ? uCellY : max(uCellX / uAspect, 1.0));
+          px = floor(vUv * grid);
+          uv = (px + 0.5) / grid;
+        } else {
+          px = floor(vUv / uTexel);
+        }
+        vec4 src = texture2D(tex0, uv);
+        float d;
+        if (uMode < 0.5) d = bayer2(px);
+        else if (uMode < 1.5) d = bayer2(px * 0.5) * 0.25 + bayer2(px);
+        else if (uMode < 2.5) d = bayer2(px * 0.25) * 0.0625 + bayer2(px * 0.5) * 0.25 + bayer2(px);
+        else d = fract(sin(dot(px, vec2(12.9898, 78.233))) * 43758.5453);
+        float n = max(uLevels, 2.0);
+        vec3 c = floor(src.rgb * (n - 1.0) + d) / (n - 1.0);
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), src.a);
+      }`,
+    update(u, p, t) {
+      u.uLevels.value = resolve(par(p.levels, 2), t);
+      const cells = resolve(par(p.cells, 0), t);
+      u.uCellX.value = Array.isArray(cells) ? resolve(cells[0], t) : cells;
+      u.uCellY.value = Array.isArray(cells) ? resolve(cells[1], t) : 0;
+      const modes = { bayer2: 0, bayer4: 1, bayer8: 2, random: 3 };
+      const mode = p.mode ?? 'bayer8';
+      if (modes[mode] == null) warn(`dither: no mode '${mode}' — bayer2, bayer4, bayer8 or random; using bayer8`);
+      u.uMode.value = modes[mode] ?? 2;
+    },
+  },
+
   // the two counts are separate floats rather than one vec2 so either can be
   // texture-driven on its own, and so the no-y case can follow x per pixel
   pixellate: {
@@ -1495,6 +1540,14 @@ const DELAY_MIN_SCALE = 0.25;
 const disposeRing = (hist) => {
   for (const rt of hist.ring ?? []) rt.dispose();
   hist.ring = null;
+  hist.array?.dispose();
+  hist.array = null;
+};
+
+const disposeFlow = (hist) => {
+  hist.prev?.dispose();
+  hist.cur?.dispose();
+  hist.prev = hist.cur = null;
 };
 
 // The size to store `frames + 1` of this buffer at, and the count that fits if
@@ -1515,9 +1568,120 @@ function delayFit(frames, scale, w, h) {
 }
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
-let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE, MAT_TOLINEAR;
+let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE, MAT_TOLINEAR, MAT_DELAY_MAP,
+  MAT_FLOW, MAT_SORT, MAT_JPEG;
 function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
+  // one Lucas–Kanade step: tex0 this frame, tex1 last, both luma. The estimate
+  // v = -It·∇I / (|∇I|² + ε) only sees ~a texel of motion — the coarse buffer
+  // it runs in and the blur after it are what make it read as a field.
+  MAT_FLOW ??= makeMaterial({
+    extras: { uGain: 1 },
+    frag: `
+      float lum(sampler2D t, vec2 o) { return dot(texture2D(t, vUv + o * uTexel).rgb, LUMA); }
+      void main() {
+        vec2 g = vec2(lum(tex0, vec2(1.0, 0.0)) - lum(tex0, vec2(-1.0, 0.0)),
+                      lum(tex0, vec2(0.0, 1.0)) - lum(tex0, vec2(0.0, -1.0))) * 0.5;
+        float it = lum(tex0, vec2(0.0)) - lum(tex1, vec2(0.0));
+        vec2 v = -it * g / (dot(g, g) + 1e-4);
+        gl_FragColor = vec4(clamp(v * uGain + 0.5, 0.0, 1.0), 0.5, 1.0);
+      }`,
+  });
+  // One axis of an 8-point DCT (orthonormal DCT-II, inverse DCT-III), run
+  // rows-then-cols forward and cols-then-rows back — .jpeg() is four of these.
+  // The color flags convert to Y'CbCr on the way in and back on the way out,
+  // so the quantize step (second forward pass, where both axes are frequency)
+  // can hit chroma harder than luma — which is where the color fringing at
+  // block edges comes from. uCorrupt re-rolls random blocks' AC coefficients
+  // by a random gain: ringing garbage in exactly those blocks.
+  MAT_JPEG ??= makeMaterial({
+    extras: { uAxis: [1, 0], uInverse: 0, uColorIn: 0, uColorOut: 0, uQuant: 0, uStep: 0.1, uCorrupt: 0, uSeed: 0 },
+    frag: `
+      vec3 toYCC(vec3 c) {
+        float y = dot(c, vec3(0.299, 0.587, 0.114));
+        return vec3(y, (c.b - y) * 0.564, (c.r - y) * 0.713);
+      }
+      vec3 toRGB(vec3 v) {
+        return vec3(v.x + 1.403 * v.z, v.x - 0.344 * v.y - 0.714 * v.z, v.x + 1.773 * v.y);
+      }
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      void main() {
+        // floor first: the index must be exact, because a boundary texel that
+        // rounds into the wrong block lands at k = 8, where every basis cosine
+        // is ~0 — a black line down every eighth row
+        vec2 px = floor(vUv / uTexel);              // integer texel coords
+        float along = dot(px, uAxis);
+        float block = floor(along / 8.0) * 8.0;
+        float k = along - block;                    // 0..7 inside the block
+        vec3 acc = vec3(0.0);
+        for (int n = 0; n < 8; n++) {
+          float fn = float(n);
+          vec3 s = texture2D(tex0, (px + (block + fn - along) * uAxis + 0.5) * uTexel).rgb;
+          if (uColorIn > 0.5) s = toYCC(s);
+          float c, ang;
+          if (uInverse < 0.5) { c = k  < 0.5 ? 0.35355339 : 0.5; ang = 3.14159265 * (2.0 * fn + 1.0) * k  / 16.0; }
+          else                { c = fn < 0.5 ? 0.35355339 : 0.5; ang = 3.14159265 * (2.0 * k  + 1.0) * fn / 16.0; }
+          acc += s * c * cos(ang);
+        }
+        if (uQuant > 0.5) {
+          vec2 loc = mod(px, 8.0);                  // (u, v) inside the block
+          float f = loc.x + loc.y;
+          vec2 blockId = floor(px / 8.0);
+          if (uCorrupt > 0.0 && f > 0.5 && hash(blockId + uSeed) < uCorrupt) {
+            acc *= 6.0 * hash(blockId * 7.13 + loc + uSeed) - 3.0;
+          }
+          // higher frequencies get coarser steps, the JPEG table's shape;
+          // chroma twice as coarse as luma
+          float stepY = uStep * (1.0 + f * 0.7);
+          acc.x  = floor(acc.x  / stepY + 0.5) * stepY;
+          acc.yz = floor(acc.yz / (stepY * 2.0) + 0.5) * (stepY * 2.0);
+        }
+        if (uColorOut > 0.5) acc = toRGB(acc);
+        gl_FragColor = vec4(acc, texture2D(tex0, vUv).a);
+      }`,
+  });
+  // one odd-even transposition step of a pixel sort: each pixel looks at its
+  // pair partner along uAxis (which side alternates with uParity) and keeps
+  // the one that belongs at its index — but only where both sit above the
+  // threshold, so darker pixels are walls the bright spans sort between.
+  MAT_SORT ??= makeMaterial({
+    extras: { uAxis: [0, 1], uSign: 1, uParity: 0, uThresh: 0.35 },
+    frag: `
+      void main() {
+        float i = dot(floor(vUv / uTexel), uAxis);     // exact integer index
+        float first = mod(i + uParity, 2.0);           // lower index of the pair
+        vec2 partner = vUv + uAxis * uTexel * (first < 0.5 ? 1.0 : -1.0);
+        vec4 me = texture2D(tex0, vUv);
+        if (partner.x < 0.0 || partner.x > 1.0 || partner.y < 0.0 || partner.y > 1.0) {
+          gl_FragColor = me;
+          return;
+        }
+        vec4 other = texture2D(tex0, partner);
+        float lm = dot(me.rgb, LUMA), lo = dot(other.rgb, LUMA);
+        bool takeOther = first < 0.5 ? lo < lm : lo > lm;   // ascending along +axis
+        if (uSign < 0.0) takeOther = !takeOther;
+        gl_FragColor = (min(lm, lo) > uThresh && takeOther) ? other : me;
+      }`,
+  });
+  // per-pixel delay: tex0 is the frames map (luma 0..1 spans 0..uMax frames
+  // back), uHist the history ring as one array texture. A fractional depth
+  // blends the two frames it straddles, so a smooth map is a smooth smear of
+  // time rather than a staircase of them.
+  if (!MAT_DELAY_MAP) {
+    MAT_DELAY_MAP = makeMaterial({
+      extras: { uSlot: 0, uLen: 1, uMax: 0 },
+      pre: 'uniform sampler2DArray uHist;\n',
+      frag: `
+        void main() {
+          float f = clamp(dot(texture2D(tex0, vUv).rgb, LUMA), 0.0, 1.0) * uMax;
+          float back = floor(f);
+          float l0 = mod(uSlot - 1.0 - back + 2.0 * uLen, uLen);
+          float l1 = mod(l0 - 1.0 + uLen, uLen);
+          gl_FragColor = mix(texture(uHist, vec3(vUv, l0)), texture(uHist, vec3(vUv, l1)), fract(f));
+        }`,
+    });
+    MAT_DELAY_MAP.uniforms.uHist = { value: null };
+  }
   // the decode a chain feeding a color map slot ends on — here it's the pass
   // that writes a tile set's layers, which are read as a map (see SPECS.toLinear)
   MAT_TOLINEAR ??= makeMaterial(SPECS.toLinear);
@@ -1878,6 +2042,32 @@ export class TextureOp {
   gamma(v = 1) { return this._n('adjust', { gamma: v }); }
   hue(v = 0) { return this._n('adjust', { hue: v }); }
   posterize(steps = 4) { return this._n('posterize', { steps }); }
+  // .dither(2) / .dither(3, 'bayer4') / .dither({ levels, mode })
+  dither(levels = 2, o = {}) {
+    if (levels !== null && typeof levels === 'object' && !(levels instanceof TextureOp)) { o = levels; levels = o.levels ?? 2; }
+    if (typeof o === 'string') o = { mode: o };
+    return this._n('dither', { ...o, levels });
+  }
+  // .pixelSort({ threshold, dir, passes }) — a partial sort along one axis:
+  // each pass is one odd-even transposition step, so bright pixels crawl one
+  // texel per pass toward `dir` until a below-threshold pixel walls them off.
+  // Stateless — each frame sorts the current picture from scratch; run it over
+  // a feedback bus if the smear should keep flowing.
+  pixelSort(o = {}) { return this._n('pixelSort', o); }
+  // .jpeg(0.1) / .jpeg({ quality, corrupt, seed }) — real DCT-domain
+  // compression: the frame in 8×8 blocks, coefficients quantized by a
+  // quality-scaled table. corrupt re-rolls random blocks for the broken-file
+  // look; seed re-deals which ones (a fn of t makes them flicker).
+  jpeg(quality = 0.25, o = {}) {
+    if (quality instanceof TextureOp) {
+      warn('jpeg: quality is one number for the whole frame — a fn of t animates it, but a texture cannot vary it per pixel');
+      quality = 0.25;
+    } else if (quality !== null && typeof quality === 'object') {
+      o = quality;
+      quality = o.quality ?? 0.25;
+    }
+    return this._n('jpeg', { ...o, quality });
+  }
   pixellate(x = 100, y) { return this._n('pixellate', { x, y }); }
   ascii(o = {}) { return this._n('ascii', o); }
   transform(o = {}) { return this._n('transform', o); }
@@ -2010,8 +2200,32 @@ export class TextureOp {
   // adopts the frames the last one had collected, so editing the sketch doesn't
   // punch a delay-length hole of black through the show.
   delay(frames = 1, o = {}) {
-    const node = this._n('delay', { ...o, frames, scale: Math.min(1, Math.max(0.05, o.scale ?? 1)) });
-    node.hist = carried('delay', () => ({ ring: null, slot: 0, cap: 0 }), disposeRing);
+    const scale = Math.min(1, Math.max(0.05, o.scale ?? 1));
+    // A texture in the frames slot delays per pixel: its luma picks how far
+    // back each pixel looks — 0 is now, 1 the whole { max } frames (default
+    // 30). A fn in that slot stays a fn of t, as it always was; only an actual
+    // chain switches modes.
+    if (frames instanceof TextureOp) {
+      // ring size is an allocation, so max is a plain number — not a fn of t
+      const max = Math.max(1, Math.round(Number(o.max)) || 30);
+      const node = this._n('delay', { ...o, frames: max, byMap: true, scale }, [frames]);
+      node.hist = carried('delay', () => ({ ring: null, array: null, slot: 0, cap: 0 }), disposeRing);
+      return node;
+    }
+    const node = this._n('delay', { ...o, frames, scale });
+    node.hist = carried('delay', () => ({ ring: null, array: null, slot: 0, cap: 0 }), disposeRing);
+    return node;
+  }
+
+  // .flow() — the chain's frame-to-frame motion as a velocity picture,
+  // mid-grey centered like fluid().velocity(), so it drops into the same
+  // slots: .displace(src.flow()) drags the image along its own movement, and
+  // it feeds .push() or a feedback treatment the same way. One Lucas–Kanade
+  // step against last frame, computed coarse and blurred — a look, not
+  // measurement.
+  flow(o = {}) {
+    const node = this._n('flow', { ...o, scale: Math.min(1, Math.max(0.05, o.scale ?? 0.25)) });
+    node.hist = carried('flow', () => ({ prev: null, cur: null }), disposeFlow);
     return node;
   }
 
@@ -2513,16 +2727,18 @@ export class TextureOp {
       if (this.params.name == null) return blackTex();
       return this.engine.ensureMedia('image', this.params.name).texture ?? blackTex();
     }
-    if (this.kind === 'imageseq') {
+    if (this.kind === 'imageseq' || this.kind === 'videoseq') {
+      const media = this.kind === 'imageseq' ? 'image' : 'video';
       const { names } = this.params;
       if (!names.length) return blackTex();
       // a NaN index (a signal fed something it couldn't resolve) would index
-      // past the list and ask for an image called 'undefined' — hold on the first
+      // past the list and ask for a file called 'undefined' — hold on the first
       const raw = Math.floor(resolve(this.params.index ?? ((t) => t), ctx.t));
       const i = Number.isFinite(raw) ? raw : 0;
-      const tex = this.engine.ensureMedia('image', names[((i % names.length) + names.length) % names.length]).texture;
-      // warm the rest so switching is seamless
-      for (const n of names) this.engine.ensureMedia('image', n);
+      const tex = this.engine.ensureMedia(media, names[((i % names.length) + names.length) % names.length]).texture;
+      // warm the rest so switching is seamless — videos keep playing while
+      // unselected, so a switch lands mid-action like cutting between feeds
+      for (const n of names) this.engine.ensureMedia(media, n);
       return tex ?? blackTex();
     }
 
@@ -2639,7 +2855,7 @@ export class TextureOp {
     if (this.kind === 'delay') {
       const p = this.params;
       const hist = this.hist;
-      const want = Math.max(0, Math.round(resolve(p.frames, ctx.t) || 0));
+      const want = p.byMap ? p.frames : Math.max(0, Math.round(resolve(p.frames, ctx.t) || 0));
       // the ring is sized for the longest delay asked for so far, so a moving
       // frame count settles instead of rebuilding every time it changes
       hist.cap = Math.max(hist.cap, want);
@@ -2647,6 +2863,38 @@ export class TextureOp {
       const n = Math.min(want, fit.frames);
       const w = Math.max(1, Math.round(ctx.w * fit.scale));
       const h = Math.max(1, Math.round(ctx.h * fit.scale));
+
+      // Per-pixel mode: the same ring, but as one array target with a layer
+      // per frame, because only a layered texture lets the read pass pick a
+      // different frame for every pixel (ins[1] is the map).
+      if (p.byMap) {
+        const layers = fit.frames + 1;
+        let arr = hist.array;
+        if (!arr || hist.layers !== layers || arr.width !== w || arr.height !== h) {
+          disposeRing(hist);
+          arr = hist.array = new THREE.WebGLArrayRenderTarget(w, h, layers, {
+            type: THREE.HalfFloatType,
+            depthBuffer: false,
+          });
+          hist.layers = layers;
+          // a layer's pixels are undefined until something renders into it,
+          // and the whole ring is readable before it has been written round once
+          for (let i = 0; i < layers; i++) runPass(ctx, MAT_COPY, blackTex(), null, arr, null, i);
+          hist.slot = 0;
+        }
+        if (!this.engine.paused) {
+          runPass(ctx, MAT_COPY, ins[0], null, arr, null, hist.slot);
+          hist.slot = (hist.slot + 1) % layers;
+        }
+        const out = this._rt(ctx);
+        runPass(ctx, MAT_DELAY_MAP, ins[1], null, out, (u) => {
+          u.uHist.value = arr.texture;
+          u.uSlot.value = hist.slot;
+          u.uLen.value = layers;
+          u.uMax.value = n;
+        });
+        return out.texture;
+      }
       let ring = hist.ring;
       if (!ring || ring.length !== fit.frames + 1 || ring[0].width !== w || ring[0].height !== h) {
         disposeRing(hist);
@@ -2667,6 +2915,104 @@ export class TextureOp {
       // slot is where the next write goes, so the frame just written is behind
       // it and each older frame one further back
       return ring[(hist.slot - 1 - n + len) % len].texture;
+    }
+
+    // .flow() — this frame against the held previous one, at a coarse size of
+    // its own (the held frame too, so the pair always matches), then blurred:
+    // motion is only measurable on edges, and the blur spreads it across the
+    // surfaces between them.
+    if (this.kind === 'flow') {
+      const p = this.params;
+      const hist = this.hist;
+      const w = Math.max(1, Math.round(ctx.w * p.scale));
+      const h = Math.max(1, Math.round(ctx.h * p.scale));
+      if (!hist.prev || hist.prev.width !== w || hist.prev.height !== h) {
+        disposeFlow(hist);
+        hist.prev = makeRT(w, h);
+        hist.cur = makeRT(w, h);
+        // seeded with this frame, so the first estimate is zero, not garbage
+        runPass(ctx, MAT_COPY, ins[0], null, hist.prev);
+      }
+      if (!this.engine.paused) runPass(ctx, MAT_COPY, ins[0], null, hist.cur);
+      const a = this._rt(ctx, 'auxA', p.scale);
+      runPass(ctx, MAT_FLOW, hist.cur.texture, hist.prev.texture, a, (u) => {
+        u.uGain.value = resolve(p.gain ?? 1, ctx.t);
+      });
+      // paused holds the pair where it is, like the delay ring: the estimate
+      // stands still with the picture
+      if (!this.engine.paused) { const held = hist.prev; hist.prev = hist.cur; hist.cur = held; }
+      const r = resolve(p.blur ?? 4, ctx.t);
+      if (r <= 0) return a.texture;
+      const b = this._rt(ctx, 'auxB', p.scale);
+      const out = this._rt(ctx, 'main', p.scale);
+      runPass(ctx, MAT_BLUR, a.texture, null, b, (u) => u.uDir.value.set(r, 0));
+      runPass(ctx, MAT_BLUR, b.texture, null, out, (u) => u.uDir.value.set(0, r));
+      return out.texture;
+    }
+
+    // .pixelSort() — `passes` odd-even transposition steps over the current
+    // frame, ping-ponged between two targets. Each step moves a pixel at most
+    // one texel, so passes is also the streak length; the partial state after
+    // them is the look, and rendering fresh each frame keeps it a pure
+    // function of the input.
+    if (this.kind === 'pixelSort') {
+      const p = this.params;
+      const raw = Math.round(resolve(p.passes ?? 32, ctx.t));
+      const passes = Number.isFinite(raw) ? Math.max(1, Math.min(1024, raw)) : 32;
+      const dirs = { up: [0, 1, 1], down: [0, 1, -1], right: [1, 0, 1], left: [1, 0, -1] };
+      let dir = dirs[p.dir ?? 'down'];
+      if (!dir) {
+        warn(`pixelSort: no dir '${p.dir}' — up, down, left or right; sorting down`);
+        dir = dirs.down;
+      }
+      const th = resolve(p.threshold ?? 0.35, ctx.t);
+      // The cost is passes × pixels, so scale pays twice: fewer pixels each
+      // pass, and each swap covers 1/scale screen pixels, so the same streak
+      // takes proportionally fewer passes. 0.5 is ~8× cheaper for the look.
+      const scale = Math.min(1, Math.max(0.05, p.scale ?? 1));
+      const a = this._rt(ctx, 'auxA', scale), b = this._rt(ctx, 'auxB', scale), out = this._rt(ctx, 'main', scale);
+      let src = ins[0];
+      for (let i = 0; i < passes; i++) {
+        const dst = i === passes - 1 ? out : i % 2 ? b : a;
+        runPass(ctx, MAT_SORT, src, null, dst, (u) => {
+          u.uAxis.value.set(dir[0], dir[1]);
+          u.uSign.value = dir[2];
+          u.uParity.value = i % 2;
+          u.uThresh.value = th;
+        });
+        src = dst.texture;
+      }
+      return out.texture;
+    }
+
+    // .jpeg() — rows-forward (RGB→Y'CbCr), cols-forward (+ quantize/corrupt,
+    // both axes frequency there), cols-inverse, rows-inverse (back to RGB).
+    if (this.kind === 'jpeg') {
+      const p = this.params;
+      const rawQ = resolve(p.quality ?? 0.25, ctx.t);
+      const q = Number.isFinite(rawQ) ? Math.min(1, Math.max(0, rawQ)) : 0.25;
+      // gradient-block AC coefficients run ~0.03..0.9 (orthonormal basis), so
+      // this spans invisible at quality 1 to slabs-and-ringing at 0
+      const step = 0.002 + (1 - q) * (1 - q) * 0.45;
+      const corrupt = Math.min(1, Math.max(0, resolve(p.corrupt ?? 0, ctx.t)));
+      const seed = resolve(p.seed ?? 0, ctx.t);
+      const a = this._rt(ctx, 'auxA'), b = this._rt(ctx, 'auxB'), out = this._rt(ctx);
+      const pass = (src, dst, [inverse, colorIn, colorOut, quant], axis) =>
+        runPass(ctx, MAT_JPEG, src, null, dst, (u) => {
+          u.uAxis.value.set(axis[0], axis[1]);
+          u.uInverse.value = inverse;
+          u.uColorIn.value = colorIn;
+          u.uColorOut.value = colorOut;
+          u.uQuant.value = quant;
+          u.uStep.value = step;
+          u.uCorrupt.value = corrupt;
+          u.uSeed.value = seed;
+        });
+      pass(ins[0], a, [0, 1, 0, 0], [1, 0]);
+      pass(a.texture, b, [0, 0, 0, 1], [0, 1]);
+      pass(b.texture, a, [1, 0, 0, 0], [0, 1]);
+      pass(a.texture, out, [1, 0, 1, 0], [1, 0]);
+      return out.texture;
     }
 
     if (this.kind === 'blur') {

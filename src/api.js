@@ -1618,9 +1618,20 @@ export function makeApi(engine) {
     // name = filename, exact or case-insensitive substring; files persist
     // in the browser across reloads and keep playing through re-runs.
     videofile(name, o = {}) {
+      if (Array.isArray(name)) return api.videoseq(name);
       if (name !== null && typeof name === 'object') { o = name; name = o.name; }
       if (name == null) engine.requestMediaPick('videofile', 'video');
       return new TextureOp(engine, 'videofile', { ...o, name: name != null ? String(name) : null });
+    },
+    // several videos with an index picking the current one, like imageseq() —
+    // a clip bank. All of them keep playing, so a switch lands mid-action, the
+    // way cutting between live feeds does.
+    videoseq(names, index) {
+      if (names == null || !names.length) {
+        engine.requestMediaPick('videoseq', 'video', true);
+        names = [];
+      }
+      return new TextureOp(engine, 'videoseq', { names: names.map(String), index });
     },
     imagefile(name) {
       if (Array.isArray(name)) return api.imageseq(name);

@@ -601,11 +601,6 @@ uniforms (numbers or fns of `t`).
   ([src/textures.js:220](../src/textures.js#L220)) behind
   `.edge()`/`.slope()`/`.normalMap()`, not new specs. Erode/dilate take the
   min/max of the neighborhood; emboss is a directional difference plus 0.5.
-[ ] `.dither({ mode, levels })` — quantize to `levels` steps per channel, but
-  add a threshold offset before rounding so the error scatters instead of
-  banding. `mode`: `'bayer2'|'bayer4'|'bayer8'` (ordered, from a constant
-  matrix indexed by `gl_FragCoord`), `'random'` (hash of the pixel). Pairs with
-  `.posterize()`; `levels: 2` plus a bayer matrix is the classic look.
 [ ] `.math({ pow, mul, div, add, sub })` — expose the `math` spec
   ([src/textures.js:495](../src/textures.js#L495)) as one public op. Every slot
   already takes a texture, so one pass can do `a * b + c - d`; spelled with the
@@ -624,15 +619,6 @@ uniforms (numbers or fns of `t`).
   so a grayscale gradient comes out as a spectrum.
 [ ] `.convolve(kernel)` — escape hatch taking a flat 9 or 25 element array as a
   3×3/5×5 kernel, normalized unless it sums to 0.
-[ ] `.pixelSort({ threshold, dir })` — cheap per frame (one neighbor fetch, same
-  as sharpen), but it's an odd–even transposition sort: it converges over many
-  frames and must read its own previous output. `bufferId()` supplies the
-  self-reference (one call site, one auto-named buffer — `.feedback()` itself is
-  no use here, since it comps last frame in rather than handing it over), so
-  what's left is the sort pass plus frame parity, which no buffer carries.
-
-## Coordinates
-
 [ ] `.repeat(nx, ny, { mirror, offset })` — `fract(uv * n)`, one texture read,
   identical cells. Distinct from `.tile()`, which renders a pass per distinct
   cell variant so each cell can be its own chain. Document the difference.
