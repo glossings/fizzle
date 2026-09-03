@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { nameOk } from './src/sketch-name.js';
 
 // Dev-server API for sketch files. User sketches live in sketches/user/ as
@@ -189,8 +191,74 @@ function gfontApi() {
   };
 }
 
+// Codec rescue: POST /api/transcode?kind=video|audio with the raw file bytes
+// -> the same media as H.264/AAC mp4 (or AAC m4a) via this machine's ffmpeg.
+// The browser can only play what it can decode, but the dev server can run
+// anything installed next to it — so a ProRes/HEVC .mov dropped into a local
+// session gets rewritten instead of refused (see mediaTranscode in media.js).
+// Deployed there is no server and the route 404s; the client falls back to
+// asking for a manual convert. The input goes through a temp file because a
+// .mov with its moov atom at the end can't be demuxed from a pipe.
+const FFMPEGS = ['ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'];
+const FF_ARGS = {
+  // yuv420p because browsers won't take 4:2:2/4:4:4 H.264; even dimensions
+  // because yuv420p requires them
+  video: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-movflags', '+faststart', '-f', 'mp4'],
+  audio: ['-vn', '-c:a', 'aac', '-b:a', '192k', '-f', 'ipod'], // ipod = .m4a
+};
+
+const runFfmpeg = (args, i = 0) =>
+  new Promise((resolve, reject) => {
+    if (i >= FFMPEGS.length) return reject(Object.assign(new Error('no ffmpeg'), { code: 'ENOENT' }));
+    execFile(FFMPEGS[i], args, { timeout: 10 * 60_000, maxBuffer: 1 << 24 }, (err, _out, stderr) => {
+      if (err?.code === 'ENOENT') return resolve(runFfmpeg(args, i + 1));
+      err ? reject(Object.assign(err, { stderr })) : resolve();
+    });
+  });
+
+function transcodeApi() {
+  return {
+    name: 'transcode-api',
+    configureServer(server) {
+      server.middlewares.use('/api/transcode', (req, res) => {
+        const fail = (code, msg) => {
+          res.statusCode = code;
+          res.setHeader('Content-Type', 'text/plain');
+          res.end(msg);
+        };
+        const kind = new URL(req.url ?? '/', 'http://local').searchParams.get('kind');
+        if (req.method !== 'POST') return fail(405, 'POST only');
+        if (!FF_ARGS[kind]) return fail(400, 'kind must be video or audio');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fizzle-tc-'));
+        const inFile = path.join(dir, 'in');
+        const outFile = path.join(dir, kind === 'video' ? 'out.mp4' : 'out.m4a');
+        const done = () => fs.rmSync(dir, { recursive: true, force: true });
+        const sink = fs.createWriteStream(inFile);
+        req.pipe(sink);
+        req.on('error', () => { sink.destroy(); done(); });
+        sink.on('finish', async () => {
+          try {
+            await runFfmpeg(['-y', '-i', inFile, ...FF_ARGS[kind], outFile]);
+            res.setHeader('Content-Type', kind === 'video' ? 'video/mp4' : 'audio/mp4');
+            const out = fs.createReadStream(outFile);
+            out.pipe(res);
+            out.on('close', done);
+          } catch (e) {
+            done();
+            if (e.code === 'ENOENT') return fail(501, 'no ffmpeg on this machine — install it (brew install ffmpeg) and re-run the sketch');
+            // the tail of stderr is where ffmpeg says what it couldn't do
+            fail(500, `ffmpeg couldn't convert it: ${String(e.stderr ?? e).trim().split('\n').pop()}`);
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [sketchApi(), libraryApi(), gfontApi()],
+  plugins: [sketchApi(), libraryApi(), gfontApi(), transcodeApi()],
   build: {
     rollupOptions: {
       // two pages: the app itself and the interactive docs

@@ -4,7 +4,7 @@ import { renderTextures, resetTextureBuffers } from './textures.js';
 import { AudioEngine } from './audio.js';
 import { updateBands } from './bands.js';
 import { updateTempo } from './tempo.js';
-import { mediaGet, mediaList, isPolyhaven, bareName } from './media.js';
+import { mediaGet, mediaList, mediaTranscode, isPolyhaven, bareName } from './media.js';
 import { loadModelGeometry } from './models.js';
 import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
@@ -565,12 +565,33 @@ export class Engine {
           // A codec the browser won't decode fails on the element, not on the
           // read — and play() then rejects exactly like a blocked autoplay, so
           // without this a .mov full of ProRes or HEVC is just a black frame
-          // with nothing said. Listener goes on before the src.
-          el.addEventListener('error', () => {
-            m.missing = true; // a re-run retries, like the paths below
-            warn(
-              `${kind}file "${name}": the browser can't decode this file — convert it to ${kind === 'video' ? 'H.264 mp4 or webm' : 'mp3 or wav'}`
-            );
+          // with nothing said. Listener goes on before the src. A local dev
+          // server gets one shot at rescuing the file through the machine's
+          // own ffmpeg (mediaTranscode) before the warning stands.
+          let rescued = false;
+          el.addEventListener('error', async () => {
+            const giveUp = (msg) => {
+              m.missing = true; // a re-run retries, like the paths below
+              warn(
+                msg ||
+                  `${kind}file "${name}": the browser can't decode this file — convert it to ${kind === 'video' ? 'H.264 mp4 or webm' : 'mp3 or wav'}`
+              );
+            };
+            // only the dev server carries /api/transcode, and DEV is exactly
+            // "served by it" — deployed, skip straight to the advice
+            if (rescued || !import.meta.env.DEV) return giveUp();
+            rescued = true;
+            notice(`${kind}file "${name}": the browser can't decode it — converting with this machine's ffmpeg…`);
+            try {
+              const fixed = await mediaTranscode(kind, rec);
+              if (!fixed) return giveUp();
+              URL.revokeObjectURL(el.src);
+              el.src = URL.createObjectURL(fixed.blob);
+              notice(`${kind}file "${name}": converted and saved — from now on it just plays`);
+              if (!this.paused && this.media.has(key)) el.play().catch(() => {});
+            } catch (e) {
+              giveUp(`${kind}file "${name}": ${e.message ?? e}`);
+            }
           });
           if (kind === 'video') {
             stageVideo(el); // muted/playsinline before the src, for iOS

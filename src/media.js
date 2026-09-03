@@ -173,6 +173,36 @@ export const mediaList = async () => {
   return [...local, ...BUNDLED.filter((n) => !local.includes(n))];
 };
 
+// A file the browser can't decode (a ProRes or HEVC .mov, say) can still be
+// rescued when the dev server is on this machine: its /api/transcode route
+// rewrites the bytes as H.264/AAC through the local ffmpeg (see transcodeApi
+// in vite.config.js). The converted copy replaces the record under the same
+// name, so the cost is paid once — every later session finds a playable file.
+// Resolves to the fresh record; null means there's no such route (the deployed
+// site, or the server isn't ours), which the caller reports as "convert it
+// yourself". A route that exists but fails throws with the message to warn.
+export async function mediaTranscode(kind, rec) {
+  let r;
+  try {
+    r = await fetch(`/api/transcode?kind=${kind}`, { method: 'POST', body: rec.blob });
+  } catch {
+    return null;
+  }
+  if (r.ok && /^(video|audio)\//.test(r.headers.get('content-type') ?? '')) {
+    const blob = await r.blob();
+    // stored as bytes, not the fetched Blob — see `readable`
+    const stored = { name: rec.name, type: blob.type, data: await blob.arrayBuffer() };
+    try {
+      await tx('readwrite', (s) => s.put(stored));
+    } catch { /* still playable this session */ }
+    return readable(stored);
+  }
+  // 501 (no ffmpeg) and 500 (ffmpeg refused) carry a message worth relaying;
+  // anything else is some other server squatting on the path
+  if (r.status === 501 || r.status === 500) throw new Error(await r.text());
+  return null;
+}
+
 // `accept` narrows the search to filenames it approves of, so a substring
 // lookup for a model can't land on the image of the same name
 export async function mediaGet(name, accept) {

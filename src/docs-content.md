@@ -2753,6 +2753,14 @@ Running an **empty** call (`videofile()`, `imagefile()`, `audiofile()`,
 `.material()` or `model()` opens the Poly Haven browser. Delete the name back
 out and run again to pick something else.
 
+**Codecs the browser can't play.** Browsers only decode a few video codecs
+(H.264, VP9, AV1 — not ProRes, and HEVC only sometimes). When you're running
+fizzle locally and have [ffmpeg](https://ffmpeg.org) installed
+(`brew install ffmpeg`), a file the browser refuses is converted through it
+automatically and the playable copy is kept, so it costs one wait ever. On the
+hosted site there's no converter behind the page, so convert the file yourself:
+`ffmpeg -i in.mov -c:v libx264 -pix_fmt yuv420p out.mp4`.
+
 **Starter files.** Three imports ship with fizzle so the examples above run
 before you've dropped anything in: `ship.obj`, the HDRI
 `kloofendal_43d_clear_puresky_1k.hdr`, and the material
