@@ -2598,6 +2598,123 @@ torus({ radius: 0.6, tube: 0.22, res: 48 })
 The screen needs something to show, hence the torus in front of it. A scene
 whose only object *is* the screen stays black forever.
 
+## glsl
+
+`glsl(source)` is a fragment pass you write, and `.glsl(source)` is the same
+thing over the chain so far. A bare expression is the whole body:
+
+```js
+noise({ period: 0.4, speed: 0.3 })
+  .glsl('texture2D(tex0, vUv).bgra')
+  .out()
+```
+
+Statements work too, as long as one of them assigns `gl_FragColor`. The second
+argument names uniforms:
+
+```js
+glsl(`
+  vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+  float r = length(p) * 8.0 - uTime * 2.0;
+  gl_FragColor = vec4(vec3(0.5 + 0.5 * sin(r)) * tint, 1.0);
+`, { tint: '#4fd1c5' }).out()
+```
+
+What is already in scope:
+
+| name | is |
+|---|---|
+| `vUv` | the pixel, 0..1 across the frame |
+| `tex0` | the chain so far. Black in `glsl()`, which has nothing before it |
+| `uTexel` | one pixel, as a `vec2` |
+| `uAspect` | frame width over height |
+| `uTime` | seconds, the clock `t` reads |
+| `uFrame` | frames since the last `ctrl + r`, the moment the buffers blank |
+| `uDelta` | seconds since the frame before |
+| `LUMA` | luma weights, for `dot(c, LUMA)` |
+| `snoise(vec3)` | simplex noise, the field `noise()` is built on |
+
+A uniform's type comes from what you put in it: a number is a `float`, a 2/3/4
+array is that vector, a color string is a `vec3`. Any of them takes a fn of `t`
+or a signal, so a knob in a shader animates like a knob anywhere else:
+
+```js
+text('glsl', { size: 0.5, color: '#4fd1c5' })
+  .glsl(`
+    vec2 p = vUv + vec2(sin(vUv.y * 60.0 + uTime * 3.0) * wob, 0.0);
+    gl_FragColor = vec4(texture2D(tex0, p).rgb * gain, 1.0);
+  `, { wob: t => 0.01 + 0.01 * Math.sin(t * 2), gain: [1.1, 0.85, 1.3] })
+  .out()
+```
+
+A chain in a uniform arrives as a `sampler2D` of that name:
+
+```js
+circle({ radius: 0.3, soft: 0.01 })
+  .glsl('texture2D(tex0, vUv).rgb + texture2D(grid, vUv).rgb * 0.4',
+        { grid: checker({ freq: 8 }) })
+  .out()
+```
+
+A fn of the chain works there too, the way `.comp()` takes one:
+`{ blurred: s => s.blur(24) }` hands the pass a soft copy of its own input.
+
+Write your own `void main()` when you want helper functions above it. A
+Shadertoy `mainImage()` runs too, with `iTime`, `iResolution` and `iChannel0`
+mapped onto ours:
+
+```js
+glsl(`
+void mainImage(out vec4 O, in vec2 F) {
+  vec2 p = (F - 0.5 * iResolution.xy) / iResolution.y;
+  float a = length(p - vec2(cos(iTime * 0.9), sin(iTime * 1.3)) * 0.22) - 0.15;
+  float b = length(p + vec2(cos(iTime * 1.1), sin(iTime * 0.7)) * 0.26) - 0.11;
+  float h = clamp(0.5 + 0.5 * (b - a) / 0.12, 0.0, 1.0);
+  float d = mix(b, a, h) - 0.12 * h * (1.0 - h);   // smooth union: the blobs merge
+  O = vec4(vec3(0.31, 0.82, 0.77) * smoothstep(0.01, -0.02, d)
+           + 0.5 * exp(-26.0 * abs(d)), 1.0);
+}
+`).out()
+```
+
+Every Shadertoy global is there: `iTime`, `iTimeDelta`, `iFrame`, `iFrameRate`,
+`iResolution`, `iMouse`, `iDate`, `iSampleRate`, `iChannelResolution`,
+`iChannelTime` and `iChannel0` to `iChannel3`. Channel 0 is the chain and the
+rest read transparent until something is bound to them, which a uniform of that
+name does:
+
+```js static
+.glsl(pasted, { iChannel1: video(), iChannel2: noise() })
+```
+
+A name you bind always wins over our reading of it. `iChannelTime` is the one
+that reads differently: a chain is not a clip, so all four report `iTime`.
+
+Multipass is the structural difference. A shader with Buffer tabs is one
+`glsl()` per tab, wired through the buses, and a buffer that reads itself is a
+bus that loops:
+
+```js
+glsl(`
+void mainImage(out vec4 O, in vec2 F) {
+  vec2 uv = F / iResolution.xy;
+  vec2 c = vec2(0.5 + 0.28 * cos(iTime * 1.1), 0.5 + 0.28 * sin(iTime * 1.7));
+  O = max(texture(iChannel0, uv) * 0.965, vec4(smoothstep(0.035, 0.0, length(uv - c))));
+}
+`, { iChannel0: input('a') }).out('a')
+
+glsl(`
+void mainImage(out vec4 O, in vec2 F) {
+  float v = texture(iChannel0, F / iResolution.xy).r;
+  O = vec4(v * vec3(0.31, 0.82, 0.77) + v * v * 0.4, 1.0);
+}
+`, { iChannel0: input('a') }).out()
+```
+
+A shader that doesn't compile warns with the line number in your own string and
+passes the picture through untouched, so a typo mid-set costs the pass rather
+than the video.
+
 ## fluid
 
 `.fluid()` turns a chain into the dye of an incompressible fluid sim, and
@@ -3375,6 +3492,8 @@ camera({ fly: true, speed: 12, lift: 5 })
 - `Texture` / `Geometry` / `Signal` — the types the chains are built from.
   Adding to a prototype adds an op of your own to every chain; see
   [custom methods](#custom-methods).
+- `glsl(source)` / `.glsl(source)` — a fragment pass written by hand, for the
+  texture op that isn't here. See [glsl](#glsl).
 
 ```js
 ambient({ intensity: 0.3 })

@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, expandMaterial, tileSources, applyTileMap, applyPointSize } from './materials.js';
-import { TextureOp, reciprocal, autoBuffer, setRate } from './textures.js';
+import { TextureOp, glslNode, reciprocal, autoBuffer, setRate } from './textures.js';
 import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
 import { lineGeometry } from './lines.js';
@@ -1603,6 +1603,10 @@ export function makeApi(engine) {
       return node;
     },
     noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),
+    // A fragment pass written by hand, as a source: vUv is the pixel, tex0 is
+    // black (nothing came before it), and the second argument names uniforms.
+    // chain.glsl() is the same call with the picture so far in tex0.
+    glsl: (source, uniforms) => glslNode(engine, source, uniforms),
     voronoi: (o) => new TextureOp(engine, 'voronoi', o ?? {}),
     text: (text, o) => new TextureOp(engine, 'textGen', { ...o, text }),
     // camera capture as a texture; name matches a camera label (substring,

@@ -59,6 +59,7 @@ export const GLOBALS = {
   videoseq: ["videoseq(['a.mp4', ...], index?)", 'Texture generator: several imported videos with a signal picking the current one (floored, wrapped) — a clip bank. All of them keep playing, so a switch lands mid-action like cutting between feeds. Default index: one per second. Empty call = multi-file picker.'],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
   fluid: ["fluid({ res, speed, fade, damping, vorticity, iterations, wrap })", "Texture generator: an incompressible fluid sim. .push(map) drives the field, .ink(chain) pours dye into it, .obstacle(mask) puts solids in its way; the chain itself is the dye, and .velocity()/.curl() read the fields behind it. Contents survive a re-run."],
+  glsl: ["glsl(source, uniforms)", "Texture generator: a fragment shader you write. vUv is the pixel (0..1), uTime the clock, uFrame the frame count since the last restart, uDelta the frame's own length, uTexel one pixel across and down, uAspect the frame's width over its height; tex0 is black, nothing having come before it. uniforms is an object of names you choose, each holding a number, a 2/3/4 array, a color, a fn of t, or a texture chain, which arrives as a sampler2D of that name.\nA bare expression is a whole body, or write void main() yourself, or paste a Shadertoy mainImage(), whose globals are all mapped. A shader that doesn't compile warns with the line number and draws nothing."],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
   text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right' })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
@@ -267,6 +268,7 @@ export const METHODS = {
   threshold: ['.threshold(level, { soft })', 'Texture: luma threshold to a black/white mask. Both keys take a texture: a per-pixel level cuts the image against another image rather than against one number.'],
   chromaKey: ['.chromaKey(color, { tolerance, soft, spill })', "Texture: make pixels near color transparent, leaving the rest as a cutout. The match radius adapts to the key color, so a green screen's lit and shadowed parts key together; tolerance scales it. All args take fns of t."],
   lumaKey: ['.lumaKey(level, { soft, invert })', 'Texture: make pixels darker than level transparent, leaving the bright part as a cutout; invert keys out the bright side instead. level takes a fn of t.'],
+  glsl: ['.glsl(source, uniforms)', "Texture: a fragment pass you write, the chain so far in tex0. Same scope as glsl() — vUv, uTime, uFrame, uDelta, uTexel, uAspect, plus the uniforms you name: numbers, 2/3/4 arrays, colors, fns of t, or a chain, which arrives as a sampler2D of that name — a fn of the chain there, like .comp()'s, hands the pass a copy of its own input.\nA shader that doesn't compile warns with the line number and passes the picture through untouched."],
   invert: ['.invert()', 'Texture: invert colors.'],
   remap: ['.remap(map)', "Texture: absolute UV lookup — sample this chain at the map's RG coordinates. Map can be a fn of the chain so far."],
   lookup: ['.lookup(ramp)', "Texture: recolor by luma — each pixel's luminance indexes the ramp left-to-right. Ramp can be a fn of the chain so far."],
@@ -1068,7 +1070,7 @@ const globalKinds = {
   curvens: 'curve',
   data: 'data',
   segments: 'segments link',
-  texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid',
+  texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid glsl',
   signal: 'beat audio audiofile band rand select sig T B mouse',
   midi: 'midi',
   gamepad: 'gamepad',
@@ -1094,7 +1096,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask blur bloom delay feedback flow when tile instance particles points lines wire out
+        remap lookup tint alpha displace comp mask glsl blur bloom delay feedback flow when tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
@@ -1137,7 +1139,7 @@ export const GLOBAL_SECTIONS = [
   ['structure', 'curve data layout link segments spread'],
   ['lights', 'ambient directional hdri hemi point spot'],
   ['scene', 'bg camera fog hsl hsv resolution'],
-  ['escape hatches', 'bufferId Geometry onFrame Signal Texture THREE'],
+  ['escape hatches', 'bufferId Geometry glsl onFrame Signal Texture THREE'],
 ].map(([name, list]) => [name, names(list)]);
 
 export const GLOBAL_SECTION = {};

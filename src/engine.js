@@ -99,7 +99,9 @@ export class Engine {
     // letterbox bars reads as the edge rather than flying past it. Written from
     // the canvas rect below and from the projector's stage rect over there, so
     // whichever window the pointer is in drives the same mouse().
-    this.pointer = { x: 0, y: 0, down: 0 };
+    // pressX/pressY hold where the last press landed, which nothing but
+    // .glsl()'s iMouse.zw reads — mouse() is one axis at a time.
+    this.pointer = { x: 0, y: 0, down: 0, pressX: 0, pressY: 0 };
 
     this.audio = null;              // AudioEngine, created lazily by audio()
     this.audios = new Map();        // named audio captures, shared across re-runs while used (reapCaptures)
@@ -143,7 +145,13 @@ export class Engine {
     // only presses on the picture count — clicking into the editor or the
     // sidebar would otherwise fire the gate mid-edit
     window.addEventListener('pointerdown', (e) => {
-      if (e.target === canvas) this.pointer.down = 1;
+      if (e.target !== canvas) return;
+      // read the press itself rather than the last move: a tap with no move
+      // before it would otherwise record wherever the pointer was last seen
+      this.setPointer(e.clientX, e.clientY, canvas.getBoundingClientRect());
+      this.pointer.down = 1;
+      this.pointer.pressX = this.pointer.x;
+      this.pointer.pressY = this.pointer.y;
     });
     for (const ev of ['pointerup', 'pointercancel']) {
       window.addEventListener(ev, () => { this.pointer.down = 0; });

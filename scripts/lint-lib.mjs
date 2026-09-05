@@ -23,7 +23,7 @@ export const MESH = 'sphere box plane torus torusKnot cylinder capsule icosa mod
 export const UNLIT = 'particles link lines segments'.split(' ');
 export const LIGHT = 'ambient directional point spot hemi hdri'.split(' ');
 export const TEXTURE = `scene depth input constant ramp circle ring rect polygon checker video person
-  videofile imagefile imageseq noise fluid voronoi text data layout`.split(/\s+/).filter(Boolean);
+  videofile imagefile imageseq noise fluid voronoi text glsl data layout`.split(/\s+/).filter(Boolean);
 
 export const JS_GLOBALS = `Math JSON Date Array Object String Number Boolean console window document
   Promise Set Map performance parseInt parseFloat isNaN structuredClone requestAnimationFrame

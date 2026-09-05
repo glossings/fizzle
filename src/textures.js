@@ -140,6 +140,11 @@ uniform sampler2D tex2;
 uniform vec2 uTexel;
 uniform float uAspect;
 uniform float uTime;
+// frames and seconds since the last restart (ctrl+r), which is also when the
+// buffers blank — so uFrame 0 is the frame everything accumulated is empty on.
+// uTime is not reset there: beat() counts bars from it.
+uniform float uFrame;
+uniform float uDelta;
 #define LUMA vec3(0.2126, 0.7152, 0.0722)
 
 // what happens outside [0,1] after a UV transform — 0 clamp, 1 repeat,
@@ -1410,6 +1415,8 @@ export function makeMaterial(spec, binds = []) {
     uTexel: { value: new THREE.Vector2() },
     uAspect: { value: 1 },
     uTime: { value: 0 },
+    uFrame: { value: 0 },
+    uDelta: { value: 0 },
   };
   const bound = new Set(binds.map((b) => b.uniform));
   const decls = [];
@@ -1447,6 +1454,300 @@ export function makeMaterial(spec, binds = []) {
     // else: black canvas, no error but the console.
     toneMapped: false,
   });
+}
+
+// ---------------------------------------------------------------------------
+// glsl() — a pass written by hand
+//
+// The escape hatch for the op that isn't here, and the texture-side twin of
+// THREE being in scope on the 3D side. The string compiles through the same
+// machinery every SPECS entry above goes through, so vUv, tex0, uTexel,
+// uAspect and uTime already mean here what they mean everywhere else, and the
+// result is an ordinary node: it feeds .comp(), .out(), a material map, all of
+// it. Uniforms are named by the sketch and take fns of t like any other
+// parameter; one handed a chain arrives as a sampler of that name.
+//
+// Nothing here may throw, and nothing may go quiet either. Three compiles the
+// real program lazily, at the draw call, and reports a failure by console.error
+// alone — a frame late, into the console, with line numbers counted from the
+// top of a prefix the sketch never wrote. So the source is compiled standalone
+// first, against the prefix below: that is what buys an error naming a line of
+// the sketch's own string, and a broken pass that copies its input through
+// instead of drawing a black hole.
+
+// What three puts in front of a ShaderMaterial's fragment shader on WebGL2,
+// minus the parts a full-frame quad never reads (see WebGLProgram's GLSL 3.0
+// conversion). Only the standalone compile uses it; three builds its own for
+// the program that actually draws.
+const GLSL3_PRELUDE = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+#define varying in
+layout(location = 0) out highp vec4 pc_fragColor;
+#define gl_FragColor pc_fragColor
+#define texture2D texture
+#define textureCube texture
+#define texture2DProj textureProj
+#define texture2DLodEXT textureLod
+#define texture2DGradEXT textureGrad
+`;
+
+// Names the pass has already spent — a uniform called uTime would be declared
+// twice, which fails to compile for a reason that reads like nothing the
+// sketch did
+const GLSL_RESERVED = ['tex0', 'tex1', 'tex2', 'uTexel', 'uAspect', 'uTime', 'uFrame', 'uDelta', 'vUv', 'LUMA', 'wrapSample'];
+
+// Half of what an escape hatch is for is pasting a shader in, and Shadertoy is
+// where they are. Its globals are all reachable here: these are ours already
+// under another name, and SHADERTOY_UNIFORMS below is the rest.
+//
+// Each is emitted only when the source says the word, so a shader that never
+// mentions them compiles exactly what it wrote — and a sketch that names a
+// uniform of its own takes the slot instead, which is the escape when our
+// reading of one isn't the one it wants.
+const SHADERTOY_DEFINES = {
+  iTime: 'uTime',
+  iTimeDelta: 'uDelta',
+  iFrame: 'int(uFrame)',
+  iFrameRate: '(uDelta > 0.0 ? 1.0 / uDelta : 60.0)',
+  iResolution: 'vec3(1.0 / uTexel, 1.0)',
+  iChannel0: 'tex0',
+};
+
+// The ones that need a value of their own, [name, GLSL type, initial value].
+// iChannel1..3 are declared whether or not a chain was bound to them: an
+// unassigned channel reads transparent here the way it reads black there,
+// which beats refusing to compile a paste over a channel it never samples.
+const SHADERTOY_UNIFORMS = [
+  ['iMouse', 'vec4', () => new THREE.Vector4()],
+  ['iDate', 'vec4', () => new THREE.Vector4()],
+  ['iSampleRate', 'float', () => 44100],
+  ['iChannelResolution', 'vec3[4]', () => [0, 0, 0, 0].map(() => new THREE.Vector3())],
+  ['iChannelTime', 'float[4]', () => [0, 0, 0, 0]],
+  ['iChannel1', 'sampler2D', () => null],
+  ['iChannel2', 'sampler2D', () => null],
+  ['iChannel3', 'sampler2D', () => null],
+];
+
+const declOf = (name, type) => {
+  const [, base, size = ''] = /^(\w+)(\[\d+\])?$/.exec(type);
+  return `uniform ${base} ${name}${size};`;
+};
+
+const mentions = (src, name) => new RegExp(`\\b${name}\\b`).test(src);
+
+// A texture's own pixel size, for iChannelResolution — a render target carries
+// it on .image, a video element under another name.
+const texSize = (tex) => {
+  const im = tex?.image;
+  return [im?.width ?? im?.videoWidth ?? 1, im?.height ?? im?.videoHeight ?? 1];
+};
+
+// Per-frame values for whichever of the above the shader actually declared.
+// `chans` is the four channels as they were bound this frame.
+function writeShadertoy(u, ctx, engine, chans) {
+  if (u.iMouse) {
+    const p = engine.pointer;
+    // ours is -1..1 with y up, Shadertoy's is pixels from the bottom left
+    const px = (v, n) => (v * 0.5 + 0.5) * n;
+    const [x, y] = [px(p.x, ctx.w), px(p.y, ctx.h)];
+    const [zx, zy] = [px(p.pressX, ctx.w), px(p.pressY, ctx.h)];
+    // zw is where the press landed, negated once the button is up: `iMouse.z >
+    // 0.0` is how a shader over there asks whether it is being held
+    u.iMouse.value.set(x, y, p.down ? zx : -zx, p.down ? zy : -zy);
+  }
+  if (u.iDate) {
+    const d = new Date();
+    u.iDate.value.set(d.getFullYear(), d.getMonth(), d.getDate(),
+      d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000);
+  }
+  // the rate the analyser is running at, or the usual one when nothing has
+  // asked for audio yet — reading it must not be what starts the capture
+  if (u.iSampleRate) u.iSampleRate.value = engine.audio?.ctx?.sampleRate ?? 44100;
+  // no per-channel playback clock here: a chain is not a clip, so all four
+  // report the one clock there is
+  if (u.iChannelTime) u.iChannelTime.value = [ctx.t, ctx.t, ctx.t, ctx.t];
+  if (u.iChannelResolution) {
+    for (let i = 0; i < 4; i++) {
+      const [w, h] = texSize(chans[i]);
+      u.iChannelResolution.value[i].set(w, h, 1);
+    }
+  }
+}
+
+// Where the sketch's own text begins in the compiled source, so a driver's
+// line numbers can be renumbered against the string that was typed
+const GLSL_MARK = '// --- sketch ---\n';
+
+// The forms a body can be written in, told apart by shape: a whole shader with
+// its own main(), a pasted mainImage(), a block of statements that assigns
+// gl_FragColor, or a bare expression. The expression is the form a one-liner
+// wants — .glsl('texture2D(tex0, vUv).bgra') is a call worth typing mid-set —
+// and its type is the one thing the sketch shouldn't have to spell, so it gets
+// tried as a vec4, then as a color with alpha 1, then as one gray level.
+function glslForms(src) {
+  // shaped by the trimmed text, embedded untrimmed: a template literal usually
+  // opens with a newline, and eating it would put every line the compiler
+  // reports one off from the line the sketch is looking at
+  const shape = src.trim();
+  const body = src.replace(/\s+$/, '');
+  if (/\bvoid\s+main\s*\(/.test(shape)) return [GLSL_MARK + body];
+  if (/\bmainImage\s*\(/.test(shape))
+    return [`${GLSL_MARK}${body}\nvoid main() { mainImage(gl_FragColor, vUv / uTexel); }`];
+  if (/\bgl_FragColor\b/.test(shape)) return [`void main() {\n${GLSL_MARK}${body}\n}`];
+  const e = body.replace(/;\s*$/, '');
+  return [
+    `void main() {\n${GLSL_MARK}gl_FragColor = ${e};\n}`,
+    `void main() {\n${GLSL_MARK}gl_FragColor = vec4(${e}, 1.0);\n}`,
+    `void main() {\n${GLSL_MARK}gl_FragColor = vec4(vec3(${e}), 1.0);\n}`,
+  ];
+}
+
+// One uniform slot: its GLSL type read off the value the sketch put there
+// (sampled once, at t = 0), and how to write it every frame after. A number is
+// a float, a 2/3/4 array is that vector — resolved a component at a time, so
+// [t => …, 0.5] moves — and anything else is a color, which is what lands
+// '#ff0044' and hsl(t => t, 1, 0.5) in the same vec3.
+function glslSlot(name, v) {
+  const probe = resolve(v, 0);
+  if (typeof probe === 'number' || typeof probe === 'boolean') {
+    return { init: 0, write: (u, t) => { u.value = Number(resolve(v, t)) || 0; } };
+  }
+  if (Array.isArray(probe) && probe.length >= 2 && probe.length <= 4) {
+    const n = probe.length;
+    return {
+      init: new Array(n).fill(0),
+      write: (u, t) => {
+        const a = resolve(v, t) ?? [];
+        const c = (i) => Number(resolve(a[i], t)) || 0;
+        if (n === 2) u.value.set(c(0), c(1));
+        else if (n === 3) u.value.set(c(0), c(1), c(2));
+        else u.value.set(c(0), c(1), c(2), c(3));
+      },
+    };
+  }
+  if (probe == null || (typeof probe === 'object' && !probe.isColor)) {
+    warn(`glsl: ${name} is not something a uniform can hold — a number, a 2/3/4 array, a color, a texture chain, or a fn of t returning one`);
+    return null;
+  }
+  return { init: '#ffffff', write: (u, t) => setColor(u.value, v, t) };
+}
+
+function compileFrag(gl, source) {
+  const sh = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(sh, source);
+  gl.compileShader(sh);
+  const ok = gl.getShaderParameter(sh, gl.COMPILE_STATUS) === true;
+  const log = ok ? '' : gl.getShaderInfoLog(sh) || 'it would not compile';
+  gl.deleteShader(sh);
+  return { ok, log };
+}
+
+// The driver's first line, renumbered: everything after the colon is its
+// wording, which is the part worth reading, and the number in front of it
+// counts from a prefix the sketch never saw.
+function glslWhere(log, offset) {
+  const line = log.split('\n').find((l) => /\S/.test(l)) ?? 'it would not compile';
+  return line.trim().replace(/^(?:ERROR|WARNING):\s*\d+:(\d+):?\s*/i, (m, n) => `line ${Math.max(1, Number(n) - offset)}: `);
+}
+
+// { mat, slots } once it compiles, { mat: null } once it doesn't — either way
+// an answer, so the caller knows it has already asked.
+function buildGlsl(node, renderer) {
+  const { src, u: vals, tex: texNames } = node.params;
+  const extras = {};
+  const slots = [];
+  for (const [name, v] of Object.entries(vals)) {
+    const slot = glslSlot(name, v);
+    if (!slot) continue;
+    extras[name] = slot.init;
+    slots.push({ name, write: slot.write });
+  }
+  // a name the sketch bound itself wins over our reading of it
+  const taken = new Set([...Object.keys(vals), ...texNames]);
+  const wanted = (n) => !taken.has(n) && mentions(src, n);
+  const builtins = SHADERTOY_UNIFORMS.filter(([n]) => wanted(n));
+  const pre =
+    texNames.map((n) => `uniform sampler2D ${n};`).join('\n') + '\n' +
+    builtins.map(([n, type]) => declOf(n, type)).join('\n') + '\n' +
+    Object.entries(SHADERTOY_DEFINES).filter(([n]) => wanted(n)).map(([n, v]) => `#define ${n} ${v}`).join('\n') + '\n' +
+    // only when it's wanted and the sketch hasn't brought its own: a pasted
+    // shader with a snoise() of its own would otherwise redefine ours
+    (/\bsnoise\s*\(/.test(src) && !/\bsnoise\s*\([^)]*\)\s*\{/.test(src) ? SNOISE_GLSL : '');
+
+  const gl = renderer.getContext();
+  let first;
+  for (const frag of glslForms(src)) {
+    const mat = makeMaterial({ extras, pre, frag });
+    for (const n of texNames) mat.uniforms[n] = { value: null };
+    for (const [n, , init] of builtins) mat.uniforms[n] = { value: init() };
+    const whole = GLSL3_PRELUDE + mat.fragmentShader;
+    const offset = whole.slice(0, whole.indexOf(GLSL_MARK) + GLSL_MARK.length).split('\n').length - 1;
+    const { ok, log } = compileFrag(gl, whole);
+    if (ok) return { mat, slots, builtins: builtins.length > 0 };
+    mat.dispose();
+    // the first reading is the one the sketch meant; the fallbacks exist to
+    // save a `vec4(…, 1.0)`, and their errors would only say so twice
+    first ??= glslWhere(log, offset);
+  }
+  warn(`glsl: ${first} — the pass is skipped`);
+  return { mat: null, slots: [] };
+}
+
+// Both spellings land here: base is the chain a method was called on, absent
+// for the generator, where tex0 is black rather than undefined.
+export function glslNode(engine, source, uniforms, base = null) {
+  if (typeof source !== 'string' || !source.trim()) {
+    warn("glsl: needs a string of GLSL — glsl('vec4(vUv, 0.0, 1.0)')");
+    return base ?? new TextureOp(engine, 'constant', { color: null });
+  }
+  if (source.includes('#include')) {
+    // three resolves #include <chunk> itself and *throws* on a name it doesn't
+    // know — from inside the render, which is the one place a throw takes the
+    // video down. Refused here, where it's only a warning.
+    warn('glsl: #include is three.js shader chunks, which a texture pass has none of — paste the function in instead');
+    return base ?? new TextureOp(engine, 'constant', { color: null });
+  }
+  const vals = {};
+  const tex = [];
+  const maps = [];
+  for (const [name, v] of Object.entries(uniforms ?? {})) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.startsWith('gl_') || GLSL_RESERVED.includes(name)) {
+      warn(`glsl: '${name}' isn't a name a uniform can have here — ${GLSL_RESERVED.join(', ')} are the pass's own`);
+      continue;
+    }
+    if (v instanceof TextureOp) { tex.push(name); maps.push(v); continue; }
+    // The one ambiguous slot in the API: everywhere else a fn is a fn of t and
+    // a texture slot's fn is a fn of the chain, and here both live in the same
+    // object. Told apart by asking — a fn of t handed a chain comes back with
+    // a number-shaped nothing, which is the value path anyway.
+    if (typeof v === 'function' && base) {
+      let asChain;
+      try { asChain = v(base); } catch { /* a fn of t that dislikes the argument */ }
+      if (asChain instanceof TextureOp) { tex.push(name); maps.push(asChain); continue; }
+    }
+    vals[name] = v;
+  }
+  return new TextureOp(
+    engine,
+    'glsl',
+    { src: source, u: vals, tex, chained: !!base },
+    base ? [base, ...maps] : maps,
+  );
+}
+
+// 1×1 transparent: what a generator pass reads for tex0, nothing having come
+// before it, and what one that failed to compile draws. Not black — under the
+// premultiplied convention an opaque black frame paints over whatever a .comp()
+// puts it on, and "no picture" shouldn't.
+let CLEAR_TEX;
+function clearTex() {
+  if (!CLEAR_TEX) {
+    CLEAR_TEX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+    CLEAR_TEX.needsUpdate = true;
+  }
+  return CLEAR_TEX;
 }
 
 // 1×1 black fallback (video() before the camera stream is live)
@@ -1893,6 +2194,8 @@ export function runPass(ctx, material, tex0, tex1, target, setup, layer = 0) {
   u.uTexel.value.set(1 / w, 1 / h);
   u.uAspect.value = ctx.aspect;
   u.uTime.value = ctx.t;
+  u.uFrame.value = ctx.runFrame;
+  u.uDelta.value = ctx.dt;
   setup?.(u);
   ctx.quad.render(ctx.renderer, material, target, layer);
 }
@@ -2385,6 +2688,13 @@ export class TextureOp {
   chromaKey(color = '#00ff00', o = {}) { return this._n('chromakey', { color, ...o }); }
   lumaKey(level = 0.5, o = {}) { return this._n('lumakey', { level, ...o }); }
   invert() { return this._n('invert'); }
+  // The op that isn't here, written by hand: a fragment pass over the chain so
+  // far. tex0 is the picture, vUv the pixel, and the second argument names
+  // uniforms — a number, a vector, a color or a fn of t, or a chain, which
+  // arrives as a sampler2D of that name.
+  //   .glsl('texture2D(tex0, vUv).bgra')
+  //   .glsl('vec4(texture2D(tex0, vUv).rgb * gain, 1.0)', { gain: t => 1 + Math.sin(t) })
+  glsl(source, uniforms) { return glslNode(this.engine, source, uniforms, this); }
   remap(map) {
     const m = this._texture(map, 'remap');
     return m ? this._n('remap', {}, [m]) : this;
@@ -3488,6 +3798,41 @@ export class TextureOp {
     // guarantees the fields this reads are this frame's
     if (this.kind === 'fluidView') return renderFluidView(this, ctx) ?? ins[0];
 
+    // A pass the sketch wrote. Compiled on the first frame it draws, because
+    // that is the first moment there is a GL context to compile against; the
+    // node is rebuilt on every run, so an edit to the source is a new compile.
+    if (this.kind === 'glsl') {
+      const out = this._rt(ctx);
+      const src = this.params.chained ? ins[0] : clearTex();
+      this._glsl ??= buildGlsl(this, ctx.renderer);
+      const { mat, slots, builtins } = this._glsl;
+      // a shader that didn't compile passes its input through: the warning is
+      // the report, and the rest of the chain keeps its picture
+      if (!mat) {
+        runPass(ctx, MAT_COPY, src, null, out);
+        return out.texture;
+      }
+      this.mat = mat;                           // so dispose() frees it
+      const first = this.inputs.length - this.params.tex.length;
+      runPass(ctx, mat, src, null, out, (u) => {
+        // channel 0 is the chain; the rest are whatever was bound to their
+        // names, and transparent where nothing was
+        const chans = [src, clearTex(), clearTex(), clearTex()];
+        // the auto-declared channels first, so a name the sketch bound itself
+        // overwrites the empty one rather than the other way round
+        for (const n of ['iChannel1', 'iChannel2', 'iChannel3']) if (u[n]) u[n].value = clearTex();
+        this.params.tex.forEach((n, i) => {
+          const tex = ins[first + i] ?? clearTex();
+          u[n].value = tex;
+          const c = /^iChannel([0-3])$/.exec(n);
+          if (c) chans[Number(c[1])] = tex;
+        });
+        for (const s of slots) s.write(u[s.name], ctx.t);
+        if (builtins) writeShadertoy(u, ctx, this.engine, chans);
+      });
+      return out.texture;
+    }
+
     const spec = SPECS[this.kind];
     // unreachable from a sketch — every kind here comes from a method above
     if (!spec) throw new Error(`unknown texture: ${this.kind}`);
@@ -3622,6 +3967,7 @@ function renderMaterialMaps(engine, ctx) {
 export function resetTextureBuffers(engine) {
   const st = engine._textureState;
   if (!st) return;
+  st.frameBase = (st.frame ?? 0) + 1;   // the next frame is this run's frame 0
   for (const rt of st.fbRTs?.values() ?? []) rt.dispose();
   st.fbRTs?.clear();
   for (const e of st.layerRTs?.values() ?? []) { e.lin.dispose(); e.out.dispose(); }
@@ -3727,6 +4073,9 @@ export function renderTextures(engine) {
     renderer,
     quad: st.quad,
     frame: st.frame,
+    // st.frame is absolute (renderNode memoizes on it); this is the one a
+    // sketch counts, zeroed by restartSketch along with the buffers
+    runFrame: st.frame - (st.frameBase ??= st.frame),
     t: engine.time,
     // seconds since the last frame, for the ops that integrate rather than
     // evaluate; 0 while paused, and clamped by whoever steps on it
