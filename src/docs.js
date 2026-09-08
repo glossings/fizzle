@@ -255,6 +255,8 @@ export const METHODS = {
   gamma: ['.gamma(v)', 'Texture: gamma curve (1 = unchanged, above 1 lifts the shadows; the exponent is 1/v). A texture in place of v sets it per pixel.'],
   posterize: ['.posterize(steps)', 'Texture: quantize values to n levels per channel. A texture in place of steps sets the count per pixel — scale it first (.mul(8)), since a raw map only ever says 0..1.'],
   dither: [".dither(levels, { mode: 'bayer2'|'bayer4'|'bayer8'|'random', cells })", 'Texture: ordered dither — posterize with a threshold pattern scattering the error, so gradients become texture instead of bands. Default levels 2 with bayer8 is the 1-bit classic; { cells } dithers on a chunky pixel grid instead of the texel grid, which is where the classic look lives. A texture in place of levels sets it per pixel — scale it first, like posterize.'],
+  grain: ['.grain(amount, { size, mono })', 'Texture: film grain — per-pixel noise re-rolled every frame, strongest at mid-gray and gone in the blacks and the blown highlights. Default amount 0.1. A texture in place of amount sets it per pixel.'],
+  lut: ['.lut(source, { mix })', "Texture: grade through a color cube — a .png holding every color's replacement, which is the form film stocks are published in (the HaldCLUT format). source is an imported image by name, or an imagefile()/imageseq(). Unlike .lookup() it remaps across channels, so shadows can go teal while skin stays warm. Positional .lut(source, 0.5) works too."],
   pixelsort: ['.pixelsort({ threshold, dir, length, size, jitter })', "Texture: spans of pixels brighter than threshold sort into gradient streaks running toward dir. Darker pixels are walls: they stay put and bound each span."],
   jpeg: ['.jpeg(quality, { corrupt, seed })', 'Texture: real DCT compression artifacts — the frame in 8×8 blocks, coefficients quantized harder as quality (0..1, fn of t) falls: flat slabs, ringing, chroma fringing at block edges. Default 0.25. corrupt re-rolls random blocks into garbage for the broken-file look.'],
   flow: ['.flow({ gain, blur, scale })', "Texture: the chain's frame-to-frame motion as a velocity picture, centered on mid-grey like fluid's .velocity() — so .displace(src.flow()) drags the image along its own movement, and .push(f.flow()) stirs a sim with it. Coarse and blurred by design: a look, not measurement."],
@@ -284,7 +286,7 @@ export const METHODS = {
     data: "How visible each point is, 0..1, as an array — a particle's fade envelope; 1 unless the source sets it.",
   }],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
-  bloom: ['.bloom({ threshold, strength, radius })', 'Texture: brightpass + half-res gaussian glow.'],
+  bloom: ['.bloom({ threshold, strength, radius, color })', 'Texture: brightpass + half-res gaussian glow.'],
   fluid: ['.fluid({ ink, res, speed, fade, damping, vorticity, iterations, wrap }) | .fluid(ink)', "Texture: the chain becomes dye in an incompressible fluid sim, poured in at the ink rate. What comes back is the sim itself, so .push() and the rest of fluid() carry on from there. Contents survive a re-run."],
   ink: ['.ink(chain, amount)', "Fluid: pour a chain in as dye, where it is bright. Added per second, so it builds while the source is lit rather than replacing what is already floating."],
   push: ['.push(map, { amount, mid }) | .push([x, y], amount)', "Fluid: drive the velocity field from a map, read R and G. Dye with nothing pushing it only sits and fades.\nA plain [x, y] is one steady force over the whole field: [0, -0.3] is gravity. Under wrap: 'clamp' the pressure solve cancels most of it, since a closed box cannot drift."],
@@ -947,6 +949,14 @@ const METHOD_KEY_DOCS = {
     threshold: 'How bright a pixel must be before it glows. Default 0.7. Drop it to bloom the whole image.',
     strength: 'How much glow is added back on top. Default 1.',
     radius: 'Blur radius of the glow, in texels. Default 1 — the pass runs at half resolution, so it spreads twice as far as the number suggests.',
+    color: 'Tints the glow without touching the picture under it: a hex, a CSS name or [r, g, b]. Default white, which adds the highlight back as it is. A warm one is halation.',
+  },
+  lut: {
+    mix: 'How far toward the graded picture, 0..1. Default 1. Takes a fn of t, or a texture to set it per pixel.',
+  },
+  grain: {
+    size: 'Width of one grain, in the frame\u2019s own pixels. Default 1. Counted on that grid rather than on the drawing buffer, so quality() and a scaled recording leave the grain the size it looked.',
+    mono: 'One value into all three channels. Default true, which is film. false rolls each channel separately: color speckle, which is video noise.',
   },
   delay: {
     scale: 'Fraction of the frame size the history is stored at — a ceiling: a delay too long to hold shrinks further rather than shortening. Default 1. Halving it quarters the memory per stored frame.',
@@ -1096,7 +1106,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask glsl blur bloom delay feedback flow when tile instance particles points lines wire out
+        remap lookup lut grain tint alpha displace comp mask glsl blur bloom delay feedback flow when tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure field`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
