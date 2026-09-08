@@ -213,9 +213,9 @@ export const METHODS = {
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other; for a whole-image flip use .scale(-1, 1). A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
-  radial: ['.radial(s => ...)', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam."],
+  radial: ['.radial(s => ..., { log, min })', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam.\nUnder log, y is log-radius and wraps too, so .scroll(0.1, 0) inside is endless rotation and .scroll(0, 0.1) endless zoom."],
   through: ['.through(s => change, p => ...)', "Texture: run the second fn in the space the first fn moves the frame into, then move it back. .through(s => s.rotate(0.4), p => p.pixellate(40)) lays a tilted grid. The change has to be one that can be undone: a move, a warp, a tone or color adjust. Anything else warns and stays where it went."],
-  polar: ['.polar({ inverse })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
+  polar: ['.polar({ inverse, log, min })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
   edge: [".edge({ strength, spread, mode: 'classic'|'crisp' })", 'Texture: edge magnitude (grayscale). Lines on nothing — the gaps are transparent, so edges comp without plating what they sit on. Thick and clipped by default; crisp mode gives thin antialiased ones.'],
   slope: [".slope({ strength, spread, mode })", 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
   normalMap: [".normalMap({ strength, spread, mode })", 'Texture: tangent-space normal map from luma height.'],
@@ -836,8 +836,14 @@ const METHOD_KEY_DOCS = {
   kaleido: {
     rotate: 'Spins the fold pattern, in radians. Animate it for the turning-kaleidoscope look.',
   },
+  radial: {
+    log: 'Measures y in log-radius, so equal steps of y are equal ratios of radius and the space becomes periodic. .scroll(0, 0.1) inside it is then an endless zoom rather than a slide. Default false.',
+    min: 'Under log, the inner radius as a fraction of the frame, and so the size of one period: 0.25 (default) means each zoom level is 4x the one inside it.',
+  },
   polar: {
     inverse: 'false (default) unrolls the frame into angle × radius. true goes the other way, reading the image as angle × radius and wrapping it into a disc. Takes a fn of t, so it can flip mid-set.',
+    log: 'Measures y in log-radius, so equal steps of y are equal ratios of radius. That makes the space periodic — one period is the factor 1 / min — so a translate along y is a zoom that never lands, and .scroll() along it repeats forever. Default false.',
+    min: 'Under log, the inner radius as a fraction of the frame, and so the size of one period: 0.25 (default) means each zoom level is 4x the one inside it. Smaller nests fewer, larger levels; nothing inside it is sampled on the way out.',
   },
   edge: {
     strength: "Multiplies the detected edges. Default 1. Push to 3-4 before .threshold() for clean line art. In 'crisp' mode 1 means a full black-to-white step reads as white, so the same look wants roughly 4x the number.",

@@ -530,24 +530,44 @@ const SPECS = {
   // angle (x) × radius (y), inverse reads such a buffer back onto the screen.
   // Radius 1 is the frame *corner* — anything closer in and a round trip would
   // crop the corners off rather than come back where it started.
+  //
+  // log: y measures log-radius instead, so equal steps of y are equal *ratios*
+  // of radius and the space becomes periodic — one period is the factor
+  // 1 / min between the inner radius and the corner. Translating y there is a
+  // zoom that never lands anywhere, which is what makes .scroll() under it
+  // infinite rather than a slide. Nothing inside min is sampled going out, and
+  // coming back that disc holds the next period rather than the clamped edge:
+  // the picture nests into itself instead of smearing.
   polar: {
-    extras: { uInverse: 0 },
+    extras: { uInverse: 0, uLog: 0, uMin: 0.25 },
     frag: `
       void main() {
-        float rmax = 0.5 * length(vec2(uAspect, 1.0));
+        // linear stops at the frame corner, so a round trip keeps the corners.
+        // log stops at the inscribed circle instead: a period magnified into
+        // view would otherwise show the clamped smear outside that circle, and
+        // past the edge the tiling just carries on outward anyway.
+        float rmax = uLog > 0.5 ? 0.5 : 0.5 * length(vec2(uAspect, 1.0));
         if (uInverse > 0.5) {
           vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
           float r = length(p);
           float a = r > 0.0 ? atan(p.y, p.x) : 0.0;   // atan(0, 0) is undefined
-          gl_FragColor = texture2D(tex0, vec2(fract(a / 6.2831853), r / rmax));
+          float y = uLog > 0.5
+            ? fract(1.0 - log(max(r, 1e-6) / rmax) / log(uMin))
+            : r / rmax;
+          gl_FragColor = texture2D(tex0, vec2(fract(a / 6.2831853), y));
         } else {
           float a = vUv.x * 6.2831853;
-          vec2 p = vec2(cos(a), sin(a)) * (vUv.y * rmax);
+          float r = uLog > 0.5 ? rmax * pow(uMin, 1.0 - vUv.y) : vUv.y * rmax;
+          vec2 p = vec2(cos(a), sin(a)) * r;
           gl_FragColor = texture2D(tex0, clamp(p / vec2(uAspect, 1.0) + 0.5, 0.0, 1.0));
         }
       }`,
     update(u, p, t) {
       u.uInverse.value = resolve(par(p.inverse, false), t) ? 1 : 0;
+      u.uLog.value = resolve(par(p.log, false), t) ? 1 : 0;
+      // 1 would make the period zero-wide and 0 would make it unbounded, so
+      // both ends are held off
+      u.uMin.value = Math.min(0.99, Math.max(1e-4, resolve(par(p.min, 0.25), t)));
     },
   },
 
@@ -2410,6 +2430,9 @@ function noCoerce(s, name) {
 // down the frame. Mark the span so its targets repeat horizontally and its UV
 // ops default to the matching wrap — neither is something the ops could know on
 // their own, which is why the sandwich is one call and not two.
+// Under { log: true } the radius axis is periodic too, so its targets repeat
+// both ways and the seam where one zoom level meets the next has real pixels
+// on both sides of it.
 function markPolar(node, src, seen = new Set()) {
   if (node === src) { node._polar = true; return true; }
   if (seen.has(node)) return node._polar === true;
@@ -2418,6 +2441,7 @@ function markPolar(node, src, seen = new Set()) {
   for (const n of node.inputs) if (markPolar(n, src, seen)) inSpan = true;
   if (inSpan) {
     node._polar = true;
+    if (src.params.log) node._polarLog = true;
     if (node.params.wrap === undefined && (node.kind === 'transform' || node.kind === 'warp'))
       node.params.wrap = 'polar';
   }
@@ -2459,7 +2483,9 @@ function unbind(kind, params, inputs) {
 }
 
 const INVERSES = {
-  polar: (p) => [{ kind: 'polar', params: { inverse: !p.inverse } }],
+  // every other knob (log, min) has to ride along, or the way back reads a
+  // different space than the way out
+  polar: (p) => [{ kind: 'polar', params: { ...p, inverse: !p.inverse } }],
   invert: () => [{ kind: 'invert', params: {} }],
 
   transform(p) {
@@ -2607,8 +2633,12 @@ export class TextureOp {
   // is a tunnel, .translate(0.1, 0) spins the frame, .blur([8, 0]) smears
   // around the ring. Both resamples are ours: an unbalanced pair isn't a look
   // anyone means, and only this end knows the span is angular (see markPolar).
-  radial(fn) {
-    return this.through((s) => s.polar(), fn);
+  //
+  // { log: true } measures y in log-radius, which makes the space periodic:
+  // .scroll(0.1, 0) is then endless rotation and .scroll(0, 0.1) endless zoom,
+  // each turn or each zoom level reachable on its own through the callback.
+  radial(fn, o = {}) {
+    return this.through((s) => s.polar(o), fn);
   }
 
   // .through(change, fn) — do the work somewhere else and come back:
@@ -3152,7 +3182,7 @@ export class TextureOp {
     // inside .radial(): x is an angle, y a radius (see markPolar)
     else if (this._polar) {
       rt.texture.wrapS = THREE.RepeatWrapping;
-      rt.texture.wrapT = THREE.ClampToEdgeWrapping;
+      rt.texture.wrapT = this._polarLog ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
     }
     // A node feeding .displace() or a material map slot carries a mip pyramid.
     // For displacement the vertex shader reads it through textureLod at the

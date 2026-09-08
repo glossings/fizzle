@@ -1994,6 +1994,25 @@ around the other side instead of cracking the frame (pass an explicit
 Expect a starburst at the center, where one source pixel stretches across a
 whole row.
 
+`{ log: true }` measures y in log-radius instead, which makes that axis
+periodic: `.scroll()` along it is an endless zoom, and each level of the zoom
+reaches the callback on its own.
+
+```js
+circle({ radius: 0.42, thickness: 0.05, color: '#4fd1c5' })
+  .comp(circle({ radius: 0.24, thickness: 0.05, color: '#ff5f6d' }), 'add')
+  .radial(s => s.scroll(0, 0.12), { log: true })
+  .out()
+```
+
+Not the same thing as `.feedback(0.95, p => p.scale(1.02))`, which trails a copy
+of the last frame and softens as it goes. This repeats the source, so every
+level is one resample of the original.
+
+`min` is the inner radius, and so how big one zoom level is: the default `0.25`
+makes each level 4× the one nested inside it. `.scroll(0.1, 0)` in the same
+space is endless **rotation**, with the same hook per turn.
+
 `.polar({ inverse })` is the one-way half: naked it unrolls the frame into a
 ring, and `inverse: true` wraps an image into a disc. A horizon becomes a
 little planet.
