@@ -1097,7 +1097,7 @@ const methodKinds = {
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
         remap lookup tint alpha displace comp mask glsl blur bloom delay feedback flow when tile instance particles points lines wire out
-        fluid ink push obstacle velocity curl pressure`,
+        fluid ink push obstacle velocity curl pressure field`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that
