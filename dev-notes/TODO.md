@@ -509,6 +509,82 @@ uniforms (numbers or fns of `t`).
   the edge), `log`, `ripple` (a sine of r, with amplitude and frequency),
   `magnify` (a lens bubble of a given radius over the center).
 
+## the grainy-old-camera look: LUTs and grain
+
+`.grain()` and `.lut()` have landed, and `.bloom({ color })` with them, so
+halation is a key rather than a hand-built branch. What is left is the stock
+library: the ops can apply a CLUT, but there is nothing to apply.
+
+[x] **`.grain(amount, { size, mono })`.** White noise hashed from the cell and
+  the frame, luma response `1 - abs(2 * luma - 1)`, mono by default. `size`
+  counts the frame's own pixels (`frameGrid`, factored out of `crop`), not the
+  drawing buffer's, so `quality()` and a scaled recording leave the grain the
+  size it looked.
+[x] **`.lut(source, { mix })` — HaldCLUT sampling.** Eight taps and a manual
+  trilinear. Hardware filtering can't be leaned on: neighbors in green and blue
+  are a row or a whole slice away in the image, so a bilinear fetch blends in
+  colors from the wrong part of the cube. The cube's edge falls out of the
+  image width alone (level L is L³ wide), so a name resolving through the media
+  store — the same path `imagefile()` takes — is the whole loading story.
+
+  The trap, and it cost an hour: a texture loaded as a *picture* gets two
+  conveniences a cube must not have. Mips send a chain sweeping the cube across
+  one frame to a level averaging unrelated colors, and `flipY` — three's
+  default — silently reverses blue. Both are turned off on the texture the
+  first time it reaches a `lut` node.
+
+  Checked against the real collection: a level-12 stock (1728×1728, cube edge
+  144) matches a CPU trilinear lookup of the same file exactly on four probe
+  colors. All 294 files are valid hald shapes, 66 of them grayscale PNGs (the
+  black-and-white stocks) and one at level 16, all through the same path.
+
+[ ] **Serve the stocks ourselves.** Still the missing half: `.lut('portra 400 2')`
+  resolves through the media store, so today it means "drop a PNG in", and
+  nobody has a HaldCLUT lying around.
+
+  The [RawTherapee Film Simulation
+  Collection](https://rawpedia.rawtherapee.com/Film_Simulation) is 294 of them
+  under CC BY-SA 4.0, which permits redistribution — so this is a mirror, not a
+  hotlink. **The size estimate was wrong by 4×:**
+  `rawtherapee.com/shared/HaldCLUT.zip` is 421 MB, because it ships level 12
+  (1728×1728, ~1.4 MB each, ~12 MB of VRAM per loaded LUT). Level 8 is 512×512
+  and ~500 KB, which is above the 33³ most `.cube` LUTs ship at and plenty for
+  a grade seen through grain — so this needs a downsample step before it needs
+  a host, and 294 × 500 KB is ~145 MB. Resampling a cube is not resampling a
+  picture: walk the destination cube and sample the source trilinearly, which
+  is `haldTexel` run on the CPU.
+
+  Fetch on demand and cache, the same shape as
+  [polyhaven.js](../src/polyhaven.js) but simpler: one file per asset, no map
+  picking, no zip. Attribution and share-alike attach to the LUTs, so each name
+  carries its source and the docs page carries the credit.
+
+  Where the mirror lives is a real decision, not a detail. Not `public/`: 145 MB
+  that every clone and every deploy pays for, forever. A separate public repo
+  behind jsDelivr (`cdn.jsdelivr.net/gh/…@tag/…`) is CORS-open, tag-pinned and
+  free, with `raw.githubusercontent.com` as the fallback and the files in git so
+  they can be re-hosted anywhere.
+
+  One provider is the right number. G'MIC's film emulation set shares Pat
+  David's authorship with this one (he's credited in its README), so it mostly
+  duplicates; OpenColorIO/ACES looks are a different category and ship as
+  `.cube`, which is the parser HaldCLUT was chosen to avoid; the LUT packs
+  floating around GitHub mix provenance and are mostly ripped from paid sets.
+[ ] **A gallery, or the 294 names are unusable.** One source frame through N
+  LUTs is N cheap passes: a thumbnail grid the docs page builds, and the same
+  grid live in the sidebar browser. Without it the feature is a list to guess
+  at. A level-4 tier (64×64, ~12 KB, 294 of them under 4 MB) is small enough to
+  bundle for exactly this, with the full one fetched on demand. Blocked on the
+  above.
+[ ] **Baking runs the other way.** Push the identity HaldCLUT through any
+  fizzle color chain and the output *is* that chain as a LUT. Fizzle can ship
+  its own stocks, and a set's grade can leave the building as a file other
+  software reads. Blocked on per-chain resolution: the identity cube is a
+  512×512 source and every node renders at frame size, so the chain would grade
+  the wrong grid. A `hald()` generator handing back a 512×512 `DataTexture` is
+  the easy half and buys nothing alone. (The collection ships an identity, but
+  as a `.tif` no browser will decode.)
+
 ## New geometry primitives
 
 Each is one `three` constructor wired into `buildGeometry`

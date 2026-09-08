@@ -86,6 +86,22 @@ function setColor4(target, v, t) {
 // transparent — which ?? would swallow
 const orDflt = (v, d) => (v === undefined ? d : v);
 
+// The frame's own pixel grid: resolution()'s numbers when the sketch set them,
+// the canvas as displayed otherwise. Neither retina nor quality() moves it,
+// unlike the drawing buffer — so a size counted in these stays put when the
+// perf dial does.
+const frameGrid = (ctx) => {
+  const el = ctx.renderer.domElement;
+  return ctx.res ?? [el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight];
+};
+
+const lutWarned = new WeakSet();
+const lutWarn = (tex, msg) => {
+  if (!tex || lutWarned.has(tex)) return;
+  lutWarned.add(tex);
+  warn(msg);
+};
+
 // A plain direction where a map is otherwise expected (.push): [x, y] or
 // anything carrying x/y, each component still free to be a fn of t. null when
 // the arg isn't one — a chain, a fn of the chain, a bare number.
@@ -732,6 +748,52 @@ const SPECS = {
     },
   },
 
+  // Photochemical grain: white noise re-rolled every frame. Three things
+  // separate it from a high-freq noise(): the noise is white rather than fbm,
+  // so it stipples instead of simmering as blobs; the grid is counted in the
+  // frame's own pixels, so quality() moves the render's cost and not the
+  // grain's size; and the response peaks in the mids, because film has no
+  // grain in the blacks and none in the blown highlights.
+  grain: {
+    extras: { uAmount: 0.1, uGrid: [1920, 1080], uMono: 1 },
+    texParams: { amount: 'uAmount' },
+    pre: `
+      // hash13 (Dave Hoskins) — cell x, cell y and the frame count into one
+      // uniform value, without sin()'s per-driver variance.
+      float grainHash(vec3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.zyx + 31.32);
+        return fract((p.x + p.y) * p.z);
+      }`,
+    frag: `
+      void main() {
+        vec4 src = texture2D(tex0, vUv);
+        // the seed wraps rather than growing without bound: past a few million
+        // the fract() steps of the hash have no mantissa left to work with
+        vec3 cell = vec3(floor(vUv * uGrid), mod(uFrame, 4096.0));
+        float n = grainHash(cell);
+        vec3 g = uMono > 0.5
+          ? vec3(n)
+          : vec3(n, grainHash(cell + 37.0), grainHash(cell + 71.0));
+        // luma of the image, not of the premultiplied buffer — a half-covered
+        // pixel is not a dark one, and would otherwise be graded as one
+        float l = clamp(dot(src.rgb / max(src.a, 1e-4), LUMA), 0.0, 1.0);
+        // a triangle peaking at mid gray, zero at both ends
+        g = (g - 0.5) * 2.0 * uAmount * (1.0 - abs(2.0 * l - 1.0));
+        // × alpha to stay premultiplied: grain lands on the image, not on the
+        // hole beside it. No ceiling — the response is already 0 by the time a
+        // pixel is blown, so an over-1 chain passes through untouched.
+        gl_FragColor = vec4(max(src.rgb + g * src.a, 0.0), src.a);
+      }`,
+    update(u, p, t, ctx) {
+      u.uAmount.value = resolve(par(p.amount, 0.1), t);
+      const grid = frameGrid(ctx);
+      const size = Math.max(resolve(p.size ?? 1, t) || 1, 0.05);
+      u.uGrid.value.set(grid[0] / size, grid[1] / size);
+      u.uMono.value = p.mono === false ? 0 : 1;
+    },
+  },
+
   // the two counts are separate floats rather than one vec2 so either can be
   // texture-driven on its own, and so the no-y case can follow x per pixel
   pixellate: {
@@ -789,6 +851,90 @@ const SPECS = {
         float l = clamp(dot(src.rgb, LUMA), 0.0, 1.0);
         gl_FragColor = texture2D(tex1, vec2(l, 0.5)) * src.a;
       }`,
+  },
+
+  // A LUT of the wrong shape is the wrong shape every frame, so it says so once
+  // per texture rather than filling the console at 60fps.
+  // HaldCLUT — a 3D color cube flattened into an ordinary image, which is how
+  // film stocks are published. Every color in the cube is written out in order
+  // (red fastest, then green, then blue), so a level-8 CLUT is a 64³ cube in a
+  // 512×512 PNG and arrives through the plain image path with no parser.
+  //
+  // This is the remapping .lookup() cannot do: that one indexes by luma, so it
+  // tones but cannot make shadows teal while skin stays warm.
+  //
+  // Eight taps and a manual trilinear rather than leaning on hardware
+  // filtering: neighbors in green and blue are a row or a whole slice away in
+  // the image, so a bilinear fetch would blend in colors from the wrong part
+  // of the cube. The LUT is sampled NEAREST for the same reason (see update).
+  lut: {
+    extras: { uCube: 64, uWidth: 512, uMix: 1 },
+    texParams: { mix: 'uMix' },
+    pre: `
+      vec3 haldTexel(vec3 i) {
+        float run = i.b * uCube * uCube + i.g * uCube;   // start of this (g, b) run
+        float y = floor(run / uWidth);
+        vec2 px = vec2(run - y * uWidth + i.r, y);
+        return texture2D(tex1, (px + 0.5) / uWidth).rgb;
+      }`,
+    frag: `
+      void main() {
+        vec4 src = texture2D(tex0, vUv);
+        // the cube grades a color, not a coverage — so undo the premultiply,
+        // grade, and put it back
+        vec3 c = clamp(src.rgb / max(src.a, 1e-4), 0.0, 1.0);
+        vec3 p = c * (uCube - 1.0);
+        vec3 i0 = floor(p), f = p - i0;
+        vec3 i1 = min(i0 + 1.0, uCube - 1.0);
+        vec3 c00 = mix(haldTexel(vec3(i0.r, i0.g, i0.b)), haldTexel(vec3(i1.r, i0.g, i0.b)), f.r);
+        vec3 c10 = mix(haldTexel(vec3(i0.r, i1.g, i0.b)), haldTexel(vec3(i1.r, i1.g, i0.b)), f.r);
+        vec3 c01 = mix(haldTexel(vec3(i0.r, i0.g, i1.b)), haldTexel(vec3(i1.r, i0.g, i1.b)), f.r);
+        vec3 c11 = mix(haldTexel(vec3(i0.r, i1.g, i1.b)), haldTexel(vec3(i1.r, i1.g, i1.b)), f.r);
+        vec3 graded = mix(mix(c00, c10, f.g), mix(c01, c11, f.g), f.b);
+        gl_FragColor = vec4(mix(c, graded, clamp(uMix, 0.0, 1.0)) * src.a, src.a);
+      }`,
+    update(u, p, t, ctx, ins) {
+      u.uMix.value = resolve(par(p.mix, 1), t);
+      const tex = ins[1];
+      const w = tex?.image?.width ?? 0, h = tex?.image?.height ?? 0;
+      // a Hald of level L is L³ wide and holds an (L²)³ cube, so the edge falls
+      // out of the width alone — and a width that isn't a cube is not one
+      const level = Math.round(Math.cbrt(w));
+      // A chain can never be a cube: every node renders at the frame's size, so
+      // what arrives here is whatever the window happens to be. Saying that is
+      // worth more than reporting its dimensions, which sends you off measuring
+      // pixels for a shape you cannot reach from here.
+      if (tex?.isRenderTargetTexture) {
+        lutWarn(tex, 'lut: a chain renders at the size of the frame, so it can never be a color cube — point .lut() at an image file instead, by name or through imagefile(). The chain passes through ungraded.');
+        u.uMix.value = 0;
+        return;
+      }
+      // nothing to read yet: a file still decoding, or the 1×1 black the media
+      // layer stands in with when the name matched nothing — and that case has
+      // already said so, in the words that name the actual problem
+      if (w <= 1 || h <= 1) { u.uMix.value = 0; return; }
+      if (level < 2 || level ** 3 !== w || h !== w) {
+        lutWarn(tex, `lut: ${w}×${h} is not a color cube — one is square and a whole cube of pixels wide (64×64, 512×512, 1728×1728). The chain passes through ungraded.`);
+        u.uMix.value = 0;
+        return;
+      }
+      u.uCube.value = level * level;
+      u.uWidth.value = w;
+      // A CLUT is addressed, not sampled, so an image loaded for this wants
+      // neither of the two conveniences an image loaded as a picture gets.
+      // Point sampling and no mips: the taps above hit exact cells, and the
+      // derivatives of a chain sweeping the cube across one frame would
+      // otherwise pick a mip level averaging unrelated colors — a LUT that
+      // mysteriously goes gray. And no flipY: three uploads images bottom-up
+      // so that v = 0 is the bottom of the picture, which for a cube laid out
+      // in reading order silently reverses blue. Once per texture.
+      if (!tex.isRenderTargetTexture && (tex.flipY || tex.magFilter !== THREE.NearestFilter)) {
+        tex.magFilter = tex.minFilter = THREE.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.flipY = false;
+        tex.needsUpdate = true;
+      }
+    },
   },
 
   // Luma between two colors — the two-stop case of lookup(), which is what a
@@ -860,8 +1006,7 @@ const SPECS = {
       // numbers when the sketch set them, the canvas as displayed otherwise.
       // Both are what's on screen, and neither retina nor quality() moves them,
       // unlike the drawing buffer. <= 1 is already the fraction the shader wants.
-      const el = ctx.renderer.domElement;
-      const grid = ctx.res ?? [el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight];
+      const grid = frameGrid(ctx);
       const frac = (v, px) => {
         // a size that isn't a number would reach the uniform as NaN, and every
         // comparison against NaN is false — an all-black frame with no clue why
@@ -2177,11 +2322,15 @@ function ensurePassMaterials() {
       }`,
   });
   MAT_COMBINE ??= makeMaterial({
-    extras: { uStrength: 1 },
+    // uColor tints the glow without touching the picture under it, which is
+    // halation: on film the light that scatters back off the base is red, so a
+    // warm glow around a highlight reads as an emulsion and a white one as a
+    // lens
+    extras: { uStrength: 1, uColor: [1, 1, 1] },
     frag: `
       void main() {
         vec4 b = texture2D(tex0, vUv);
-        gl_FragColor = vec4(b.rgb + texture2D(tex1, vUv).rgb * uStrength, b.a);
+        gl_FragColor = vec4(b.rgb + texture2D(tex1, vUv).rgb * uStrength * uColor, b.a);
       }`,
   });
 }
@@ -2623,6 +2772,12 @@ export class TextureOp {
     if (typeof o === 'string') o = { mode: o };
     return this._n('dither', { ...o, levels });
   }
+  // .grain(0.15) / .grain({ amount, size, mono })
+  grain(amount = 0.1, o = {}) {
+    if (amount !== null && typeof amount === 'object' && !(amount instanceof TextureOp)) { o = amount; amount = o.amount ?? 0.1; }
+    const { amount: _a, ...rest } = o;
+    return this._n('grain', { ...rest, amount });
+  }
   // .pixelsort({ threshold, dir, size, jitter }) — interval pixel sort:
   // spans of pixels brighter than `threshold` sort into monotonic gradient
   // streaks toward `dir`; darker pixels are walls that stay put and bound
@@ -2704,6 +2859,28 @@ export class TextureOp {
     return r ? this._n('lookup', {}, [r]) : this;
   }
   tint(color = '#ffffff', o = {}) { return this._n('tint', { color, ...o }); }
+  // A whole 3D color cube in one square image — the HaldCLUT format, which is
+  // what film stocks are published as. A string is an imported file's name,
+  // resolved exactly as imagefile() does (exact filename, else
+  // case-insensitive substring).
+  //
+  // The other thing that fits here is an image source: imageseq() switches
+  // stock over time, and imagefile() spells out what the string is sugar for.
+  // A *chain* does not, and cannot until per-chain resolution lands — every
+  // node renders at frame size, so it would be a cube only if the window
+  // happened to be 512×512, and nothing here can draw the cube's contents
+  // anyway. update() says so rather than reporting the dimensions.
+  //   .lut('portra 400 2')            .lut(imagefile('velvia.png'))
+  //   .lut('portra 400 2', { mix: 0.5 })    half strength, either spelling
+  //   .lut('portra 400 2', 0.5)
+  lut(source, mix = 1) {
+    // options object in the scalar slot, the same as .displace()'s amount
+    if (mix !== null && typeof mix === 'object') mix = mix.mix ?? 1;
+    const src = typeof source === 'string'
+      ? new TextureOp(this.engine, 'imagefile', { name: source })
+      : this._texture(source, 'lut');
+    return src ? this._n('lut', { mix }, [src]) : this;
+  }
   // .alpha(0.5) is a half-faded image; .alpha(map) fades per pixel by the
   // map's luma. Fading is premultiplied, so the color dims with the coverage.
   alpha(v = 1) { return this._n('alpha', { alpha: v }); }
@@ -3707,7 +3884,10 @@ export class TextureOp {
       const a = this._rt(ctx, 'auxA', 0.5), b = this._rt(ctx, 'auxB', 0.5), out = this._rt(ctx);
       runPass(ctx, MAT_BRIGHT, ins[0], null, a, (u) => { u.uThresh.value = resolve(p.threshold ?? 0.7, ctx.t); });
       const glow = gaussianBlur(ctx, a.texture, b, a, radius, radius);
-      runPass(ctx, MAT_COMBINE, ins[0], glow, out, (u) => { u.uStrength.value = resolve(p.strength ?? 1, ctx.t); });
+      runPass(ctx, MAT_COMBINE, ins[0], glow, out, (u) => {
+        u.uStrength.value = resolve(p.strength ?? 1, ctx.t);
+        setVec3(u.uColor.value, p.color ?? 1, ctx.t);
+      });
       return out.texture;
     }
 
@@ -3843,7 +4023,7 @@ export class TextureOp {
         u[b.tex].value = ins[b.slot];
         u[b.mod].value.set(resolve(b.amount, ctx.t), resolve(b.mid, ctx.t));
       }
-      spec.update?.(u, this.params, ctx.t, ctx);
+      spec.update?.(u, this.params, ctx.t, ctx, ins);
     });
     return out.texture;
   }

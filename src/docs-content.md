@@ -1727,6 +1727,73 @@ scene()
   .out()
 ```
 
+## grain & LUTs
+
+`.grain(amount, { size, mono })` is film grain: white noise re-rolled every
+frame, strongest at mid-gray and gone in the blacks and the blown highlights.
+`noise()` can't stand in, being fbm — at high frequencies it simmers as blobs
+rather than stippling.
+
+```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 3, color: '#fff0dd' }).position(4, 5, 3).out()
+torusKnot({ radius: 1.2, tube: 0.36, res: 160 })
+  .material({ color: '#c8d8e8', roughness: 0.28, metalness: 0.55 })
+  .rotation(t => t * 0.25, t => t * 0.17, 0)
+  .out()
+
+scene().grain(0.16, { size: 2.4 }).out()
+```
+
+`size` counts the frame's own pixels rather than the drawing buffer's, so
+`quality()` and a scaled recording leave the grain the size it looked.
+`mono: false` rolls each channel separately, which is video noise rather than
+film.
+
+`.lut(source, { mix })` grades through a color cube: one square `.png` holding
+a replacement for every color there is, which is the form film stocks are
+published in (the format is called a HaldCLUT). It needs no loader of its own.
+Drop `Kodak Portra 400 2.png` into the window, then pass the filename the way
+`imagefile()` takes one — any part of it that is unambiguous, since the match
+is a case-insensitive substring:
+
+```js
+noise({ freq: 3, speed: 0.3, channels: 3 }).lut('portra 400 2', { mix: 0.7 }).out()
+```
+
+An `imageseq()` fits the same slot, which is how you switch stock mid-set. A
+chain does not: every node renders at the size of the frame, so it could only
+ever be a cube by accident, and `.lut()` says so rather than grading with it.
+
+This is the remapping `.lookup(ramp)` cannot do. That one indexes by brightness
+alone, so it tones the picture but cannot make the shadows teal while the skin
+stays warm, which is what a stock actually is. The [RawTherapee film simulation
+collection](https://rawpedia.rawtherapee.com/Film_Simulation) is 294 of them
+under CC BY-SA 4.0, and they load as they come.
+
+Everything else a camera look wants is already here: `.levels()` and `.mul()`
+grade, `.bloom({ color })` halates, and a radial `ramp()` multiplied in is a
+vignette.
+
+```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 3, color: '#fff0dd' }).position(4, 5, 3).out()
+torusKnot({ radius: 1.2, tube: 0.36, res: 160 })
+  .material({ color: '#c8d8e8', roughness: 0.28, metalness: 0.55 })
+  .rotation(t => t * 0.25, t => t * 0.17, 0)
+  .out()
+
+scene()
+  .translate(rand(1.7).mul(0.0044).add(-0.0022),        // gate weave
+             rand(1.3, 1).mul(0.0044).add(-0.0022))
+  .levels({ contrast: 1.12, saturation: 0.88, gamma: 1.05 })
+  .mul([1.06, 1, 0.9])                                  // warm print
+  .bloom({ threshold: 0.65, strength: 0.5, radius: 3, color: '#ff9a5c' })
+  .mul(ramp({ type: 'radial', a: '#ffffff', b: '#8c8c8c', phase: -0.35 }))
+  .grain(0.16, { size: 2.4 })
+  .out()
+```
+
 ## transforms & tiling
 
 - `.transform({ translate: [x, y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })`
