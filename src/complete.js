@@ -175,7 +175,10 @@ function kindOfName(state, node) {
     if (n.name !== 'ArrowFunction' && n.name !== 'FunctionExpression') continue;
     if (!paramNames(state, n).includes(name)) continue;
     const call = n.parent?.name === 'ArgList' ? n.parent.parent : null;
-    const kind = call && CALLBACK_KIND[calleeName(state, call)?.name];
+    const kinds = call && CALLBACK_KIND[calleeName(state, call)?.name];
+    // an array is one kind per parameter — .scroll hands over a chain and then
+    // signals, so `i.` has to offer .mul() rather than .blur()
+    const kind = Array.isArray(kinds) ? kinds[paramNames(state, n).indexOf(name)] : kinds;
     if (kind) return kind;
   }
 

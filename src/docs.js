@@ -295,6 +295,7 @@ export const METHODS = {
   delay: ['.delay(frames, { scale, max })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it.\nA texture in place of frames delays per pixel: its luma picks how far back each pixel looks, black now, white the whole { max } frames — slit-scan from a ramp, melt from noise."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
   feedback: ['.feedback(amount, prev => chain, { mode, swap, reset })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run; reset cuts them (see the key)."],
+  scroll: ['.scroll(vx, vy, (src, i, ix, iy) => variant)', "Texture: the frame repeating forever and sliding at vx, vy frames a second, in the UV units .translate() takes. The fn gives each repeat a chain of its own; without it the call is .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).\ni is the repeat index, 0 at t = 0 and counting up as repeats arrive. It is a signal rather than a number, so i.mul(0.1), not i * 0.1. ix and iy are the same per axis, i their sum. Only the repeats on screen render: two passes, or four on a diagonal."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', {
     texture: 'Tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.',
     inst: 'Which picture this copy wears, out of the set in .material({ map: [a, b, c] }). Counts round, so .tile(i) over a longer grid repeats the set.',
@@ -1096,7 +1097,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup tint alpha displace comp mask glsl blur bloom delay feedback flow when tile instance particles points lines wire out
+        remap lookup tint alpha displace comp mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure field`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
@@ -1171,11 +1172,13 @@ if (import.meta.env?.DEV) {
 
 // A callback parameter's kind, by the method that hands it over:
 // .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
+// An array is one kind per position, for a callback whose parameters differ.
 export const CALLBACK_KIND = {
   instance: 'inst',
   layout: 'cursor', branch: 'cursor',
   evolve: 'evolve',
   tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture', through: 'texture',
+  scroll: ['texture', 'signal', 'signal', 'signal'],
   displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',
 };
 

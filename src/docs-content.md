@@ -1752,12 +1752,46 @@ scene()
   left→right, `y` bottom→top, `i = y * nx + x`. Identical variants share one
   render, but each *distinct* one costs a full pass per frame, so
   `.tile(10, 10, (s, i) => s.hue(i / 100))` is 100 renders.
+- `.scroll(vx, vy, (src, i, ix, iy) => variant)` — the frame repeating forever
+  and sliding at `vx`, `vy` frames a second, in the same UV units `.translate()`
+  takes, with each repeat handed to the callback. See below.
 
 ```js
 circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
   .translate(t => Math.sin(t) * 0.25, 0, { wrap: 'repeat' })
   .kaleido(6, { rotate: t => t * 0.1 })
   .tile(3, 2, (src, i, x, y) => (x + y) % 2 ? src.invert() : src)
+  .out()
+```
+
+### scroll
+
+Bare, `.scroll()` is a translate that never runs out of image:
+
+```js
+text('FIZZLE  ', { size: 0.35 }).scroll(-0.3).out()
+```
+
+The callback treats each repeat separately, so the thing coming into frame need
+not match the one leaving it:
+
+```js
+text('FIZZLE  ', { size: 0.35 })
+  .scroll(-0.3, (s, i) => s.tint(hsl(i.mul(0.13), 0.85, 0.6)))
+  .out()
+```
+
+`i` is the repeat's own index, 0 at `t = 0` and counting up as repeats arrive.
+It is a **signal**, not a number, because the index a given pass is holding
+changes as repeats slide through it: write `i.mul(0.13)` and `i.select([...])`,
+never `i * 0.13`. `ix` and `iy` are the same per axis, and `i` is their sum.
+
+Only two repeats of an axis are ever on screen, so a distinct-per-repeat chain
+costs two passes however far it scrolls, or four when both axes move:
+
+```js
+circle({ radius: 0.32, soft: 0.55, color: '#4fd1c5' })
+  .scroll(0.1, 0.07, (s, i) => s.hue(i.mul(0.16)))
   .out()
 ```
 

@@ -5,6 +5,7 @@ import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
 import { Layout } from './layout.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
+import { sig } from './audio.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -2343,6 +2344,66 @@ ${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c =
 }
 `;
 
+// .scroll() — a translate under a periodic wrap, with a hook on the repeat.
+// Only two repeats of an axis are ever on screen at once, so a chain that
+// differs per repeat costs two passes rather than one per repeat: the copies
+// alternate even/odd and each sampler holds whichever index has that parity
+// right now. Both axes live is the 2×2 of those parities.
+const SCROLL_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform vec2 uOff;
+uniform vec2 uLive;   // 1 on an axis that scrolls, 0 on one that stands still
+uniform sampler2D s0;
+uniform sampler2D s1;
+uniform sampler2D s2;
+uniform sampler2D s3;
+void main() {
+  vec2 p = vUv - uOff;
+  vec2 local = mix(vUv, fract(p), uLive);
+  vec2 par = mod(floor(p), 2.0) * uLive;
+  float slot = par.x + 2.0 * par.y;
+  vec4 c;
+  if      (slot < 0.5) c = texture2D(s0, local);
+  else if (slot < 1.5) c = texture2D(s1, local);
+  else if (slot < 2.5) c = texture2D(s2, local);
+  else                 c = texture2D(s3, local);
+  gl_FragColor = c;
+}
+`;
+
+// An axis scrolls if it was given anything but a static zero. A fn counts even
+// where it happens to return 0 at the moment we ask: the sketch asked for motion.
+const scrollLive = (v) => typeof v === 'function' || (typeof v === 'number' && v !== 0);
+
+// The repeat index one sampler is holding, as a signal — the index a sampler
+// holds changes as repeats slide through it, which is the whole reason the
+// callback can't be handed a number. Repeat 0 is the frame at t = 0, and the
+// count runs in the order repeats *arrive*, so a list read off it comes out
+// forwards whichever way the frame is travelling.
+function repeatIndex(v, parity, live) {
+  if (!live) return sig(() => 0);
+  return sig((t) => {
+    const speed = resolve(v, t) || 0;
+    const off = speed * t;
+    // the visible span is one repeat wide, so it covers cells k0 and k0 + 1
+    const k0 = Math.floor(-off);
+    const k = ((k0 % 2) + 2) % 2 === parity ? k0 : k0 + 1;
+    // cells run against the travel, so the sign puts arrival back the right way
+    return -(Math.sign(speed) || 1) * k;
+  });
+}
+
+// `i * 0.1` on a signal is NaN, and a NaN uniform is a black frame with no clue
+// why. Coercion is the one mistake worth catching here, so it says so and hands
+// back repeat 0's value — the chain still renders, just without the variation.
+function noCoerce(s, name) {
+  s[Symbol.toPrimitive] = () => {
+    warn(`scroll: ${name} is a signal, not a number — say ${name}.mul(0.1), not ${name} * 0.1`);
+    return s(0);
+  };
+  return s;
+}
+
 // Everything .radial() puts between its two resamples is reading a buffer whose
 // x axis is an angle: at the 0/2π seam a blur or a translate has to come around
 // the other side, or it pulls in the clamped edge and leaves a hairline crack
@@ -2944,6 +3005,61 @@ export class TextureOp {
     if (typeof cond !== 'function') return cond >= 0.5 ? (this._texture(fn, 'when') ?? this) : this;
     const branch = this._texture(fn, 'when');
     return branch ? new TextureOp(this.engine, 'switch', { cond }, [this, branch]) : this;
+  }
+
+  // .scroll(vx, vy, (src, i, ix, iy) => variant) — the frame repeating forever
+  // and sliding at vx, vy frames a second, in the UV units .translate() takes,
+  // with each repeat handed to a callback. Without the callback it is exactly
+  // .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).
+  //
+  // i is the absolute repeat index — repeat 0 is the frame at t = 0, counting
+  // up as new repeats arrive — and it is a *signal*, not a number, because the
+  // index a given pass is holding changes as repeats slide through it. So
+  // i.mul(0.05) and i.select([...]), not i * 0.05. On a diagonal scroll i is
+  // ix + iy, the anti-diagonal band the repeat sits in; ix and iy are the two
+  // axes on their own.
+  //
+  // Cost is at most one pass per parity — two for a straight scroll, four for
+  // a diagonal one — however far the sketch scrolls, and identical variants
+  // dedupe down from there.
+  scroll(vx = 0.2, vy = 0, fn) {
+    // .scroll([vx, vy], fn) and .scroll(vx, fn) — the callback is the last
+    // argument in every spelling
+    if (Array.isArray(vx)) { fn = typeof vy === 'function' ? vy : fn; [vx, vy] = [vx[0] ?? 0, vx[1] ?? 0]; }
+    // a Signal is a function too, so a speed in the callback's slot is only a
+    // callback if nothing was passed after it
+    else if (typeof vy === 'function' && fn === undefined) { fn = vy; vy = 0; }
+    const live = [scrollLive(vx), scrollLive(vy)];
+    const variants = [];
+    const bySig = new Map();
+    const slots = [0, 0, 0, 0];
+    let complained = false;
+    // an axis standing still has one parity, not two — so a straight scroll
+    // runs the callback twice, not four times
+    for (let py = 0; py < (live[1] ? 2 : 1); py++) {
+      for (let px = 0; px < (live[0] ? 2 : 1); px++) {
+        const ix = noCoerce(repeatIndex(vx, px, live[0]), 'ix');
+        const iy = noCoerce(repeatIndex(vy, py, live[1]), 'iy');
+        const i = noCoerce(sig((t) => ix(t) + iy(t)), 'i');
+        let v = (fn ? fn(this, i, ix, iy) : this) ?? this;
+        if (!(v instanceof TextureOp)) {
+          // the near miss worth naming: a fn in the y slot is read as the
+          // callback, so an animated y speed has to say which slot it is in
+          if (!complained) warn(typeof v === 'number'
+            ? 'scroll: a fn in the second slot is the per-repeat callback — for an animated y speed write .scroll([vx, vy]) instead'
+            : 'scroll: fn must return a texture chain — the repeats show the source untreated');
+          complained = true;
+          v = this;
+        }
+        const key = sigOf(v);
+        let idx = bySig.get(key);
+        if (idx == null) bySig.set(key, (idx = variants.push(v) - 1));
+        for (let s = 0; s < 4; s++) {
+          if ((live[0] ? s & 1 : 0) === px && (live[1] ? s >> 1 : 0) === py) slots[s] = idx;
+        }
+      }
+    }
+    return new TextureOp(this.engine, 'scroll', { vx, vy, live, slots }, variants);
   }
 
   // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
@@ -3745,6 +3861,35 @@ export class TextureOp {
         if (p.color != null) setColor4(u.uColor.value, p.color, ctx.t);
         setColor4(u.uBg.value, orDflt(p.bg, '#000000'), ctx.t);
       });
+      return out.texture;
+    }
+
+    if (this.kind === 'scroll') {
+      const { vx, vy, live, slots } = this.params;
+      if (!this.mat) {
+        const uniforms = {
+          uOff: { value: new THREE.Vector2() },
+          uLive: { value: new THREE.Vector2(live[0] ? 1 : 0, live[1] ? 1 : 0) },
+        };
+        for (let s = 0; s < 4; s++) uniforms[`s${s}`] = { value: null };
+        this.mat = new THREE.ShaderMaterial({
+          vertexShader: VERT,
+          fragmentShader: SCROLL_FRAG,
+          uniforms,
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+        });
+      }
+      const u = this.mat.uniforms;
+      // speed × t, the way every animated generator reads its own speed — so a
+      // fn of t in the slot warps the scroll rather than integrating into it
+      u.uOff.value.set(
+        live[0] ? (resolve(vx, ctx.t) || 0) * ctx.t : 0,
+        live[1] ? (resolve(vy, ctx.t) || 0) * ctx.t : 0);
+      for (let s = 0; s < 4; s++) u[`s${s}`].value = ins[slots[s]] ?? null;
+      const out = this._rt(ctx);
+      ctx.quad.render(ctx.renderer, this.mat, out);
       return out.texture;
     }
 
