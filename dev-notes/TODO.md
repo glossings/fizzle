@@ -509,6 +509,129 @@ uniforms (numbers or fns of `t`).
   the edge), `log`, `ripple` (a sine of r, with amplitude and frequency),
   `magnify` (a lens bubble of a given radius over the center).
 
+## the grainy-old-camera look: LUTs, grain, presets
+
+Everything a film look needs is *reachable* today and none of it is
+*nameable*. `.lookup(ramp)` is a luma-indexed 1D LUT, `.levels()` and
+`.mul([r,g,b])` grade, `.bloom()` halates, and a radial `ramp()` multiplied in
+is a vignette — five chained ops and the user has to already know the recipe.
+The gap is not capability, it is that nobody mid-set can spell "make it look
+like an old camera".
+
+[ ] **`.grain(amount, { size, mono })`** — the cheapest win on this list, and
+  the one thing here that genuinely cannot be built from what exists.
+  `noise()` is fbm: at high `freq` it simmers as blobs, not as grain. Wants
+  per-texel white noise re-rolled every frame (hash of `gl_FragCoord` and
+  `uFrame`), a `size` that quantizes the sampling grid so the grain survives
+  `quality()` and recording scale, and a luma-dependent response —
+  photochemical grain lives in the mids and dies in the blacks and the blown
+  highlights, so scale by something like `1 - abs(2 * luma - 1)` rather than
+  adding flat. Mono by default (one value into all three channels); the
+  per-channel version is video noise, a different look worth its own flag.
+
+[ ] **`.lut(name | texture)` — HaldCLUT sampling.** A HaldCLUT is a 3D color
+  cube flattened into an ordinary PNG (level 8 is 512×512, which is plenty),
+  so it arrives through the existing texture path with no new parser and no
+  `.cube` reader to write. The shader is the standard pair of slice lookups
+  and a lerp between them. `.lookup()` cannot stand in for this: it indexes by
+  luma alone, so it tones but cannot do the cross-channel remapping that a
+  film stock actually is (teal shadows under warm skin, saturation that varies
+  by hue).
+
+[ ] **Serve the stocks ourselves.** The [RawTherapee Film Simulation
+  Collection](https://rawpedia.rawtherapee.com/Film_Simulation) is ~290
+  HaldCLUTs under CC BY-SA 4.0, which permits redistribution — so this is a
+  mirror, not a hotlink, and the upstream site going dark costs us nothing. A
+  few hundred KB per PNG puts the whole set under 100 MB of static files:
+  fetch on demand and cache, the same shape as
+  [polyhaven.js](../src/polyhaven.js) but simpler (one file per asset, no map
+  picking, no zip). Attribution and share-alike attach to the LUTs, so each
+  name carries its source and the docs page carries the credit. Community
+  aggregations mix provenance — check a pack before adding it, never bulk
+  import.
+
+[ ] **A gallery, or the 290 names are unusable.** One source frame through N
+  LUTs is N cheap passes: a thumbnail grid the docs page builds, and the same
+  grid live in the sidebar browser. Without it the feature is a list to guess
+  at.
+
+[ ] **`.film(name, { ...overrides })` — presets over the above.**
+  `material('chrome')` is the precedent: a name that lands a whole
+  configuration, every knob still reachable. Each preset composes ops that
+  already exist — grain, a warm-tinted `.bloom()` for halation, a vignette, a
+  sub-pixel `.translate()` on a slow random for gate weave, and a stock LUT.
+  Build it after grain and `.lut()`, since it is nothing but their arrangement.
+
+[ ] **Baking runs the other way.** Push the identity HaldCLUT through any
+  fizzle color chain and the output *is* that chain as a LUT. Fizzle can ship
+  its own stocks, and a set's grade can leave the building as a file other
+  software reads.
+
+## `particles().attract(shape)` doesn't settle on the outline
+
+`.sdf()` and the texture-side `.attract()` landed and are verified. The
+particle force is wired the same way the image emitter is (a force snippet in
+the sim, the field registered through `engine.textureMaps`) and it plainly
+responds — a swarm under it looks nothing like the same swarm without it — but
+it does not come to rest *on* the edge.
+
+[ ] Work out where a particle actually settles. Observed with a dust emitter
+  and a text glyph: the swarm collapses onto something like the shape's medial
+  axis, sparsely, with most particles gone from the frame — so the surviving
+  ones were pulled off the edge rather than onto it, and the rest were pushed
+  out of the world. Negating the direction instead collapses everything into a
+  single point at the middle. Neither is the outline, and the pair of results
+  says this is not one flipped sign.
+
+[ ] Check the world↔UV mapping against the emitter's before touching the
+  physics. Both use a plane of `size` world units against the drawing buffer's
+  aspect, and the emitter is known good, so the two should be able to share one
+  helper — if they disagree, that is the bug and the force is fine.
+
+[ ] Settling wants a model, not a constant. The pull eases off over `spread` as
+  the edge comes up, which stops particles drumming against it but also lets
+  them stall anywhere the field is flat. A velocity term (damp along the field
+  direction rather than isotropically, which is what `.drag()` does now) is the
+  usual fix.
+
+[ ] Beware the two traps this cost a day to: particle `size` is in **world
+  units**, so `.size(2)` draws sprites two units across and every arrangement
+  reads as one solid blob; and a point emitter with `speed: 0` renders as a
+  filled disc all by itself. Always shoot the same sketch with the force
+  removed before believing any of it.
+
+## infinite scroll, and the family it belongs to
+
+The scroll itself works today: `.translate(t => t * 0.2, 0, { wrap: 'repeat' })`
+runs forever in any direction, and `wrap: 'mirror'` gives mirrored repeats. What
+is missing is a hook on the repeat.
+
+[ ] **`.scroll([vx, vy], (s, i) => ...)`** — the same motion, with each repeat
+  handed to a callback. `i` is the absolute repeat index, how many have gone
+  by rather than where one sits, so repeat 7 can be hue-shifted, flipped, or
+  restarted (a video that starts over per repeat) while repeat 6 is still
+  sliding off. `.tile(nx, ny, (src, i, x, y) => ...)` is the precedent and
+  already shares one render between identical variants. Cheaper than tile,
+  too: at most two repeats are visible along an axis, so a distinct-per-repeat
+  chain costs two passes rather than `nx * ny`. Overlaps
+  `.repeat(nx, ny, { mirror, offset })` above — decide whether that is this
+  one's static case and delete it if so.
+
+[ ] **The family, which is the actual prize.** Scroll is *translate under a
+  periodic wrap*. Conjugate it by a coordinate change and the rest fall out:
+  translating the polar angle is infinite rotation, translating log-radius is
+  infinite zoom, and the per-repeat callback becomes per-turn or per-zoom-level
+  (each level of a droste zoom treated differently). `.through()` is already
+  the conjugation machinery and `.polar()` is already one of the changes; the
+  missing piece is a log-polar warp key. Build the general shape rather than
+  three separate ops — this looks like the same kind of factoring `through`
+  turned out to be.
+
+[ ] Not to be confused with `.feedback(0.95, p => p.scale(1.02))`, which is
+  echo-zoom: each frame trails a copy of the last, softening as it goes.
+  Infinite zoom repeats *the source*, so every level stays crisp and every
+  level can be treated on its own.
+
 ## New geometry primitives
 
 Each is one `three` constructor wired into `buildGeometry`

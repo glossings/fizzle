@@ -653,6 +653,24 @@ export class ParticleOp {
   // inverse-square pull toward a point; negative strength repels. radius is
   // the softening floor that keeps a close pass a slingshot, not an explosion.
   attract(pos = [0, 0, 0], o = {}) {
+    // a texture chain quacks renderNode: pull toward the *edge* of what it
+    // draws rather than toward a point. The distance field does the knowing —
+    // every particle reads its own shortest way to that outline, so the
+    // inside falls outward onto it and the outside falls inward.
+    if (pos !== null && typeof pos.renderNode === 'function') {
+      // spread is the band the pull eases off over as the edge comes up, in
+      // frame widths: full strength outside it, nothing at the outline itself,
+      // so a swarm lands instead of drumming against it
+      const spread = o.spread ?? 0.12;
+      this._forces.push({
+        kind: 'attractTex',
+        node: pos.sdf({ mode: 'direction', spread, threshold: o.threshold }),
+        strength: o.strength ?? 6,
+        size: o.size ?? 4,
+        spread,
+      });
+      return this;
+    }
     if (pos !== null && typeof pos === 'object' && !Array.isArray(pos) && pos.x === undefined) {
       o = pos;
       pos = o.pos ?? o.position ?? [0, 0, 0];
@@ -918,6 +936,8 @@ export class ParticleOp {
 
     const forceDecls = [];
     const forceLines = [];
+    const texForces = [];
+    const drawSizeF = new THREE.Vector2();
     let hasTurb = false;
     this._forces.forEach((op, i) => {
       if (op.kind === 'force') {
@@ -935,6 +955,34 @@ export class ParticleOp {
         setters.push((u, t) =>
           u[`uTurb${i}`].value.set(resolve(op.amp, t), resolve(op.freq, t), resolve(op.speed, t), resolve(op.seed, t))
         );
+      } else if (op.kind === 'attractTex') {
+        // the field is read on the same world plane the image emitter uses, so
+        // an attractor and the picture it came from line up. Force fades with
+        // the distance the field reports, which lets .drag() settle a swarm on
+        // the outline instead of leaving it ringing around it.
+        forceDecls.push(`uniform sampler2D uAttTex${i};`, `uniform vec3 uAttT${i};`); // strength, plane w/h
+        forceLines.push(
+          `{ vec2 auv = pos.xy / uAttT${i}.yz + 0.5;
+      vec2 edge = clamp(auv, 0.0, 1.0);
+      vec4 fld = texture(uAttTex${i}, edge);
+      vec2 dir = normalize((fld.rg * 2.0 - 1.0) * uAttT${i}.yz + 1e-9);
+      // outside the plane there is no field to read: aim back at it instead
+      vec2 back = edge - auv;
+      float out2 = dot(back, back);
+      f += vec3(out2 > 1e-8 ? normalize(back) : dir * fld.b, 0.0) * uAttT${i}.x; }`
+        );
+        texForces.push({ op, index: i });
+        uniforms[`uAttTex${i}`] = { value: null };
+        uniforms[`uAttT${i}`] = { value: new THREE.Vector3() };
+        setters.push((u, t) => {
+          engine.renderer.getDrawingBufferSize(drawSizeF);
+          const ph = Math.max(resolve(op.size, t), 1e-3);
+          u[`uAttT${i}`].value.set(
+            resolve(op.strength, t),
+            ph * (drawSizeF.x / Math.max(drawSizeF.y, 1)),
+            ph,
+          );
+        });
       } else {
         forceDecls.push(`uniform vec3 uAttPos${i};`, `uniform vec2 uAtt${i};`); // strength, radius²
         forceLines.push(
@@ -1184,6 +1232,16 @@ export class ParticleOp {
       engine.textureMaps.push({
         node: src,
         uniform: uniforms.uSpawnTex,
+        isAlive: () => !!points.parent,
+        tex: null,
+      });
+    }
+    // attractor fields ride the same registry, so the shape they pull toward
+    // can be anything that moves — a video, a person cutout, live text
+    for (const { op, index } of texForces) {
+      engine.textureMaps.push({
+        node: op.node,
+        uniform: uniforms[`uAttTex${index}`],
         isAlive: () => !!points.parent,
         tex: null,
       });

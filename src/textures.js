@@ -1154,6 +1154,7 @@ const SPECS = {
 // 'black' is the pre-alpha name for 'transparent' — same mode, kept for
 // existing sketches (displayed on nothing it *is* black; in a comp it's a cutout)
 const WRAP_MODES = { clamp: 0, repeat: 1, mirror: 2, transparent: 3, black: 3, polar: 4 };
+const SDF_MODES = { direction: 0, distance: 1, step: 2 };
 
 // what docs and completion offer — black is an alias, polar internal plumbing
 export const WRAP_MODE_NAMES = ['clamp', 'repeat', 'mirror', 'transparent'];
@@ -1872,7 +1873,8 @@ function delayFit(frames, scale, w, h) {
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
 let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE, MAT_TOLINEAR, MAT_DELAY_MAP,
-  MAT_FLOW, MAT_SWALL, MAT_SSCAN, MAT_SKEY, MAT_SOEM, MAT_SGATHER, MAT_SSHEAR, MAT_JPEG;
+  MAT_FLOW, MAT_SWALL, MAT_SSCAN, MAT_SKEY, MAT_SOEM, MAT_SGATHER, MAT_SSHEAR, MAT_JPEG,
+  MAT_SDF_SEED, MAT_SDF_STEP, MAT_SDF_OUT;
 function ensurePassMaterials() {
   MAT_COPY ??= makeMaterial(SPECS.copy);
   // one Lucas–Kanade step: tex0 this frame, tex1 last, both luma. The estimate
@@ -2174,6 +2176,81 @@ function ensurePassMaterials() {
           c += texture2D(tex0, vUv - o) * w[i];
         }
         gl_FragColor = c;
+      }`,
+  });
+  // --- jump flood distance field, three passes' worth of material ---------
+  // Seed: mark the pixels the boundary runs through. A pixel whose four
+  // neighbours don't all agree about being inside straddles the edge, which
+  // works on a hard mask and a feathered one alike. rg is the vector to the
+  // nearest edge (nothing yet), b says whether one has been found, a
+  // remembers which side of the threshold this pixel started on.
+  MAT_SDF_SEED ??= makeMaterial({
+    extras: { uThreshold: 0.5 },
+    frag: `
+      float inside(vec2 p) { return step(uThreshold, dot(texture2D(tex0, p).rgb, LUMA)); }
+      void main() {
+        float c = inside(vUv);
+        float n = abs(c - inside(vUv + vec2(uTexel.x, 0.0)))
+                + abs(c - inside(vUv - vec2(uTexel.x, 0.0)))
+                + abs(c - inside(vUv + vec2(0.0, uTexel.y)))
+                + abs(c - inside(vUv - vec2(0.0, uTexel.y)));
+        gl_FragColor = vec4(0.0, 0.0, step(0.5, n), c);
+      }`,
+  });
+  // One flood round: look at the eight neighbours uJump texels away, and keep
+  // whichever edge point is closest — theirs, offset by the hop, or the one
+  // already held. Halving the hop each round spreads every seed across the
+  // frame in log2(size) passes rather than a search per pixel. Distances are
+  // measured in the aspect-corrected space so "nearest" means nearest on
+  // screen, while the offsets stay in UV so a displace can use them as they are.
+  MAT_SDF_STEP ??= makeMaterial({
+    extras: { uJump: 1 },
+    frag: `
+      void main() {
+        vec4 me = texture2D(tex0, vUv);
+        vec2 best = me.rg;
+        float bestD = me.b > 0.5 ? length(best * vec2(uAspect, 1.0)) : 1e9;
+        for (int j = -1; j <= 1; j++) {
+          for (int i = -1; i <= 1; i++) {
+            vec2 d = vec2(float(i), float(j)) * uJump * uTexel;
+            vec2 suv = vUv + d;
+            // outside the frame the sampler clamps, which would hand back the
+            // border pixel's offset as if it belonged out there — a seed that
+            // isn't, and the streaks and flat far field that come with it
+            if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
+            vec4 n = texture2D(tex0, suv);
+            if (n.b > 0.5) {
+              vec2 cand = n.rg + d;
+              float dist = length(cand * vec2(uAspect, 1.0));
+              if (dist < bestD) { bestD = dist; best = cand; }
+            }
+          }
+        }
+        gl_FragColor = vec4(best, step(bestD, 1e8), me.a);
+      }`,
+  });
+  // The field, in whichever encoding was asked for. 0: unit vector toward the
+  // nearest edge, 0.5-neutral, which is what .displace() reads. 1: signed
+  // distance as gray, 0.5 at the edge and darker inside. 2: the offset itself,
+  // clipped to uStep — a step that lands *on* the edge and never past it.
+  MAT_SDF_OUT ??= makeMaterial({
+    extras: { uMode: 0, uSpread: 0.25, uStep: 0.1 },
+    frag: `
+      void main() {
+        vec4 f = texture2D(tex0, vUv);
+        vec2 off = f.rg;
+        float d = length(off * vec2(uAspect, 1.0));
+        float spread = max(uSpread, 1e-4);
+        if (uMode < 0.5) {
+          vec2 dir = d > 1e-6 ? off / d : vec2(0.0);
+          gl_FragColor = vec4(dir * 0.5 + 0.5, clamp(d / spread, 0.0, 1.0), 1.0);
+        } else if (uMode < 1.5) {
+          float sgn = f.a > 0.5 ? -1.0 : 1.0;
+          gl_FragColor = vec4(vec3(clamp(sgn * d / spread * 0.5 + 0.5, 0.0, 1.0)), 1.0);
+        } else {
+          vec2 mv = d > 1e-6 ? off * min(1.0, uStep / d) : vec2(0.0);
+          gl_FragColor = vec4(mv + 0.5, 0.0, 1.0);
+        }
       }`,
   });
   MAT_COMBINE ??= makeMaterial({
@@ -2718,6 +2795,32 @@ export class TextureOp {
     // translate moves the image, displace moves the lookup — opposite signs
     const negated = typeof amount === 'function' ? (t) => -amount(t) : -amount;
     return this._n('transform', { ...rest, translate: { map: m, amount: negated, mid } });
+  }
+  // Where the nearest edge of this mask is, for every pixel at once — the
+  // distance field a blur can only approximate, and only by melting the shape
+  // it was measuring. 'direction' points at that edge (RG, 0.5-neutral, so
+  // .displace() reads it), 'distance' is the signed distance as gray. spread
+  // is the distance that saturates either encoding, in frame heights.
+  sdf(o = {}) {
+    const { mode = 'direction', ...rest } = typeof o === 'string' ? { mode: o } : o;
+    if (!Object.hasOwn(SDF_MODES, mode))
+      warn(`sdf: no mode '${mode}' — direction, distance or step; using direction`);
+    return this._n('sdf', { mode: Object.hasOwn(SDF_MODES, mode) ? mode : 'direction', ...rest });
+  }
+  // Pull the picture toward the outline of a shape. Every pixel takes its own
+  // shortest path to that edge and steps up to `amount` along it, so the
+  // inside and the outside both converge on the outline instead of piling into
+  // the middle. A negative amount pushes away from it.
+  attract(shape, amount = 0.1, o = {}) {
+    if (amount !== null && typeof amount === 'object') { o = amount; amount = o.amount ?? 0.1; }
+    const m = this._texture(shape, 'attract');
+    if (!m) return this;
+    const { amount: _a, threshold, ...rest } = o;
+    // the step is baked into the field, so what reaches the transform is a
+    // ready-made offset per pixel rather than a direction to scale
+    const field = m._n('sdf', { mode: 'step', step: amount, threshold });
+    const away = typeof amount === 'function' ? (t) => (amount(t) < 0 ? 1 : -1) : amount < 0 ? 1 : -1;
+    return this._n('transform', { ...rest, translate: { map: field, amount: away, mid: 0.5 } });
   }
   // options object in the mode slot: .comp(layer, { mode, opacity, swap })
   comp(layer, mode = 'over', opacity = 1, swap = false) {
@@ -3688,6 +3791,29 @@ export class TextureOp {
       pass(a.texture, b, [0, 0, 0, 1], [0, 1]);
       pass(b.texture, a, [1, 0, 0, 0], [0, 1]);
       pass(a.texture, out, [1, 0, 1, 0], [1, 0]);
+      return out.texture;
+    }
+
+    if (this.kind === 'sdf') {
+      const p = this.params;
+      const a = this._rt(ctx, 'auxA'), b = this._rt(ctx, 'auxB');
+      runPass(ctx, MAT_SDF_SEED, ins[0], null, a, (u) => {
+        u.uThreshold.value = resolve(p.threshold ?? 0.5, ctx.t);
+      });
+      // largest hop first, at half the frame, then halving to one texel
+      let src = a, dst = b;
+      for (let jump = 2 ** Math.ceil(Math.log2(Math.max(ctx.w, ctx.h, 2)) - 1); jump >= 1; jump /= 2) {
+        const j = jump;
+        runPass(ctx, MAT_SDF_STEP, src.texture, null, dst, (u) => { u.uJump.value = j; });
+        const prev = src; src = dst; dst = prev;
+      }
+      const out = this._rt(ctx);
+      const mode = SDF_MODES[p.mode] ?? 0;
+      runPass(ctx, MAT_SDF_OUT, src.texture, null, out, (u) => {
+        u.uMode.value = mode;
+        u.uSpread.value = resolve(p.spread ?? 0.25, ctx.t);
+        u.uStep.value = Math.abs(resolve(p.step ?? 0.1, ctx.t));
+      });
       return out.texture;
     }
 
