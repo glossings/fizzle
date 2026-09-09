@@ -1786,6 +1786,16 @@ It is a **signal**, not a number, because the index a given pass is holding
 changes as repeats slide through it: write `i.mul(0.13)` and `i.select([...])`,
 never `i * 0.13`. `ix` and `iy` are the same per axis, and `i` is their sum.
 
+`i.phase` is how far that repeat has crossed, 0 as its far edge reaches the
+frame and 1 as its near edge leaves. It's a phase in the sense the waveshapers
+mean, so `.tri()` on it is a fade in and out:
+
+```js
+circle({ radius: 0.16, soft: 0.02 })
+  .scroll(0.28, (s, i) => s.tint(hsl(i.mul(0.14), 0.9, 0.6)).alpha(i.phase.tri()))
+  .out()
+```
+
 Only two repeats of an axis are ever on screen, so a distinct-per-repeat chain
 costs two passes however far it scrolls, or four when both axes move:
 

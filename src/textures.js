@@ -2395,22 +2395,45 @@ void main() {
 // where it happens to return 0 at the moment we ask: the sketch asked for motion.
 const scrollLive = (v) => typeof v === 'function' || (typeof v === 'number' && v !== 0);
 
+// Which cell one sampler is holding at time t: the visible span is one repeat
+// wide, so it covers k0 and k0 + 1, and the sampler takes whichever has its
+// parity. Returns the cell, the offset, and the travel direction, since the
+// index and the phase are both read off those three.
+function repeatCell(v, parity, t) {
+  const speed = resolve(v, t) || 0;
+  const off = speed * t;
+  const k0 = Math.floor(-off);
+  const k = ((k0 % 2) + 2) % 2 === parity ? k0 : k0 + 1;
+  return { k, off, dir: Math.sign(speed) || 1 };
+}
+
 // The repeat index one sampler is holding, as a signal — the index a sampler
 // holds changes as repeats slide through it, which is the whole reason the
 // callback can't be handed a number. Repeat 0 is the frame at t = 0, and the
 // count runs in the order repeats *arrive*, so a list read off it comes out
 // forwards whichever way the frame is travelling.
+//
+// .phase rides along: where this repeat is in its own crossing, 0 as its far
+// edge reaches the frame and 1 as its near edge leaves. A repeat is on screen
+// for two frame-widths of travel, and a sampler holds one for exactly that
+// long — the handoff to the next lands on the frame it covers no pixels — so
+// the sawtooth is continuous everywhere it can be seen.
 function repeatIndex(v, parity, live) {
-  if (!live) return sig(() => 0);
-  return sig((t) => {
-    const speed = resolve(v, t) || 0;
-    const off = speed * t;
-    // the visible span is one repeat wide, so it covers cells k0 and k0 + 1
-    const k0 = Math.floor(-off);
-    const k = ((k0 % 2) + 2) % 2 === parity ? k0 : k0 + 1;
+  if (!live) {
+    const still = sig(() => 0);
+    still.phase = sig(() => 0);
+    return still;
+  }
+  const index = sig((t) => {
+    const { k, dir } = repeatCell(v, parity, t);
     // cells run against the travel, so the sign puts arrival back the right way
-    return -(Math.sign(speed) || 1) * k;
+    return -dir * k;
   });
+  index.phase = sig((t) => {
+    const { k, off, dir } = repeatCell(v, parity, t);
+    return Math.min(1, Math.max(0, (dir * (off + k) + 1) / 2));
+  });
+  return index;
 }
 
 // `i * 0.1` on a signal is NaN, and a NaN uniform is a black frame with no clue
@@ -2421,6 +2444,7 @@ function noCoerce(s, name) {
     warn(`scroll: ${name} is a signal, not a number — say ${name}.mul(0.1), not ${name} * 0.1`);
     return s(0);
   };
+  if (s.phase) noCoerce(s.phase, `${name}.phase`);
   return s;
 }
 
@@ -3049,6 +3073,11 @@ export class TextureOp {
   // ix + iy, the anti-diagonal band the repeat sits in; ix and iy are the two
   // axes on their own.
   //
+  // i.phase is where that repeat is in its own crossing, 0 to 1. It's a phase
+  // in the sense the waveshapers mean, so i.phase.tri() is a fade in and out
+  // across the frame and i.phase.sin() a smoother one. Each axis carries its
+  // own (ix.phase, iy.phase); i.phase is their mean where both are moving.
+  //
   // Cost is at most one pass per parity — two for a straight scroll, four for
   // a diagonal one — however far the sketch scrolls, and identical variants
   // dedupe down from there.
@@ -3060,6 +3089,7 @@ export class TextureOp {
     // callback if nothing was passed after it
     else if (typeof vy === 'function' && fn === undefined) { fn = vy; vy = 0; }
     const live = [scrollLive(vx), scrollLive(vy)];
+    const axes = (live[0] ? 1 : 0) + (live[1] ? 1 : 0) || 1;
     const variants = [];
     const bySig = new Map();
     const slots = [0, 0, 0, 0];
@@ -3070,7 +3100,11 @@ export class TextureOp {
       for (let px = 0; px < (live[0] ? 2 : 1); px++) {
         const ix = noCoerce(repeatIndex(vx, px, live[0]), 'ix');
         const iy = noCoerce(repeatIndex(vy, py, live[1]), 'iy');
-        const i = noCoerce(sig((t) => ix(t) + iy(t)), 'i');
+        const i = sig((t) => ix(t) + iy(t));
+        // a still axis contributes nothing to either, so a straight scroll's
+        // combined phase is just the moving axis's own
+        i.phase = sig((t) => (ix.phase(t) + iy.phase(t)) / axes);
+        noCoerce(i, 'i');
         let v = (fn ? fn(this, i, ix, iy) : this) ?? this;
         if (!(v instanceof TextureOp)) {
           // the near miss worth naming: a fn in the y slot is read as the

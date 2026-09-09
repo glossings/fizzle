@@ -295,7 +295,8 @@ export const METHODS = {
   delay: ['.delay(frames, { scale, max })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it.\nA texture in place of frames delays per pixel: its luma picks how far back each pixel looks, black now, white the whole { max } frames — slit-scan from a ramp, melt from noise."],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU one frame behind, so any source can drive an .instance() layout or other sketch code."],
   feedback: ['.feedback(amount, prev => chain, { mode, swap, reset })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run; reset cuts them (see the key)."],
-  scroll: ['.scroll(vx, vy, (src, i, ix, iy) => variant)', "Texture: the frame repeating forever and sliding at vx, vy frames a second, in the UV units .translate() takes. The fn gives each repeat a chain of its own; without it the call is .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).\ni is the repeat index, 0 at t = 0 and counting up as repeats arrive. It is a signal rather than a number, so i.mul(0.1), not i * 0.1. ix and iy are the same per axis, i their sum. Only the repeats on screen render: two passes, or four on a diagonal."],
+  phase: ['.phase', "Scroll: where this repeat is in its own crossing, 0 as its far edge reaches the frame and 1 as its near edge leaves. A phase in the sense the waveshapers mean, so i.phase.tri() fades a repeat in and out across the frame. A value, not a call — no parentheses.\nix.phase and iy.phase are the axes on their own; i.phase is their mean where both are moving."],
+  scroll: ['.scroll(vx, vy, (src, i, ix, iy) => variant)', "Texture: the frame repeating forever and sliding at vx, vy frames a second, in the UV units .translate() takes. The fn gives each repeat a chain of its own; without it the call is .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).\ni is the repeat index, 0 at t = 0 and counting up as repeats arrive. It is a signal rather than a number, so i.mul(0.1), not i * 0.1, and it carries i.phase for how far that repeat has crossed. ix and iy are the same per axis, i their sum. Only the repeats on screen render: two passes, or four on a diagonal."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', {
     texture: 'Tile nx×ny with a per-cell chain. fn may return src, a treatment of it, or any texture; identical variants dedupe, each distinct one renders its own pass. x left→right, y bottom→top, i = y*nx + x.',
     inst: 'Which picture this copy wears, out of the set in .material({ map: [a, b, c] }). Counts round, so .tile(i) over a longer grid repeats the set.',
@@ -1107,6 +1108,10 @@ const methodKinds = {
         fluid ink push obstacle velocity curl pressure field`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
+  // .scroll()'s i / ix / iy: a signal that also carries where its repeat is in
+  // its crossing
+  repeat: `phase add sub mul div pow range clamp round floor ceil abs gte lte counter select
+           sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that
   // take a number. midikey is what .key(38) narrows to: the same key signals,
   // minus the device-wide ones.
@@ -1129,7 +1134,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 // alone doesn't say — noise() is a texture and .noise() a deformer.
 export const KIND_LABEL = {
   geo: 'geometry', particle: 'particles', evolve: 'particle', light: 'light',
-  texture: 'texture', signal: 'signal', midi: 'midi', midikey: 'midi',
+  texture: 'texture', signal: 'signal', repeat: 'signal', midi: 'midi', midikey: 'midi',
   gamepad: 'gamepad', layout: 'layout', cursor: 'cursor', inst: 'copy',
   curve: 'curve', curvens: 'curve', data: 'data', pairs: 'pairs', segments: 'segments',
 };
@@ -1184,7 +1189,7 @@ export const CALLBACK_KIND = {
   layout: 'cursor', branch: 'cursor',
   evolve: 'evolve',
   tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture', through: 'texture',
-  scroll: ['texture', 'signal', 'signal', 'signal'],
+  scroll: ['texture', 'repeat', 'repeat', 'repeat'],
   displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',
 };
 
