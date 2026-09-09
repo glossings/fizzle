@@ -1819,12 +1819,56 @@ scene()
   left→right, `y` bottom→top, `i = y * nx + x`. Identical variants share one
   render, but each *distinct* one costs a full pass per frame, so
   `.tile(10, 10, (s, i) => s.hue(i / 100))` is 100 renders.
+- `.scroll(vx, vy, (src, i, phase) => variant)` — the frame repeating forever
+  and sliding at `vx`, `vy` frames a second, in the same UV units
+  `.translate()` takes, with each repeat handed to the callback. See below.
 
 ```js
 circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
   .translate(t => Math.sin(t) * 0.25, 0, { wrap: 'repeat' })
   .kaleido(6, { rotate: t => t * 0.1 })
   .tile(3, 2, (src, i, x, y) => (x + y) % 2 ? src.invert() : src)
+  .out()
+```
+
+### scroll
+
+Bare, `.scroll()` is a translate that never runs out of image:
+
+```js
+text('FIZZLE  ', { size: 0.35 }).scroll(-0.3).out()
+```
+
+The callback treats each repeat separately, so the thing coming into frame need
+not match the one leaving it:
+
+```js
+text('FIZZLE  ', { size: 0.35 })
+  .scroll(-0.3, (s, i) => s.tint(hsl(i.mul(0.13), 0.85, 0.6)))
+  .out()
+```
+
+`i` is the repeat's index: 0 at `t = 0`, counting up as repeats arrive. It is a
+**signal**, not a number, because the index a given pass is holding changes as
+repeats slide through it. So write `i.mul(0.13)` and `i.select([...])`, never
+`i * 0.13`.
+
+`phase` is how far that repeat has crossed, 0 as its far edge reaches the frame
+and 1 as its near edge leaves. It's a signal too, and a phase in the sense the
+waveshapers mean, so `.tri()` on it is a fade in and out:
+
+```js
+circle({ radius: 0.16, soft: 0.02 })
+  .scroll(0.28, (s, i, phase) => s.tint(hsl(i.mul(0.14), 0.9, 0.6)).alpha(phase.tri()))
+  .out()
+```
+
+Only two repeats of an axis are ever on screen, so a distinct-per-repeat chain
+costs two passes however far it scrolls, or four when both axes move:
+
+```js
+circle({ radius: 0.32, soft: 0.55, color: '#4fd1c5' })
+  .scroll(0.1, 0.07, (s, i) => s.hue(i.mul(0.16)))
   .out()
 ```
 
@@ -2026,6 +2070,25 @@ around the other side instead of cracking the frame (pass an explicit
 **radius 1 is the frame corner**, so a round trip covers the whole frame.
 Expect a starburst at the center, where one source pixel stretches across a
 whole row.
+
+`{ log: true }` measures y in log-radius instead, which makes that axis
+periodic: `.scroll()` along it is an endless zoom, and each level of the zoom
+reaches the callback on its own.
+
+```js
+circle({ radius: 0.42, thickness: 0.05, color: '#4fd1c5' })
+  .comp(circle({ radius: 0.24, thickness: 0.05, color: '#ff5f6d' }), 'add')
+  .radial(s => s.scroll(0, 0.12), { log: true })
+  .out()
+```
+
+Not the same thing as `.feedback(0.95, p => p.scale(1.02))`, which trails a copy
+of the last frame and softens as it goes. This repeats the source, so every
+level is one resample of the original.
+
+`min` is the inner radius, and so how big one zoom level is: the default `0.25`
+makes each level 4× the one nested inside it. `.scroll(0.1, 0)` in the same
+space is endless **rotation**, with the same hook per turn.
 
 `.polar({ inverse })` is the one-way half: naked it unrolls the frame into a
 ring, and `inverse: true` wraps an image into a disc. A horizon becomes a

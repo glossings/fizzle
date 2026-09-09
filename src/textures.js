@@ -5,6 +5,7 @@ import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
 import { Layout } from './layout.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
+import { sig } from './audio.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -545,24 +546,44 @@ const SPECS = {
   // angle (x) × radius (y), inverse reads such a buffer back onto the screen.
   // Radius 1 is the frame *corner* — anything closer in and a round trip would
   // crop the corners off rather than come back where it started.
+  //
+  // log: y measures log-radius instead, so equal steps of y are equal *ratios*
+  // of radius and the space becomes periodic — one period is the factor
+  // 1 / min between the inner radius and the corner. Translating y there is a
+  // zoom that never lands anywhere, which is what makes .scroll() under it
+  // infinite rather than a slide. Nothing inside min is sampled going out, and
+  // coming back that disc holds the next period rather than the clamped edge:
+  // the picture nests into itself instead of smearing.
   polar: {
-    extras: { uInverse: 0 },
+    extras: { uInverse: 0, uLog: 0, uMin: 0.25 },
     frag: `
       void main() {
-        float rmax = 0.5 * length(vec2(uAspect, 1.0));
+        // linear stops at the frame corner, so a round trip keeps the corners.
+        // log stops at the inscribed circle instead: a period magnified into
+        // view would otherwise show the clamped smear outside that circle, and
+        // past the edge the tiling just carries on outward anyway.
+        float rmax = uLog > 0.5 ? 0.5 : 0.5 * length(vec2(uAspect, 1.0));
         if (uInverse > 0.5) {
           vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
           float r = length(p);
           float a = r > 0.0 ? atan(p.y, p.x) : 0.0;   // atan(0, 0) is undefined
-          gl_FragColor = texture2D(tex0, vec2(fract(a / 6.2831853), r / rmax));
+          float y = uLog > 0.5
+            ? fract(1.0 - log(max(r, 1e-6) / rmax) / log(uMin))
+            : r / rmax;
+          gl_FragColor = texture2D(tex0, vec2(fract(a / 6.2831853), y));
         } else {
           float a = vUv.x * 6.2831853;
-          vec2 p = vec2(cos(a), sin(a)) * (vUv.y * rmax);
+          float r = uLog > 0.5 ? rmax * pow(uMin, 1.0 - vUv.y) : vUv.y * rmax;
+          vec2 p = vec2(cos(a), sin(a)) * r;
           gl_FragColor = texture2D(tex0, clamp(p / vec2(uAspect, 1.0) + 0.5, 0.0, 1.0));
         }
       }`,
     update(u, p, t) {
       u.uInverse.value = resolve(par(p.inverse, false), t) ? 1 : 0;
+      u.uLog.value = resolve(par(p.log, false), t) ? 1 : 0;
+      // 1 would make the period zero-wide and 0 would make it unbounded, so
+      // both ends are held off
+      u.uMin.value = Math.min(0.99, Math.max(1e-4, resolve(par(p.min, 0.25), t)));
     },
   },
 
@@ -2569,12 +2590,83 @@ ${Array.from({ length: TILE_MAX - 2 }, (_, i) => `  else if (v < ${i + 1}.5) c =
 }
 `;
 
+// .scroll() — a translate under a periodic wrap, with a hook on the repeat.
+// Only two repeats of an axis are ever on screen at once, so a chain that
+// differs per repeat costs two passes rather than one per repeat: the copies
+// alternate even/odd and each sampler holds whichever index has that parity
+// right now. Both axes live is the 2×2 of those parities.
+const SCROLL_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform vec2 uOff;
+uniform vec2 uLive;   // 1 on an axis that scrolls, 0 on one that stands still
+uniform sampler2D s0;
+uniform sampler2D s1;
+uniform sampler2D s2;
+uniform sampler2D s3;
+void main() {
+  vec2 p = vUv - uOff;
+  vec2 local = mix(vUv, fract(p), uLive);
+  vec2 par = mod(floor(p), 2.0) * uLive;
+  float slot = par.x + 2.0 * par.y;
+  vec4 c;
+  if      (slot < 0.5) c = texture2D(s0, local);
+  else if (slot < 1.5) c = texture2D(s1, local);
+  else if (slot < 2.5) c = texture2D(s2, local);
+  else                 c = texture2D(s3, local);
+  gl_FragColor = c;
+}
+`;
+
+// An axis scrolls if it was given anything but a static zero. A fn counts even
+// where it happens to return 0 at the moment we ask: the sketch asked for motion.
+const scrollLive = (v) => typeof v === 'function' || (typeof v === 'number' && v !== 0);
+
+// Which cell one sampler is holding at time t: the visible span is one repeat
+// wide, so it covers k0 and k0 + 1, and the sampler takes whichever has its
+// parity. Returns the cell, the offset, and the travel direction, since the
+// index and the phase are both read off those three.
+function repeatCell(v, parity, t) {
+  const speed = resolve(v, t) || 0;
+  const off = speed * t;
+  const k0 = Math.floor(-off);
+  const k = ((k0 % 2) + 2) % 2 === parity ? k0 : k0 + 1;
+  return { k, off, dir: Math.sign(speed) || 1 };
+}
+
+// The repeat one sampler is holding, as two signals — what a sampler holds
+// changes as repeats slide through it, which is the whole reason the callback
+// can't be handed numbers. index: repeat 0 is the frame at t = 0, and the
+// count runs in the order repeats *arrive*, so a list read off it comes out
+// forwards whichever way the frame is travelling.
+//
+// phase: where this repeat is in its own crossing, 0 as its far edge reaches
+// the frame and 1 as its near edge leaves. A repeat is on screen for two
+// frame-widths of travel, and a sampler holds one for exactly that long — the
+// handoff to the next lands on the frame it covers no pixels — so the sawtooth
+// is continuous everywhere it can be seen.
+function repeatIndex(v, parity, live) {
+  if (!live) return { index: sig(() => 0), phase: sig(() => 0) };
+  const index = sig((t) => {
+    const { k, dir } = repeatCell(v, parity, t);
+    // cells run against the travel, so the sign puts arrival back the right way
+    return -dir * k;
+  });
+  const phase = sig((t) => {
+    const { k, off, dir } = repeatCell(v, parity, t);
+    return Math.min(1, Math.max(0, (dir * (off + k) + 1) / 2));
+  });
+  return { index, phase };
+}
+
 // Everything .radial() puts between its two resamples is reading a buffer whose
 // x axis is an angle: at the 0/2π seam a blur or a translate has to come around
 // the other side, or it pulls in the clamped edge and leaves a hairline crack
 // down the frame. Mark the span so its targets repeat horizontally and its UV
 // ops default to the matching wrap — neither is something the ops could know on
 // their own, which is why the sandwich is one call and not two.
+// Under { log: true } the radius axis is periodic too, so its targets repeat
+// both ways and the seam where one zoom level meets the next has real pixels
+// on both sides of it.
 function markPolar(node, src, seen = new Set()) {
   if (node === src) { node._polar = true; return true; }
   if (seen.has(node)) return node._polar === true;
@@ -2583,6 +2675,7 @@ function markPolar(node, src, seen = new Set()) {
   for (const n of node.inputs) if (markPolar(n, src, seen)) inSpan = true;
   if (inSpan) {
     node._polar = true;
+    if (src.params.log) node._polarLog = true;
     if (node.params.wrap === undefined && (node.kind === 'transform' || node.kind === 'warp'))
       node.params.wrap = 'polar';
   }
@@ -2624,7 +2717,9 @@ function unbind(kind, params, inputs) {
 }
 
 const INVERSES = {
-  polar: (p) => [{ kind: 'polar', params: { inverse: !p.inverse } }],
+  // every other knob (log, min) has to ride along, or the way back reads a
+  // different space than the way out
+  polar: (p) => [{ kind: 'polar', params: { ...p, inverse: !p.inverse } }],
   invert: () => [{ kind: 'invert', params: {} }],
 
   transform(p) {
@@ -2772,8 +2867,12 @@ export class TextureOp {
   // is a tunnel, .translate(0.1, 0) spins the frame, .blur([8, 0]) smears
   // around the ring. Both resamples are ours: an unbalanced pair isn't a look
   // anyone means, and only this end knows the span is angular (see markPolar).
-  radial(fn) {
-    return this.through((s) => s.polar(), fn);
+  //
+  // { log: true } measures y in log-radius, which makes the space periodic:
+  // .scroll(0.1, 0) is then endless rotation and .scroll(0, 0.1) endless zoom,
+  // each turn or each zoom level reachable on its own through the callback.
+  radial(fn, o = {}) {
+    return this.through((s) => s.polar(o), fn);
   }
 
   // .through(change, fn) — do the work somewhere else and come back:
@@ -3226,6 +3325,67 @@ export class TextureOp {
     return branch ? new TextureOp(this.engine, 'switch', { cond }, [this, branch]) : this;
   }
 
+  // .scroll(vx, vy, (src, i, phase) => variant) — the frame repeating forever
+  // and sliding at vx, vy frames a second, in the UV units .translate() takes,
+  // with each repeat handed to a callback. Without the callback it is exactly
+  // .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).
+  //
+  // i is the repeat's index: 0 for the frame at t = 0, counting up as new
+  // repeats arrive. phase is where that repeat is in its own crossing, 0 to 1,
+  // a phase in the sense the waveshapers mean — phase.tri() is a fade in and
+  // out across the frame. Both are *signals*, not numbers, because what a
+  // given pass is holding changes as repeats slide through it — so i.mul(0.05)
+  // and i.select([...]), not i * 0.05. On a diagonal scroll i is the sum of
+  // the two axes' indices, the anti-diagonal band the repeat sits in, and
+  // phase their mean.
+  //
+  // Cost is at most one pass per parity — two for a straight scroll, four for
+  // a diagonal one — however far the sketch scrolls, and identical variants
+  // dedupe down from there.
+  scroll(vx = 0.2, vy = 0, fn) {
+    // .scroll([vx, vy], fn) and .scroll(vx, fn) — the callback is the last
+    // argument in every spelling
+    if (Array.isArray(vx)) { fn = typeof vy === 'function' ? vy : fn; [vx, vy] = [vx[0] ?? 0, vx[1] ?? 0]; }
+    // a Signal is a function too, so a speed in the callback's slot is only a
+    // callback if nothing was passed after it
+    else if (typeof vy === 'function' && fn === undefined) { fn = vy; vy = 0; }
+    const live = [scrollLive(vx), scrollLive(vy)];
+    const axes = (live[0] ? 1 : 0) + (live[1] ? 1 : 0) || 1;
+    const variants = [];
+    const bySig = new Map();
+    const slots = [0, 0, 0, 0];
+    let complained = false;
+    // an axis standing still has one parity, not two — so a straight scroll
+    // runs the callback twice, not four times
+    for (let py = 0; py < (live[1] ? 2 : 1); py++) {
+      for (let px = 0; px < (live[0] ? 2 : 1); px++) {
+        const rx = repeatIndex(vx, px, live[0]);
+        const ry = repeatIndex(vy, py, live[1]);
+        // a still axis contributes nothing to either, so a straight scroll's
+        // index and phase are just the moving axis's own
+        const i = sig((t) => rx.index(t) + ry.index(t));
+        const phase = sig((t) => (rx.phase(t) + ry.phase(t)) / axes);
+        let v = (fn ? fn(this, i, phase) : this) ?? this;
+        if (!(v instanceof TextureOp)) {
+          // the near miss worth naming: a fn in the y slot is read as the
+          // callback, so an animated y speed has to say which slot it is in
+          if (!complained) warn(typeof v === 'number'
+            ? 'scroll: a fn in the second slot is the per-repeat callback — for an animated y speed write .scroll([vx, vy]) instead'
+            : 'scroll: fn must return a texture chain — the repeats show the source untreated');
+          complained = true;
+          v = this;
+        }
+        const key = sigOf(v);
+        let idx = bySig.get(key);
+        if (idx == null) bySig.set(key, (idx = variants.push(v) - 1));
+        for (let s = 0; s < 4; s++) {
+          if ((live[0] ? s & 1 : 0) === px && (live[1] ? s >> 1 : 0) === py) slots[s] = idx;
+        }
+      }
+    }
+    return new TextureOp(this.engine, 'scroll', { vx, vy, live, slots }, variants);
+  }
+
   // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
   // per-cell choice of texture. The fn runs once per cell at eval time and may
   // return src itself, a treatment of it, or any other chain. Structurally
@@ -3316,7 +3476,7 @@ export class TextureOp {
     // inside .radial(): x is an angle, y a radius (see markPolar)
     else if (this._polar) {
       rt.texture.wrapS = THREE.RepeatWrapping;
-      rt.texture.wrapT = THREE.ClampToEdgeWrapping;
+      rt.texture.wrapT = this._polarLog ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
     }
     // A node feeding .displace() or a material map slot carries a mip pyramid.
     // For displacement the vertex shader reads it through textureLod at the
@@ -4051,6 +4211,35 @@ export class TextureOp {
         if (p.color != null) setColor4(u.uColor.value, p.color, ctx.t);
         setColor4(u.uBg.value, orDflt(p.bg, '#000000'), ctx.t);
       });
+      return out.texture;
+    }
+
+    if (this.kind === 'scroll') {
+      const { vx, vy, live, slots } = this.params;
+      if (!this.mat) {
+        const uniforms = {
+          uOff: { value: new THREE.Vector2() },
+          uLive: { value: new THREE.Vector2(live[0] ? 1 : 0, live[1] ? 1 : 0) },
+        };
+        for (let s = 0; s < 4; s++) uniforms[`s${s}`] = { value: null };
+        this.mat = new THREE.ShaderMaterial({
+          vertexShader: VERT,
+          fragmentShader: SCROLL_FRAG,
+          uniforms,
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+        });
+      }
+      const u = this.mat.uniforms;
+      // speed × t, the way every animated generator reads its own speed — so a
+      // fn of t in the slot warps the scroll rather than integrating into it
+      u.uOff.value.set(
+        live[0] ? (resolve(vx, ctx.t) || 0) * ctx.t : 0,
+        live[1] ? (resolve(vy, ctx.t) || 0) * ctx.t : 0);
+      for (let s = 0; s < 4; s++) u[`s${s}`].value = ins[slots[s]] ?? null;
+      const out = this._rt(ctx);
+      ctx.quad.render(ctx.renderer, this.mat, out);
       return out.texture;
     }
 

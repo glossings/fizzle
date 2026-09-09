@@ -142,6 +142,39 @@ notice.
   sample. Generator chains have a better answer: render *at* the field's res,
   which is the per-chain resolution item below.
 
+## `.scroll()` hands the callback a signal for `i` where an integer would do
+
+`i` is a signal ([src/textures.js:3065](../src/textures.js#L3065)) because every
+variant is built once, when `.scroll()` is called: one chain per parity slot,
+and the repeat a slot holds changes as repeats slide through it. So
+`i.mul(0.11)` and `i.select(WORDS)`, where `i * 0.11` and `WORDS[i % 6]`
+are what anyone writes first, and `.tile()`'s `i` — a plain number — sits
+right beside it looking identical. The signal guard catches the coercion, but
+the shape is a consequence of the implementation, not of the problem.
+
+Nothing forces it. Numeric params are uniforms, never baked into GLSL, and
+three reuses a compiled program for identical source, so a fresh chain per
+repeat costs no compile. `repeatCell()`
+([src/textures.js:2402](../src/textures.js#L2402)) already knows which repeat
+each slot holds on every frame, and since that is deterministic in `t` it
+knows the next one too.
+
+[ ] Rebuild a slot's variant at each handoff: call `fn(src, k, phase)` with
+  the real integer `k`, swap the new chain into the slot, dispose the old
+  one's targets. `phase` stays a signal — it moves continuously within one
+  repeat's life, which is what signals are for.
+[ ] Build the incoming repeat's variant a frame or two early (its index is
+  known ahead), so target allocation never lands on the handoff frame. Until
+  targets are pooled this is what keeps a heavy variant from hitching.
+[ ] Keep the old node when the new chain's `sigOf` matches the current one
+  — the callback ignored `i` — so its targets and any stateful ops survive.
+[ ] Stateful ops inside a variant (`.feedback()`, `.delay()`, `.smooth()`)
+  restart per repeat rather than persisting across them. Each repeat is its
+  own picture, so that reads as correct; say so in the docs.
+[ ] Then `i` reads as an integer because it is one, `.tile()` and
+  `.scroll()` agree again, and `i.mul` / `i.select` in the docs and the
+  example go back to arithmetic and indexing.
+
 ## Alpha 0 buses silently render black
 
 A named bus that only ever does arithmetic never acquires coverage: `input()`

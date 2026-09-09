@@ -213,9 +213,9 @@ export const METHODS = {
 
   mirror: [".mirror({ axis: 'x'|'y'|'both', flip })", 'Texture: reflect one half of the image onto the other; for a whole-image flip use .scale(-1, 1). A texture in flip chooses which half survives per pixel, so both reflections come back interleaved by the map.'],
   kaleido: ['.kaleido(sides, { rotate })', 'Texture: polar kaleidoscope fold. Both keys take a fn of t, or a texture for a value that varies across the frame.'],
-  radial: ['.radial(s => ...)', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam."],
+  radial: ['.radial(s => ..., { log, min })', "Texture: run the fn in polar space — x is the angle around the center, y the distance from it — and come back. x wraps at the seam.\nUnder log, y is log-radius and wraps too, so .scroll(0.1, 0) inside is endless rotation and .scroll(0, 0.1) endless zoom."],
   through: ['.through(s => change, p => ...)', "Texture: run the second fn in the space the first fn moves the frame into, then move it back. .through(s => s.rotate(0.4), p => p.pixellate(40)) lays a tilted grid. The change has to be one that can be undone: a move, a warp, a tone or color adjust. Anything else warns and stays where it went."],
-  polar: ['.polar({ inverse })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
+  polar: ['.polar({ inverse, log, min })', "Texture: unroll the frame into angle × radius. inverse: true goes the other way, reading the image as angle × radius and wrapping it into a disc."],
   edge: [".edge({ strength, spread, mode: 'classic'|'crisp' })", 'Texture: edge magnitude (grayscale). Lines on nothing — the gaps are transparent, so edges comp without plating what they sit on. Thick and clipped by default; crisp mode gives thin antialiased ones.'],
   slope: [".slope({ strength, spread, mode })", 'Texture: neighbor-difference gradient, centered on 0.5, in RG.'],
   normalMap: [".normalMap({ strength, spread, mode })", 'Texture: tangent-space normal map from luma height.'],
@@ -262,6 +262,7 @@ export const METHODS = {
   flow: ['.flow({ gain, blur, scale })', "Texture: the chain's frame-to-frame motion as a velocity picture, centered on mid-grey like fluid's .velocity() — so .displace(src.flow()) drags the image along its own movement, and .push(f.flow()) stirs a sim with it. Coarse and blurred by design: a look, not measurement."],
   pixellate: ['.pixellate(x, y?)', 'Texture: quantize position into cells (square cells if y omitted). Either count takes a texture, so the cells can be coarse in one part of the frame and fine in another.'],
   ascii: ['.ascii({ chars, cols, rows, color, bg, font, weight })', "Texture: redraw the image as a grid of characters, each cell taking the glyph whose ink matches its brightness. chars is a set name ('ascii', 'dense', 'blocks', ...) or any string of your own, dark→bright. Cells keep the image's color until you name one."],
+  scroll: ['.scroll(vx, vy, (src, i, phase) => variant)', "Texture: the frame repeating forever and sliding at vx, vy frames a second, in the UV units .translate() takes. The fn gives each repeat a chain of its own; without it the call is .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).\ni is the repeat's index, 0 at t = 0 and counting up as repeats arrive; phase is how far that repeat has crossed, 0 to 1, so phase.tri() fades it in and out. Both are signals rather than numbers, so i.mul(0.1), not i * 0.1. Only the repeats on screen render: two passes, or four on a diagonal."],
   transform: [".transform({ translate: [x,y], scale, rotate, wrap: 'clamp'|'repeat'|'mirror'|'transparent' })", "Texture: UV-space transform. Shorthands: .translate(x, y), .rotate(v), .scale(v). Each key takes a texture to go per-pixel; { map, amount, mid } scales and biases what it reads."],
   crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to transparent black — nothing is resampled, the frame closes in, and in a comp the surround is a cutout. Sizes above 1 are pixels of the frame's grid, 0..1 a fraction of the frame; h defaults to w. Sizes and center take fns of t."],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t, or textures to vary across the frame."],
@@ -837,8 +838,14 @@ const METHOD_KEY_DOCS = {
   kaleido: {
     rotate: 'Spins the fold pattern, in radians. Animate it for the turning-kaleidoscope look.',
   },
+  radial: {
+    log: 'Measures y in log-radius, so equal steps of y are equal ratios of radius and the space becomes periodic. .scroll(0, 0.1) inside it is then an endless zoom rather than a slide. Default false.',
+    min: 'Under log, the inner radius as a fraction of the frame, and so the size of one period: 0.25 (default) means each zoom level is 4x the one inside it.',
+  },
   polar: {
     inverse: 'false (default) unrolls the frame into angle × radius. true goes the other way, reading the image as angle × radius and wrapping it into a disc. Takes a fn of t, so it can flip mid-set.',
+    log: 'Measures y in log-radius, so equal steps of y are equal ratios of radius. That makes the space periodic — one period is the factor 1 / min — so a translate along y is a zoom that never lands, and .scroll() along it repeats forever. Default false.',
+    min: 'Under log, the inner radius as a fraction of the frame, and so the size of one period: 0.25 (default) means each zoom level is 4x the one inside it. Smaller nests fewer, larger levels; nothing inside it is sampled on the way out.',
   },
   edge: {
     strength: "Multiplies the detected edges. Default 1. Push to 3-4 before .threshold() for clean line art. In 'crisp' mode 1 means a full black-to-white step reads as white, so the same look wants roughly 4x the number.",
@@ -1106,7 +1113,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup lut grain tint alpha displace comp mask glsl blur bloom delay feedback flow when tile instance particles points lines wire out
+        remap lookup lut grain tint alpha displace comp mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure field`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
@@ -1132,7 +1139,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 // alone doesn't say — noise() is a texture and .noise() a deformer.
 export const KIND_LABEL = {
   geo: 'geometry', particle: 'particles', evolve: 'particle', light: 'light',
-  texture: 'texture', signal: 'signal', midi: 'midi', midikey: 'midi',
+  texture: 'texture', signal: 'signal', repeat: 'signal', midi: 'midi', midikey: 'midi',
   gamepad: 'gamepad', layout: 'layout', cursor: 'cursor', inst: 'copy',
   curve: 'curve', curvens: 'curve', data: 'data', pairs: 'pairs', segments: 'segments',
 };
@@ -1181,11 +1188,13 @@ if (import.meta.env?.DEV) {
 
 // A callback parameter's kind, by the method that hands it over:
 // .instance(n, x => …) gives an instance handle, .tile/.mask/.when a texture.
+// An array is one kind per position, for a callback whose parameters differ.
 export const CALLBACK_KIND = {
   instance: 'inst',
   layout: 'cursor', branch: 'cursor',
   evolve: 'evolve',
   tile: 'texture', mask: 'texture', when: 'texture', comp: 'texture', radial: 'texture', through: 'texture',
+  scroll: ['texture', 'signal', 'signal'],
   displace: 'texture', remap: 'texture', lookup: 'texture', feedback: 'texture',
 };
 
