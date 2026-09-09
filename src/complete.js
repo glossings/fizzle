@@ -77,7 +77,7 @@ const methodOptions = Object.entries(METHODS).map((e) => methodOption(e, soleKin
 // one filtered method list per chain kind, built once — and inside one, the
 // kind is known, so every entry can say so
 const methodsByKind = {};
-for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'repeat', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
   methodsByKind[kind] = Object.entries(METHODS)
     .filter(([label]) => METHOD_KINDS[label]?.has(kind))
     .map((e) => methodOption(e, kind));

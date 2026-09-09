@@ -1752,9 +1752,9 @@ scene()
   left→right, `y` bottom→top, `i = y * nx + x`. Identical variants share one
   render, but each *distinct* one costs a full pass per frame, so
   `.tile(10, 10, (s, i) => s.hue(i / 100))` is 100 renders.
-- `.scroll(vx, vy, (src, i, ix, iy) => variant)` — the frame repeating forever
-  and sliding at `vx`, `vy` frames a second, in the same UV units `.translate()`
-  takes, with each repeat handed to the callback. See below.
+- `.scroll(vx, vy, (src, i, phase) => variant)` — the frame repeating forever
+  and sliding at `vx`, `vy` frames a second, in the same UV units
+  `.translate()` takes, with each repeat handed to the callback. See below.
 
 ```js
 circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
@@ -1781,18 +1781,18 @@ text('FIZZLE  ', { size: 0.35 })
   .out()
 ```
 
-`i` is the repeat's own index, 0 at `t = 0` and counting up as repeats arrive.
-It is a **signal**, not a number, because the index a given pass is holding
-changes as repeats slide through it: write `i.mul(0.13)` and `i.select([...])`,
-never `i * 0.13`. `ix` and `iy` are the same per axis, and `i` is their sum.
+`i` is the repeat's index: 0 at `t = 0`, counting up as repeats arrive. It is a
+**signal**, not a number, because the index a given pass is holding changes as
+repeats slide through it. So write `i.mul(0.13)` and `i.select([...])`, never
+`i * 0.13`.
 
-`i.phase` is how far that repeat has crossed, 0 as its far edge reaches the
-frame and 1 as its near edge leaves. It's a phase in the sense the waveshapers
-mean, so `.tri()` on it is a fade in and out:
+`phase` is how far that repeat has crossed, 0 as its far edge reaches the frame
+and 1 as its near edge leaves. It's a signal too, and a phase in the sense the
+waveshapers mean, so `.tri()` on it is a fade in and out:
 
 ```js
 circle({ radius: 0.16, soft: 0.02 })
-  .scroll(0.28, (s, i) => s.tint(hsl(i.mul(0.14), 0.9, 0.6)).alpha(i.phase.tri()))
+  .scroll(0.28, (s, i, phase) => s.tint(hsl(i.mul(0.14), 0.9, 0.6)).alpha(phase.tri()))
   .out()
 ```
 

@@ -852,8 +852,8 @@ class GeoOp {
       color: makeColor(m.color ?? (textured || m.transmission != null ? '#ffffff' : '#8899ff')),
       // the roughness/metalness scalars multiply their maps, so they're reset
       // to 1 if and when one actually lands (see applyMaps)
-      roughness: m.roughness ?? 0.5,
-      metalness: m.metalness ?? 0.1,
+      roughness: resolve(m.roughness ?? 0.5, 0),
+      metalness: resolve(m.metalness ?? 0.1, 0),
       // flat shading takes the normal from screen derivatives, which a dot or
       // a line has none of — so those keep the vertex normal
       flatShading: flat ? false : (m.flatShading ?? false),
@@ -867,7 +867,7 @@ class GeoOp {
     });
     if (m.emissive) {
       material.emissive = makeColor(m.emissive);
-      material.emissiveIntensity = m.emissiveIntensity ?? 1;
+      material.emissiveIntensity = resolve(m.emissiveIntensity ?? 1, 0);
     }
     applyMaterialScalars(material, m);
     const surfaceUpdate = applySurface(material, m);
@@ -1006,7 +1006,11 @@ class GeoOp {
       // [r, g, b] with a fn in any channel
       if (isDynamicColor(m.color)) setColor(material.color, m.color, t);
       if (isDynamicColor(m.emissive)) setColor(material.emissive, m.emissive, t);
-      // opacity + any physical property given as a fn of t
+      // the standard-material scalars are constructor keys, so a fn in one is
+      // re-read here; applySurface covers opacity and the physical ones
+      if (typeof m.roughness === 'function') material.roughness = m.roughness(t);
+      if (typeof m.metalness === 'function') material.metalness = m.metalness(t);
+      if (typeof m.emissiveIntensity === 'function') material.emissiveIntensity = m.emissiveIntensity(t);
       surfaceUpdate?.(t);
       if (pointSize) pointSize.value = resolve(draw.size, t) * this.engine.renderer.getPixelRatio();
       if (lastText !== null && typeof this.opts.text === 'function') {

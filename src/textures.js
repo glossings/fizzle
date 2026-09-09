@@ -2407,45 +2407,29 @@ function repeatCell(v, parity, t) {
   return { k, off, dir: Math.sign(speed) || 1 };
 }
 
-// The repeat index one sampler is holding, as a signal — the index a sampler
-// holds changes as repeats slide through it, which is the whole reason the
-// callback can't be handed a number. Repeat 0 is the frame at t = 0, and the
+// The repeat one sampler is holding, as two signals — what a sampler holds
+// changes as repeats slide through it, which is the whole reason the callback
+// can't be handed numbers. index: repeat 0 is the frame at t = 0, and the
 // count runs in the order repeats *arrive*, so a list read off it comes out
 // forwards whichever way the frame is travelling.
 //
-// .phase rides along: where this repeat is in its own crossing, 0 as its far
-// edge reaches the frame and 1 as its near edge leaves. A repeat is on screen
-// for two frame-widths of travel, and a sampler holds one for exactly that
-// long — the handoff to the next lands on the frame it covers no pixels — so
-// the sawtooth is continuous everywhere it can be seen.
+// phase: where this repeat is in its own crossing, 0 as its far edge reaches
+// the frame and 1 as its near edge leaves. A repeat is on screen for two
+// frame-widths of travel, and a sampler holds one for exactly that long — the
+// handoff to the next lands on the frame it covers no pixels — so the sawtooth
+// is continuous everywhere it can be seen.
 function repeatIndex(v, parity, live) {
-  if (!live) {
-    const still = sig(() => 0);
-    still.phase = sig(() => 0);
-    return still;
-  }
+  if (!live) return { index: sig(() => 0), phase: sig(() => 0) };
   const index = sig((t) => {
     const { k, dir } = repeatCell(v, parity, t);
     // cells run against the travel, so the sign puts arrival back the right way
     return -dir * k;
   });
-  index.phase = sig((t) => {
+  const phase = sig((t) => {
     const { k, off, dir } = repeatCell(v, parity, t);
     return Math.min(1, Math.max(0, (dir * (off + k) + 1) / 2));
   });
-  return index;
-}
-
-// `i * 0.1` on a signal is NaN, and a NaN uniform is a black frame with no clue
-// why. Coercion is the one mistake worth catching here, so it says so and hands
-// back repeat 0's value — the chain still renders, just without the variation.
-function noCoerce(s, name) {
-  s[Symbol.toPrimitive] = () => {
-    warn(`scroll: ${name} is a signal, not a number — say ${name}.mul(0.1), not ${name} * 0.1`);
-    return s(0);
-  };
-  if (s.phase) noCoerce(s.phase, `${name}.phase`);
-  return s;
+  return { index, phase };
 }
 
 // Everything .radial() puts between its two resamples is reading a buffer whose
@@ -3061,22 +3045,19 @@ export class TextureOp {
     return branch ? new TextureOp(this.engine, 'switch', { cond }, [this, branch]) : this;
   }
 
-  // .scroll(vx, vy, (src, i, ix, iy) => variant) — the frame repeating forever
+  // .scroll(vx, vy, (src, i, phase) => variant) — the frame repeating forever
   // and sliding at vx, vy frames a second, in the UV units .translate() takes,
   // with each repeat handed to a callback. Without the callback it is exactly
   // .translate(t => t * vx, t => t * vy, { wrap: 'repeat' }).
   //
-  // i is the absolute repeat index — repeat 0 is the frame at t = 0, counting
-  // up as new repeats arrive — and it is a *signal*, not a number, because the
-  // index a given pass is holding changes as repeats slide through it. So
-  // i.mul(0.05) and i.select([...]), not i * 0.05. On a diagonal scroll i is
-  // ix + iy, the anti-diagonal band the repeat sits in; ix and iy are the two
-  // axes on their own.
-  //
-  // i.phase is where that repeat is in its own crossing, 0 to 1. It's a phase
-  // in the sense the waveshapers mean, so i.phase.tri() is a fade in and out
-  // across the frame and i.phase.sin() a smoother one. Each axis carries its
-  // own (ix.phase, iy.phase); i.phase is their mean where both are moving.
+  // i is the repeat's index: 0 for the frame at t = 0, counting up as new
+  // repeats arrive. phase is where that repeat is in its own crossing, 0 to 1,
+  // a phase in the sense the waveshapers mean — phase.tri() is a fade in and
+  // out across the frame. Both are *signals*, not numbers, because what a
+  // given pass is holding changes as repeats slide through it — so i.mul(0.05)
+  // and i.select([...]), not i * 0.05. On a diagonal scroll i is the sum of
+  // the two axes' indices, the anti-diagonal band the repeat sits in, and
+  // phase their mean.
   //
   // Cost is at most one pass per parity — two for a straight scroll, four for
   // a diagonal one — however far the sketch scrolls, and identical variants
@@ -3098,14 +3079,13 @@ export class TextureOp {
     // runs the callback twice, not four times
     for (let py = 0; py < (live[1] ? 2 : 1); py++) {
       for (let px = 0; px < (live[0] ? 2 : 1); px++) {
-        const ix = noCoerce(repeatIndex(vx, px, live[0]), 'ix');
-        const iy = noCoerce(repeatIndex(vy, py, live[1]), 'iy');
-        const i = sig((t) => ix(t) + iy(t));
+        const rx = repeatIndex(vx, px, live[0]);
+        const ry = repeatIndex(vy, py, live[1]);
         // a still axis contributes nothing to either, so a straight scroll's
-        // combined phase is just the moving axis's own
-        i.phase = sig((t) => (ix.phase(t) + iy.phase(t)) / axes);
-        noCoerce(i, 'i');
-        let v = (fn ? fn(this, i, ix, iy) : this) ?? this;
+        // index and phase are just the moving axis's own
+        const i = sig((t) => rx.index(t) + ry.index(t));
+        const phase = sig((t) => (rx.phase(t) + ry.phase(t)) / axes);
+        let v = (fn ? fn(this, i, phase) : this) ?? this;
         if (!(v instanceof TextureOp)) {
           // the near miss worth naming: a fn in the y slot is read as the
           // callback, so an animated y speed has to say which slot it is in

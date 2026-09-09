@@ -265,6 +265,16 @@ export function sig(fn, ae = null) {
   return f;
 }
 
+// `s * 0.1` on a signal is NaN, and a NaN uniform is a black frame with no
+// clue why. Say so, and hand back the value at t = 0 so the frame still
+// renders — just without the motion. A string hint keeps the source text,
+// which is what the dedupe keys read.
+Signal.prototype[Symbol.toPrimitive] = function (hint) {
+  if (hint === 'string') return Function.prototype.toString.call(this);
+  warn('a signal is not a number — write s.mul(0.1), not s * 0.1');
+  try { return this(0); } catch { return 0; }
+};
+
 // Chain onto this signal: same audio source, so .bandpass() still reads the
 // spectrum however many ops down the chain it sits.
 function mk(self, g) {
