@@ -1244,7 +1244,7 @@ const SPECS = {
   },
 
   comp: {
-    extras: { uMode: 0, uOpacity: 1, uSwap: 0 },
+    extras: { uMode: 0, uOpacity: 1, uSwap: 0, uStack: 0 },
     // the non-separable blends (luminosity / color) can't work channel by
     // channel: they move a whole color to a target luminance, then pull it
     // back into gamut along the gray axis so the hue survives the trip. This
@@ -1303,6 +1303,9 @@ const SPECS = {
         float la = clamp(Lt.a, 0.0, 1.0) * uOpacity;
         vec3 lp = Lt.rgb * uOpacity;
         vec3 over = mix(lp + Bt.rgb * (1.0 - la), Bt.rgb + lp * (1.0 - Bt.a), uSwap);
+        // in the display stack the base can be empty (nothing drawn there yet):
+        // the layer has nothing to blend with and shows as itself
+        r = mix(r, mix(Ls, r, clamp(Bt.a, 0.0, 1.0)), uStack);
         vec3 rgb = m < 0.5 ? over : mix(Bt.rgb, clamp(r, 0.0, 1.0), la);
         gl_FragColor = vec4(rgb, Bt.a + la - Bt.a * la);
       }`,
@@ -2038,7 +2041,7 @@ function delayFit(frames, scale, w, h) {
 }
 
 // shared single-purpose pass materials (used sequentially, so sharing is safe)
-let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_PLATE, MAT_TOLINEAR, MAT_DELAY_MAP,
+let MAT_COPY, MAT_BRIGHT, MAT_BLUR, MAT_COMBINE, MAT_TONEMAP, MAT_OVER, MAT_STACK, MAT_PLATE, MAT_TOLINEAR, MAT_DELAY_MAP,
   MAT_FLOW, MAT_SWALL, MAT_SSCAN, MAT_SKEY, MAT_SOEM, MAT_SGATHER, MAT_SSHEAR, MAT_JPEG,
   MAT_SDF_SEED, MAT_SDF_STEP, MAT_SDF_OUT;
 function ensurePassMaterials() {
@@ -2273,6 +2276,11 @@ function ensurePassMaterials() {
         gl_FragColor = vec4(b.rgb + a.rgb * (1.0 - ba), ba + a.a * (1.0 - ba));
       }`,
   });
+  // a stacked .out() that asked for a blend mode: the comp pass, base-aware
+  if (!MAT_STACK) {
+    MAT_STACK = makeMaterial(SPECS.comp);
+    MAT_STACK.uniforms.uStack.value = 1;
+  }
   // the same thing with bg() underneath instead of another chain — the last
   // step to the canvas, so whatever the stack left transparent lands on the
   // background rather than on the clear color
@@ -3443,6 +3451,32 @@ export class TextureOp {
     return new TextureOp(this.engine, 'tile', { nx, ny, map }, variants);
   }
 
+  // .blend(mode, opacity) — how this chain's naked .out() lands on the layers
+  // under it, geometry included: the .comp() modes without the bus. Also
+  // .blend({ mode, opacity }). The ops after it keep the mode, a later
+  // .blend() replaces it, and a .when() follows whichever branch it took.
+  blend(mode = 'over', opacity = 1) {
+    if (mode != null && typeof mode === 'object' && !Array.isArray(mode)) {
+      ({ mode = 'over', opacity = 1 } = mode);
+    }
+    return this._n('blend', { mode, opacity });
+  }
+
+  // the nearest .blend() up the chain, through the branch a switch took this
+  // frame (so: after renderNode); null when the chain never asked
+  _blendMode() {
+    for (let n = this; n; n = n.kind === 'switch' ? n.inputs[n._taken ?? 0] : n.inputs[0]) {
+      if (n.kind === 'blend') return n.params;
+    }
+    return null;
+  }
+
+  // whether any branch could: what decides if the backdrop goes under the stack
+  _blends() {
+    return (this._canBlend ??= this.kind === 'blend'
+      || (this.kind === 'switch' ? this.inputs.some((n) => n._blends()) : !!this.inputs[0]?._blends()));
+  }
+
   // .out() — send this chain to the display; several naked .out()s stack in
   // code order, each composited over the ones before it (premultiplied over,
   // so only where a later chain is transparent do the earlier ones show).
@@ -3569,6 +3603,12 @@ export class TextureOp {
       const out = this._rt(ctx);
       runPass(ctx, MAT_COPY, tex, null, out);
       return out.texture;
+    }
+
+    // .blend(): the picture is the chain's; the mode is read by the stack
+    if (this.kind === 'blend') {
+      if (this._needsMips) this.inputs[0]._needsMips = true;
+      return this.inputs[0].renderNode(ctx);
     }
 
     // sky(): the sketch's backdrop on its own, as the camera sees it
@@ -3698,6 +3738,7 @@ export class TextureOp {
         if (!Number.isFinite(i)) i = 0;
         else if (i < 0) i += n;
       }
+      this._taken = i;
       return this.inputs[i].renderNode(ctx);
     }
 
@@ -4591,35 +4632,50 @@ export function renderTextures(engine) {
   // only that group can); any other group goes in as a transparent layer.
   // `owner` lends the two targets the fold ping-pongs between.
   const onBackdrop = (e) => e?.kind === 'geo' && e.bit === 0;
+  const blended = (e) => e.kind === 'tex' && e.node._blends();
   const compose = (c, entries, bg, owner) => {
     let i = 0;
     const texs = [];
     let plate = null;
+    // a blend mode wants the backdrop under it, not slid in afterwards. On a
+    // bg() color that means the plate goes first and the bottom group lands on
+    // it as a layer (rendered on the color it would come out a different one)
+    const mixed = entries.some(blended);
     if (bg instanceof TextureOp) texs.push(bg.renderNode(c));
     else if (bg !== null) {
-      if (onBackdrop(entries[0])) {
+      if (onBackdrop(entries[0]) && !(mixed && !skyTex())) {
         const color = bg === undefined ? undefined : writeColor(owner._bgColor ??= new THREE.Color(), bg, c.t);
         texs.push(groupPass(entries[i++], color, owner).out.texture);
       } else if (bg === undefined && skyTex()) texs.push(skyTex());
       else plate = bg === undefined ? engine.bg : bg;
     }
+    const modes = texs.map(() => null);
     for (; i < entries.length; i++) {
       const e = entries[i];
       texs.push(e.kind === 'geo' ? groupPass(e, null).out.texture : e.node.renderNode(c));
+      modes.push(blended(e) ? e.node._blendMode() : null);
     }
-    let acc = texs[0] ?? clearTex();
     let flip = false;
     const next = () => ((flip = !flip) ? owner._rt(c, 'auxA') : owner._rt(c, 'auxB'));
-    for (let k = 1; k < texs.length; k++) {
+    const plated = (tex) => {
       const target = next();
-      runPass(c, MAT_OVER, acc, texs[k], target);
+      runPass(c, MAT_PLATE, tex, null, target, (u) => setColor4(u.uBg.value, plate, c.t));
+      return target.texture;
+    };
+    let acc = null;
+    if (mixed && plate != null) {
+      acc = plated(clearTex());
+      plate = null;
+    }
+    for (let k = 0; k < texs.length; k++) {
+      if (acc == null && !modes[k]) { acc = texs[k]; continue; }
+      const target = next();
+      if (modes[k]) runPass(c, MAT_STACK, acc ?? clearTex(), texs[k], target, (u) => SPECS.comp.update(u, modes[k], c.t));
+      else runPass(c, MAT_OVER, acc, texs[k], target);
       acc = target.texture;
     }
-    if (plate != null) {
-      const target = next();
-      runPass(c, MAT_PLATE, acc, null, target, (u) => setColor4(u.uBg.value, plate, c.t));
-      acc = target.texture;
-    }
+    acc ??= clearTex();
+    if (plate != null) acc = plated(acc);
     return acc;
   };
   // scene(): the geometry sent out above the call, and only the geometry —
@@ -4726,7 +4782,8 @@ export function renderTextures(engine) {
     let taken = 0;
     for (const e of stack) if (e.kind === 'tex') taken = Math.max(taken, e.taken);
     const shown = stack.filter((e, i) => e.kind === 'tex' || i >= taken);
-    const based = !clean && onBackdrop(shown[0]) && !!engine.scene.background?.isTexture;
+    // (a blend mode does want it under: see compose())
+    const based = !clean && (shown.some(blended) || (onBackdrop(shown[0]) && !!engine.scene.background?.isTexture));
     const outTex = compose(ctx, shown, based ? undefined : null, st.display);
     const sky = based ? null : skyTex();
     if (sky) runPass(ctx, MAT_OVER, sky, outTex, null);

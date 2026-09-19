@@ -208,7 +208,10 @@ export const METHODS = {
   }],
   opacity: ['.opacity(a, b?)', 'Particles: transparency 0..1 — one value, or birth → death. On top of the .fade() ramps; takes fns of t.'],
   fade: ['.fade(in, out) | .fade(false)', "Particles: fade each particle in when it's born and out before it dies, so they don't blink into existence. The numbers are how long each fade takes, as fractions of the lifespan — defaults 0.1 and 0.3. false turns both off."],
-  blend: [".blend('over' | 'add' | 'solid')", "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up. 'solid' is opaque cutout dots that write depth and occlude each other, which is what a dense .lit() swarm needs to read as a lit surface. Solid dots pop in and out rather than fade, and depth() sees them."],
+  blend: [".blend('over' | 'add' | 'solid')  ·  .blend(mode, opacity) on a texture", {
+    texture: "How this chain's naked .out() lands on the layers under it, geometry and backdrop included: .comp()'s modes without naming the base. Ops after it keep the mode, a later .blend() replaces it, and .when(cond, x => x.blend('add')) switches modes live. opacity is how much of the blend mixes in, 0..1, and takes a fn of t. Also .blend({ mode, opacity }).\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color.",
+    '*': "Particles: how the dots land on the scene. 'over' is ordinary transparency; 'add' sums light — the glow-swarm look, brightest where particles pile up. 'solid' is opaque cutout dots that write depth and occlude each other, which is what a dense .lit() swarm needs to read as a lit surface. Solid dots pop in and out rather than fade, and depth() sees them.",
+  }],
   soft: ['.soft(v)', 'Particles: edge softness of each dot, 0 (hard disc) to 1 (pure falloff). Default 0.5. Takes a fn of t.'],
   lit: ['.lit(amount = 1)', "Particles: take the scene's light — each dot tinted by the color, falloff and cone of the lights, and darkened inside their shadows. A dot has no facing, so what shows is color, distance and shadow. amount 0..1 mixes flat color → fully lit; takes a fn of t."],
   evolve: ['.evolve((p, life, t) => p.size(...).color(...).force(...))', "Particles: looks and forces across each particle's life. life runs 0 (birth) to 1 (death); whatever the fn sets on p (.size/.color/.opacity/.force) applies at that point, starting from the chain's own settings.\nSampled across life each frame rather than run per particle — so it sees life and t, never one particle's position."],
@@ -424,6 +427,8 @@ METHOD_CONFIG.feedback.get('mode').values = BLEND_MODE_NAMES;
 // .feedback()'s mode name, which stands in for the options in either slot
 METHOD_ARGS.comp = [null, BLEND_MODE_NAMES];
 METHOD_ARGS.feedback = [null, BLEND_MODE_NAMES, BLEND_MODE_NAMES];
+// a texture's .blend() takes the same set; particles' three are among the names
+METHOD_ARGS.blend = [[...new Set(['over', 'add', 'solid', ...BLEND_MODE_NAMES])]];
 
 // Copies blend in one draw, so they get the four modes fixed-function blending
 // can express rather than .comp()'s eighteen — the list textures.js checks the

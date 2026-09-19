@@ -1576,6 +1576,22 @@ box({ size: 1.2 }).position(0.8, 0, -3).color('#66ccff').out()   // behind the s
   goes on screen in place of that geometry. Geometry sent out below a
   `scene()` isn't in it and paints on top.
 
+`.blend(mode, opacity)` on a texture layer picks how it lands on everything
+under it. It takes `.comp()`'s modes. Ops after it keep the mode, and a later
+`.blend()` replaces it, so `.when()` can switch modes live.
+
+```js
+bg('#203060')
+ambient({ intensity: 0.6 })
+directional({ intensity: 2 }).position(4, 6, 3).out()
+
+sphere({ radius: 1.6 }).color('#e8e2d0').out()
+noise({ period: 0.7, speed: 0.15, a: '#ff4f9e', b: '#3fe0ff' }).blend('overlay').out()
+ring({ inner: 0.2, outer: 0.3, color: '#ffe066', bg: null }).blend('difference').out()
+// ramp({ type: 'radial', a: '#ffffff', b: '#000000' }).blend('mult', 0.8).out()   // vignette
+// ring({ outer: 0.45, color: '#ffffff', bg: null }).blend('overlay').when(beat(2, 0.5), x => x.blend('difference')).out()   // the mode flips on the beat
+```
+
 ### sources
 
 - `scene()` — the lit 3D render of the geometry sent to a naked `.out()` above
@@ -2002,6 +2018,8 @@ voronoi({ freq: 7, speed: 0.4, a: '#0d1030', b: '#3a7f8f' })
   pixel by its luma. `.tint(color, { bg: null })` turns any mask into a
   colored cutout.
 - Several naked `.out()`s stack in code order, later over earlier.
+- `.blend('screen')` before a naked `.out()` stacks that layer with a mode
+  instead of plain over, no bus or `.comp()` needed.
 - What's behind the bottom of that stack is the backdrop, `bg()` or the
   `hdri()` sky, so transparency reads as the background. `bg(null)` puts it
   back to black.
