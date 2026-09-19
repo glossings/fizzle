@@ -132,6 +132,10 @@ export class Engine {
     this.orbitPose = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
     this.textureNodes = [];            // texture graph nodes from the current sketch
     this.textureOutputs = [];          // texture chains marked with .out(), display-stacked in order
+    // every naked .out() in code order: { kind: 'tex', node } or { kind: 'geo',
+    // bit } — consecutive geometry shares one group (one 3D pass, real depth)
+    this.stack = [];
+    this.layerBits = 0;                // three.js layer bits handed out; 0 is the first group's
     this.textureBuffers = new Map();   // name -> node published with .out(name)
     this.textureMaps = [];             // texture chains bound to a material map slot
     this.textureFields = [];           // .field() readbacks: texture chains sampled by CPU code
@@ -290,8 +294,10 @@ export class Engine {
     if (!this.cameraProgrammed) this.controls.update();
     // textures feeding a material map, a tile set or a .field() need the graph
     // running even with no .out()
-    if (this.textureOutputs.length || this.textureMaps.length || this.textureFields.length
-        || this.textureTiles.length) {
+    // ... and so does geometry in more than one group (a scene() read came
+    // between), which the plain render below would show only the first of
+    if (this.stack.length > 1 || this.textureOutputs.length || this.textureMaps.length
+        || this.textureFields.length || this.textureTiles.length) {
       try {
         renderTextures(this);
       } catch (e) {
@@ -902,20 +908,53 @@ export class Engine {
 
   // Named geometry layers: geometry .out('name') moves the object onto its
   // own three.js layer (invisible to the display camera), and input('name')
-  // renders just that layer as a texture. Layer 0 is the naked-.out() scene.
+  // renders just that layer as a texture. Layer 0 is the first naked-.out() group.
   geoLayer(name) {
     let bit = this.geoLayers.get(name);
     if (bit == null) {
-      bit = this.geoLayers.size + 1;
-      if (bit > 31) {
-        // three has 32 layer bits and layer 0 is the display scene; past that
-        // a name has nowhere of its own to go, so it renders with everything
-        warn(`out('${name}'): more than 31 named layers — this one renders into the main scene`);
+      bit = this.allocLayer();
+      if (!bit) {
+        warn(`out('${name}'): three has 32 layers and they're all taken — this one renders with the first geometry`);
         return 0;
       }
       this.geoLayers.set(name, bit);
     }
     return bit;
+  }
+
+  allocLayer() {
+    return this.layerBits < 31 ? ++this.layerBits : 0;
+  }
+
+  // geometry .render(): a layer nothing else can name
+  anonLayer() {
+    this._anon = (this._anon ?? 0) + 1;
+    return `\0render${this._anon}`;
+  }
+
+  // A naked geometry .out(): joins the group on top of the stack, or opens a
+  // new one when a texture .out() (or a scene() read) has come between.
+  stackGeo() {
+    const top = this.stack[this.stack.length - 1];
+    if (top?.kind === 'geo' && !top.closed) return top.bit;
+    let bit = 0;
+    if (this.stack.some((e) => e.kind === 'geo')) {
+      bit = this.allocLayer();
+      if (!bit) {
+        warn("out(): three has 32 layers and they're all taken — this geometry renders with the first group");
+        return 0;
+      }
+    }
+    this.stack.push({ kind: 'geo', bit });
+    return bit;
+  }
+
+  // scene() / depth() read what's drawn above them: everything below index n.
+  // Closing the open group keeps geometry sent out later from joining it.
+  stackMark() {
+    const top = this.stack[this.stack.length - 1];
+    if (top) top.closed = true;
+    return this.stack.length;
   }
 
   clearPatch() {
@@ -954,6 +993,9 @@ export class Engine {
     for (const node of this.textureNodes) node.dispose();
     this.textureNodes = [];
     this.textureOutputs = [];
+    this.stack = [];
+    this.layerBits = 0;
+    this._anon = 0;
     this.textureBuffers.clear();
     this.textureMaps = [];
     for (const f of this.textureFields) f.rt?.dispose();
@@ -1016,7 +1058,9 @@ export class Engine {
     const names = Object.keys(api);
     const values = names.map((n) => api[n]);
     const exec = (src) => {
-      claimDuring(() => new Function(...names, `"use strict";\n${src}`)(...values));
+      // the block lets a sketch's own const/let shadow an API name instead of
+      // colliding with it, so a new global can't break a sketch that got there first
+      claimDuring(() => new Function(...names, `"use strict";\n{${src}\n}`)(...values));
       if (!this.cameraTouched) {
         this.camera.position.copy(this.orbitPose.pos);
         this.controls.target.copy(this.orbitPose.target);

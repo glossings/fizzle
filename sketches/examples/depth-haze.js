@@ -46,7 +46,7 @@ camera(0, 0.3, 7, [0, 0.2, -14])
 // depth({ focus, range }) measures distance from a focal plane instead, so the
 // middle of the corridor stays sharp and both ends go soft.
 scene()
-  .mask(depth({ focus: t => 14 + Math.sin(t * 0.2) * 8, range: 12 }), s => s.blur(7))
+  .mask(depth({ focus: T.mul(0.03).sin().range(6, 22), range: 12 }), s => s.blur(7))
   // other jobs the same map does, in place of the line above:
   // .mask(depth(), s => s.blur(10))                            // sharp near, soft far
   // .mask(depth(), s => s.comp(constant('#7d88a6'), 'over'))   // haze

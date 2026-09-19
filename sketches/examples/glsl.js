@@ -8,7 +8,7 @@ ambient({ intensity: 0.3 })
 directional({ intensity: 1.7 }).position(4, 6, 3).out()
 
 torusKnot({ radius: 1.15, tube: 0.3, res: 220, p: 3, q: 4 })
-  .rotation(t => t * 0.3, t => t * 0.18, 0)
+  .rotation(T.mul(0.3), T.mul(0.18), 0)
   .material({ color: '#eef2ff', roughness: 0.18, metalness: 0.75 })
   .out()
 
@@ -29,7 +29,7 @@ scene()
     gl_FragColor = vec4(c + tint * pow(length(d) * 12.0, 2.0), 1.0);
   `, {
     field: flow,
-    amount: t => 0.07 + 0.03 * Math.sin(t * 0.7),
+    amount: T.mul(0.11).sin().range(0.04, 0.1),
     tint: '#12203f',
   })
   .bloom({ threshold: 0.55 })

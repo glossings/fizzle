@@ -13,8 +13,8 @@ directional({ intensity: 1.5 }).position(3, 5, 2).out()
 point({ color: '#ff4d6d', intensity: 60 }).position(-3, -2, 3).out()
 
 torusKnot({ radius: 1.2, tube: 0.34, res: 200, p: 2, q: 3 })
-  .rotation(t => t * 0.7, t => t * 0.45, 0)
-  .position(t => Math.sin(t * 0.9) * 1.6, t => Math.sin(t * 1.4) * 0.5, 0)
+  .rotation(T.mul(0.7), T.mul(0.45), 0)
+  .position(T.mul(0.14).sin().range(-1.6, 1.6), T.mul(0.22).sin().range(-0.5, 0.5), 0)
   .material({ color: '#7ee787', roughness: 0.3, metalness: 0.5 })
   .out()
 

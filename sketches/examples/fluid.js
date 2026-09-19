@@ -4,7 +4,7 @@
 // masking the picture afterwards.
 
 const flow = circle({
-    center: [0.05, t => 0.5 + Math.sin(t * 0.8) * 0.3],
+    center: [0.05, T.mul(0.13).sin().range(0.2, 0.8)],
     radius: 0.028,
     soft: 0.02,
     color: '#4fd1ff',

@@ -8,7 +8,7 @@ ambient({ intensity: 0.25 })
 directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
 torusKnot({ radius: 1.1, tube: 0.34, res: 200, p: 2, q: 3 })
-  .rotation(t => t * 0.35, t => t * 0.2, 0)
+  .rotation(T.mul(0.35), T.mul(0.2), 0)
   .material({ color: '#ffd08a', roughness: 0.3, metalness: 0.35 })
   .out()
 

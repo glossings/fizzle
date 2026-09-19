@@ -641,11 +641,9 @@ export class SegmentsOp {
     };
 
     updater(engine.time);
-    if (name != null) {
-      const layer = engine.geoLayer(String(name));
-      mesh.layers.set(layer);
-      fill?.mesh.layers.set(layer);
-    }
+    const layer = name != null ? engine.geoLayer(String(name)) : engine.stackGeo();
+    mesh.layers.set(layer);
+    fill?.mesh.layers.set(layer);
     engine.add(mesh, updater);
     return this;
   }

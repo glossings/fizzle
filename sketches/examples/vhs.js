@@ -59,7 +59,7 @@ const headSwitch = ramp({ angle: -Math.PI / 2 }).threshold(0.976, { soft: 0.005 
 const flagging = ramp({ angle: Math.PI / 2 }).threshold(0.978, { soft: 0.04 })
 
 // A scrolling ramp, thresholded: a band that drifts up the frame
-const tracking = ramp({ angle: Math.PI / 2, period: 1, phase: t => -t * 0.07 })
+const tracking = ramp({ angle: Math.PI / 2, period: 1, phase: T.mul(-0.07) })
   .threshold(0.94, { soft: 0.05 })
   // .threshold(0.86, { soft: 0.12 })   // instead: a fat, unmissable tracking band
 
@@ -71,7 +71,7 @@ const dropouts = noise({ freq: 240, octaves: 1, speed: 9 })
 const played = composite
   .displace(lineJitter, { amount: 0.006 })
   .translate(t => Math.sin(t * 0.7) * 0.002 + Math.sin(t * 5.3) * 0.0008, 0)   // wow and flutter
-  .mask(flagging, s => s.translate(t => 0.012 + 0.008 * Math.sin(t * 2.1), 0))
+  .mask(flagging, s => s.translate(T.mul(0.33).sin().range(0.004, 0.02), 0))
   .mask(tracking, s => s
     .displace(lineJitter, { amount: 0.05 })
     .comp(snow, 'add', 0.5)

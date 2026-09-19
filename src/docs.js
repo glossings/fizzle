@@ -41,7 +41,8 @@ export const GLOBALS = {
   tempo: ['tempo(bpm)', "Tempo for beat() and B, overriding the audio manager's for this sketch. Drop the call to hand it back."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
-  scene: ['scene({ bg? })', 'Texture source: the lit 3D render of everything sent to a naked .out(), as a texture (tone-mapped display space). bg swaps the backdrop for this read: a color stands in for bg(), a chain shows through behind the geometry, null leaves it transparent so it comps over whatever sits below.'],
+  scene: ['scene({ bg? })', "Texture source: the lit 3D render of the geometry sent to a naked .out() above this call, on the sketch's backdrop (tone-mapped display space). A chain that reads it and goes .out() is drawn in place of that geometry."],
+  sky: ['sky()', "Texture source: the sketch's backdrop alone, as the camera sees it. The hdri() sky, or the bg() color without one."],
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far. With { focus, range } it measures distance from a focal plane instead — a depth-of-field mask."],
   input: ['input(name?, { reset })', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite). reset blanks the held frame on the rising edge of its value — a fn of t cuts a feedback loop from code, true cuts it once per run."],
   constant: ['constant(color)', "Texture generator: one flat color, whole frame. Any color form, or a fn of t; null, [r, g, b, a] and '#rrggbbaa' carry transparency, like every texture color slot."],
@@ -192,7 +193,8 @@ export const METHODS = {
   lt: ['.lt', 'gamepad: left trigger, 0..1 through its travel. .rt is the right one. A pad with digital triggers reports 0 or 1.'],
   rt: ['.rt', 'gamepad: right trigger, 0..1 through its travel.'],
   btn: [".btn('a')", "gamepad: a button as a 1/0 gate. Face buttons by either brand's name ('a'/'cross', 'b'/'circle', 'x'/'square', 'y'/'triangle'), the d-pad as 'up' 'down' 'left' 'right', shoulders 'lb' 'rb', also 'start' 'back' 'l3' 'r3'.\nEmpty .btn() learns the next button pressed."],
-  out: [".out(name?)", "Naked: geometry and lights join the visible scene; a texture chain becomes the display output. With a name, publishes for input('name') instead."],
+  out: [".out(name?)", "Naked: a layer on the display, painted in code order over the ones before it, geometry and texture chains alike. Lights reach every layer. With a name, publishes for input('name') instead."],
+  render: ['.render()', "Geometry, particles and segments: the object alone on a transparent layer, as a texture chain. The same as .out('name') then input('name'), without the name."],
 
   particles: ['.particles({ max, rate, life, speed, spread, dir, size, threshold })', "The source as a particle emitter. On a shape: births scattered over its surface, leaving along the normals — the shape needn't be drawn, its transform applies live, and its .noise() carries through, so births land on the deformed surface. On a texture: births on the bright pixels of the live image, mapped onto a world plane, each particle keeping the color of the pixel it was born from (.color() overrides)."],
   force: ['.force(x, y, z)', 'Particles: a constant acceleration in world units/s² — .force(0, -2, 0) is gravity, .force(1, 0, 0) a crosswind. Components take fns of t; several .force() calls sum.'],
@@ -475,7 +477,7 @@ for (const keys of [GLOBAL_CONFIG.text, GLOBAL_CONFIG.text3d, METHOD_CONFIG.asci
 
 const GLOBAL_KEY_DOCS = {
   scene: {
-    bg: "Swap the backdrop for this read only: a color stands in for bg(), a texture chain shows through behind the geometry, and null leaves it transparent so the read comps over whatever sits below.",
+    bg: "Swap the backdrop for this read only: a color stands in for bg(), a texture chain shows through behind the geometry, and null leaves it transparent so whatever sits below in the stack shows through.",
   },
   input: {
     reset: 'Blanks the buffer on the rising edge of its value — a loop reading it starts from black again. A fn of t fires it from code (reset: t => t % 4 < 0.1 cuts every four seconds; a kick trigger cuts on the beat); true cuts once per run, a clean start on every ctrl+enter.',
@@ -1096,8 +1098,8 @@ const globalKinds = {
 const methodKinds = {
   curve: 'tangent',
   curvens: 'circle line helix',
-  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal scatter link particles out',
-  particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale read link out',
+  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal scatter link particles render out',
+  particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale read link render out',
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
   light: 'position target out',
@@ -1105,7 +1107,7 @@ const methodKinds = {
   // data sets (data(), .scatter(), particles .read()) and their pairings
   data: 'pos alpha normal vel age life count pairs link',
   pairs: 'list tris count',
-  segments: 'material blend position rotation scale out',
+  segments: 'material blend position rotation scale render out',
   // the cursor a layout rule steers, and the structure it hands back
   cursor: 'span forward turn scale place branch rand depth size distance position',
   layout: 'filter grow apply age depth data size count',
@@ -1151,7 +1153,7 @@ export const KIND_LABEL = {
 // found it.
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
-  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene text video videofile videoseq voronoi'],
+  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sky text video videofile videoseq voronoi'],
   ['signals', 'audio audiofile B band beat gamepad midi mouse rand restartMedia select sig T tempo'],
   ['structure', 'curve data layout link segments spread'],
   ['lights', 'ambient directional hdri hemi point spot'],

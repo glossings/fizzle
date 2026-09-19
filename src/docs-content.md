@@ -14,7 +14,7 @@ ambient({ intensity: 0.15 })
 directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
 torusKnot({ radius: 1.1, tube: 0.32, res: 96 })
-  .rotation(t => t * 0.4, t => t * 0.23, 0)
+  .rotation(T.mul(0.4), T.mul(0.23), 0)
   .noise({ amp: 0.07, freq: 2.2, octaves: 4, speed: 0.5 })
   .material({ color: '#4fd1c5', roughness: 0.25, metalness: 0.6 })
   .out()
@@ -146,6 +146,23 @@ sphere({ radius: 1, res: 64 })
   .out()
 ```
 
+`T` is time as a value you can chain, which saves most of that arithmetic:
+`T.mul(0.4)` is `t => t * 0.4`, and `.sin()` swings 0..1 once per unit, so
+`.range()` sets the span. The same sphere:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.5 }).position(3, 5, 2).out()
+
+sphere({ radius: 1, res: 64 })
+  .position(T.mul(0.16).sin().range(-2, 2), 0, 0)
+  .scale(T.mul(0.5).sin().range(0.7, 1.3))
+  .color('#8899ff')
+  .out()
+```
+
+See **random & custom signals** for the rest of what `T` can do.
+
 ### colors
 
 Every color slot accepts any of these four forms:
@@ -157,14 +174,14 @@ Every color slot accepts any of these four forms:
 [0.31, 0.82, 0.77]   // rgb, each channel 0..1
 ```
 
-In the array form, each channel may also accept a function of `t`:
+In the array form, each channel may also accept a function of `t` or a signal:
 
 ```js
 ambient({ intensity: 0.4 })
 directional({ intensity: 1.4 }).position(3, 5, 2).out()
 
 sphere({ radius: 1.4, res: 96 })
-  .color([t => Math.sin(t) * 0.5 + 0.5, 0.3, t => Math.cos(t * 0.7) * 0.5 + 0.5])
+  .color([T.mul(0.16).sin(), 0.3, T.mul(0.11).sin()])
   .material({ roughness: 0.35 })
   .out()
 ```
@@ -223,29 +240,22 @@ cursor. `name` matches on a case-insensitive substring, so `model('ship')`
 finds `ship_final_v2.fbx`. A model is a geometry op like any other. Every
 chain method works on it, `.instance()` included.
 
-```js static
-ambient({ intensity: 0.2 })
-directional({ intensity: 1.4 }).position(4, 6, 3).out()
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
-model('ship.obj')
-  .instance(40, (x, i, n, t) => {
-    const a = (i / n) * Math.PI * 2
-    x.position(Math.cos(a) * 4, 0, Math.sin(a) * 4).rotation(0, t * 0.5 + i, 0).scale(0.4)
+model('polyhaven:BarberShopChair_01.fbx')
+  .instance(12, (x, i, n, t) => {
+    x.position(curve.circle(4)(i / n)).rotation(0, t * 0.5 + i, 0).scale(0.6)
   })
-  .material({ color: '#ffd166', roughness: 0.4 })
+  .material({ pbr: 'polyhaven:BarberShopChair_01_2k' })
   .out()
 ```
 
 An empty `model()` browses [Poly Haven](https://polyhaven.com)'s CC0 models.
 It's searchable, with the polygon count on each card. The pick downloads as an
 `.fbx`, plus its material when the asset publishes one texture set, so the call
-fills in already shaded:
-
-```js static
-model('polyhaven:BarberShopChair_01.fbx')
-  .material({ pbr: 'polyhaven:BarberShopChair_01_2k' })
-  .out()
-```
+fills in already shaded, like the chair above.
 
 **from disk…** picks a local file instead. Foliage is the one thing that can't
 look right yet: materials have no alpha cutout and leaves are modelled as cards.
@@ -273,7 +283,7 @@ lighting follows the new surface.
 ```js
 ambient({ intensity: 0.15 })
 directional({ intensity: 0.8 }).position(-3, 4, 5).out()
-point({ color: '#ff5f9e', intensity: 80 }).position(t => Math.sin(t) * 4, 3, 2).out()
+point({ color: '#ff5f9e', intensity: 80 }).position(T.mul(0.16).sin().range(-4, 4), 3, 2).out()
 
 icosa({ radius: 1.3, res: 16 })
   .noise({ amp: 0.35, period: 0.5, octaves: 4, speed: 0.4 })
@@ -350,7 +360,7 @@ plane({ width: 8, height: 4.5, res: 320 })
   .displace(pic, { amount: 0.8, mid: 0 })
   .noise({ amp: 0.15, period: 2, speed: 0.3 })
   .points({ size: 1 })
-  .rotation(-0.3, t => Math.sin(t * 0.4) * 0.3, 0)
+  .rotation(-0.3, T.mul(0.06).sin().range(-0.3, 0.3), 0)
   .out()
 ```
 
@@ -377,7 +387,7 @@ plane({ width: 8, height: 4.5, res: [400, 90] })
   .material({ map: pic })
   .displace(pic, { amount: 0.9, mid: 0 })
   .lines({ dir: 'x' })
-  .rotation(-0.5, t => Math.sin(t * 0.4) * 0.3, 0)
+  .rotation(-0.5, T.mul(0.06).sin().range(-0.3, 0.3), 0)
   .out()
 
 scene().bloom({ threshold: 0.4, strength: 0.8 }).out()
@@ -402,7 +412,7 @@ directional({ intensity: 2 }).position(3, 4, 5).out()
 
 person().contrast(1.5)
   .lines({ dir: 'x', res: [480, 80], depth: 1.4 })
-  .rotation(-0.6, t => Math.sin(t * 0.25) * 0.5, 0)
+  .rotation(-0.6, T.mul(0.04).sin().range(-0.5, 0.5), 0)
   .out()
 
 scene().bloom({ threshold: 0.3, strength: 1 }).out()
@@ -579,7 +589,7 @@ sphere({ radius: 1.3, res: 96 })
     ior: 1.45,
     roughness: 0.05,
     iridescence: 1,
-    iridescenceThickness: t => 300 + Math.sin(t * 0.5) * 180,
+    iridescenceThickness: T.mul(0.08).sin().range(120, 480),
   })
   .out()
 ```
@@ -637,7 +647,7 @@ plane({ width: 20, height: 20, res: 200 })
 
 box({ res: 2 })
   .scale(2)
-  .rotation(0, t => t * 0.3, 0)
+  .rotation(0, T.mul(0.3), 0)
   .material({
     map: 'cobblestone_floor_08_1k/diff.jpg',
     normalMap: 'cobblestone_floor_08_1k/nor_gl.jpg',
@@ -676,7 +686,7 @@ so crank it under plain lights and you get black.
 ```js
 hdri('kloofendal_43d_clear_puresky_1k.hdr', {
   blur: 0.4,                    // soft sky, unchanged lighting
-  rotation: t => t * 0.05,      // drift the whole rig
+  rotation: T.mul(0.05),        // drift the whole rig
 })
 
 icosa({ radius: 1.2, res: 6 })
@@ -692,6 +702,8 @@ icosa({ radius: 1.2, res: 6 })
 - `rotation` (radians) turns the lighting and the sky together;
   `backgroundRotation` slides the sky under fixed lighting.
 - Everything but `background` takes a function of `t` or a signal.
+- `sky()` is the visible sky as a texture chain: `sky().blur(8).out()` above
+  the geometry swaps in a processed one.
 
 Prefiltering is cached per file, so only the first run after importing hitches.
 
@@ -960,7 +972,7 @@ ambient({ intensity: 0.3 })
 directional({ intensity: 1.6 }).position(2, 4, 6).out()
 
 text3d('fizzle', { size: 1.2, depth: 0.3, bevel: 0.03 })
-  .rotation(0, t => Math.sin(t * 0.6) * 0.4, 0)
+  .rotation(0, T.mul(0.1).sin().range(-0.4, 0.4), 0)
   .color('#7ee787')
   .out()
 ```
@@ -1069,7 +1081,7 @@ its own.
 bg('#04050a')
 
 spot({ color: '#66bbff', intensity: 140, angle: 0.6, penumbra: 0.5, shadow: true })
-  .position(t => Math.sin(t * 0.3) * 5, 7, 4).out()
+  .position(T.mul(0.05).sin().range(-5, 5), 7, 4).out()
 spot({ color: '#ff7744', intensity: 110, angle: 0.55, penumbra: 0.5, shadow: true })
   .position(-5, 6, -2).out()
 
@@ -1367,9 +1379,19 @@ applies one to the whole set and any point-shaped slot takes the result:
 
 ```js
 bg('#05060c')
+ambient({ intensity: 0.3 })
+
 const coil = curve.helix({ radius: 1.3, height: 3, turns: 5 })
-link(spread(90).map(coil), { within: 0.5, color: '#8899ff' }).out()
-camera(0, 0.5, 7)
+const pts = spread(90).map(coil)
+
+link(pts, { within: 0.5, color: '#ffd166' }).out()
+sphere({ radius: 0.05 })
+  .instance(pts.length, (x, i) => x.position(pts[i]))
+  .material({ color: '#ffd166', emissive: '#ffd166' })
+  .out()
+
+camera(0, 0.5, 5.5)
+scene().bloom({ threshold: 0.2, strength: 0.9 }).out()
 ```
 
 `spread(80, { jitter: 0.5 })` roughs the spacing and `{ random: true }`
@@ -1452,8 +1474,8 @@ bg('#07070c')
 fog({ color: '#07070c', near: 6, far: 30 })
 ambient({ intensity: 0.1 })
 hemi({ sky: '#333366', ground: '#221100' }).out()
-point({ color: '#4fd1c5', intensity: 70 }).position(t => Math.cos(t) * 4, 2, t => Math.sin(t) * 4).out()
-camera(t => Math.sin(t * 0.15) * 9, 4, t => Math.cos(t * 0.15) * 9)
+point({ color: '#4fd1c5', intensity: 70 }).position(curve.circle(4, { center: [0, 2, 0] })(T.mul(0.16))).out()
+camera(...curve.circle(9, { center: [0, 4, 0] })(T.mul(0.024)))
 
 plane({ width: 24, height: 24, res: 128 })
   .rotation(-Math.PI / 2, 0, 0)
@@ -1478,9 +1500,9 @@ plane({ width: 24, height: 24, res: 128 })
   drives the camera and orbiting is off; drop the call and the next run hands
   back the view you last orbited to. A game controller can steer it instead:
   see **gamepads**.
-- `bg(color)` and `fog({ color, near, far })` set the scene backdrop. `bg()`
-  sits under the texture stack too, so a chain with transparency in it shows
-  the background through the gaps rather than black.
+- `bg(color)` and `fog({ color, near, far })` set the scene backdrop. The
+  backdrop sits under everything sent `.out()`, so a chain with transparency in
+  it shows the background through the gaps rather than black.
 
 ### shadows
 
@@ -1493,7 +1515,7 @@ spot({ intensity: 90, angle: 0.5, shadow: { soft: 5 } }).position(0, 6, 4).out()
 plane({ width: 40, height: 40, res: 1 }).rotation(-Math.PI / 2, 0, 0)
   .shadow({ cast: false })                     // flat — only catches
   .material({ color: '#8d879b', roughness: 0.8 }).out()
-torus({ radius: 1.4, tube: 0.4 }).position(0, 2, 0).rotation(t => t * 0.4, 0, 0).out()
+torus({ radius: 1.4, tube: 0.4 }).position(0, 2, 0).rotation(T.mul(0.4), 0, 0).out()
 ```
 
 - `shadow: true` on `directional` / `spot` / `point`. `ambient` and `hemi`
@@ -1511,32 +1533,58 @@ torus({ radius: 1.4, tube: 0.4 }).position(0, 2, 0).rotation(t => t * 0.4, 0, 0)
   too small and the shadow stops mid-floor.
 - A `point` light shadows a whole cube map: six renders, the expensive one.
 - `.noise()` and `.displace()` are shadowed as displaced. Geometry sent to
-  `.out('name')` casts within its own layer.
+  `.out('name')` casts within its own layer, and geometry split by a texture
+  `.out()` casts within its own side of it.
 
 ## textures: the shader pipeline
 
 The rendered scene is also a texture. Texture chains are shader passes
-evaluated as a graph each frame; end one with `.out()` to make it the display
-output. With no texture `.out()`, the scene renders directly.
+evaluated as a graph each frame; end one with `.out()` to put it on screen.
 
 ```js
 ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).position(4, 6, 3).out()
-torus({ radius: 1.2, tube: 0.4, res: 64 }).rotation(t => t * 0.5, t => t * 0.3, 0).color('#ff5f9e').out()
+torus({ radius: 1.2, tube: 0.4, res: 64 }).rotation(T.mul(0.5), T.mul(0.3), 0).color('#ff5f9e').out()
 
 scene()
   .kaleido(6)
-  .hue(t => t * 0.05)
+  .hue(T.mul(0.05))
   .out()
 ```
 
+### the stack
+
+Every naked `.out()` is a layer, geometry and textures alike, painted in code
+order over the backdrop.
+
+```js
+bg('#203040')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
+
+sphere({ radius: 1.6 }).color('#ff5f9e').out()
+ring({ inner: 0.25, outer: 0.4, color: '#ffe066', bg: null }).out()
+box({ size: 1.2 }).position(0.8, 0, -3).color('#66ccff').out()   // behind the sphere, painted over it
+```
+
+- Geometry sent out back to back shares one 3D pass and sorts by depth as
+  usual. A texture `.out()` in between splits it: what comes after paints over
+  what came before whatever its distance, and shadows stay on their own side.
+- Lights, the camera and fog are sketch-wide. Where they sit in the code
+  doesn't matter.
+- `scene()` reads the geometry sent out above it, and a chain that reads it
+  goes on screen in place of that geometry. Geometry sent out below a
+  `scene()` isn't in it and paints on top.
+
 ### sources
 
-- `scene()` — the lit 3D render of everything sent to a naked `.out()`.
-  `scene({ bg })` swaps the backdrop for that one read: a color stands in for
-  `bg()`, a chain shows through behind the geometry, and `null` leaves it
-  transparent so it comps `'over'` whatever sits below. See **geometry
-  layers** for the pattern.
+- `scene()` — the lit 3D render of the geometry sent to a naked `.out()` above
+  it, on the sketch's backdrop. `scene({ bg })` swaps the backdrop for that one
+  read: a color stands in for `bg()`, a chain shows through behind the
+  geometry, and `null` leaves it transparent so whatever is below in the stack
+  shows through.
+- `sky()` — the backdrop alone, as the camera sees it: the `hdri()` sky, or the
+  `bg()` color without one.
 - `input()` — last frame's display output (a feedback loop; survives re-runs,
   frozen while paused). Comp it back in for trails.
 - `input('name')` — a named bus published elsewhere with `.out('name')`. See
@@ -1602,11 +1650,11 @@ a pinwheel, concentric rings, all the same call:
 ```js
 ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).position(4, 6, 3).out()
-torusKnot({ res: 96 }).rotation(t => t * 0.3, 0, 0).color('#4fd1c5').out()
+torusKnot({ res: 96 }).rotation(T.mul(0.3), 0, 0).color('#4fd1c5').out()
 
 scene()
   .comp(ramp({ angle: Math.PI / 2, freq: 80, shape: 'tri', a: '#585858' }), 'mult')
-  .comp(ramp({ type: 'angular', period: rand({ freq: 0.5 }), shape: 'sqr', phase: t => t * 0.1 }), 'add', 0.1)
+  .comp(ramp({ type: 'angular', period: rand({ freq: 0.5 }), shape: 'sqr', phase: T.mul(0.1) }), 'add', 0.1)
   .out()
 ```
 
@@ -1651,7 +1699,7 @@ geometry.
   ```js
   ambient({ intensity: 0.3 })
   directional({ intensity: 1.5 }).position(4, 6, 3).out()
-  torusKnot({ res: 96 }).rotation(0, t => t * 0.4, 0).out()
+  torusKnot({ res: 96 }).rotation(0, T.mul(0.4), 0).out()
 
   scene().edge({ strength: 2 }).tint('#ff00ff', { bg: '#120018' }).out()
   ```
@@ -1659,7 +1707,7 @@ geometry.
   Both colors take signals, so `.tint(B.select(palette))` recolors on the
   bar. More than two stops is `.lookup(ramp)`.
 - `.contrast(v)` · `.saturation(v)` · `.gamma(v)` — 1 = unchanged. Or combined: `.levels({ contrast, saturation, gamma, hue })`.
-- `.hue(v)` — hue rotation in turns: `.hue(0.5)` flips the palette, `.hue(t => t * 0.1)` drifts it.
+- `.hue(v)` — hue rotation in turns: `.hue(0.5)` flips the palette, `.hue(T.mul(0.1))` drifts it.
 - `.posterize(steps)` — quantize values · `.pixellate(x, y?)` — quantize position.
 - `.dither(levels, { mode, cells })` — `.posterize()` with a Bayer threshold
   pattern scattering the error, so gradients become texture instead of bands.
@@ -1696,7 +1744,7 @@ geometry.
   ```js
   ambient({ intensity: 0.3 })
   directional({ intensity: 1.5 }).position(4, 6, 3).out()
-  torusKnot({ res: 96 }).rotation(0, t => t * 0.4, 0).out()
+  torusKnot({ res: 96 }).rotation(0, T.mul(0.4), 0).out()
 
   scene()
     .edge({ mode: 'crisp', strength: 4 })
@@ -1717,7 +1765,7 @@ noise({ freq: 3, speed: 0.4 })
 ambient({ intensity: 0.2 })
 directional({ intensity: 1.6 }).position(4, 6, 3).out()
 torusKnot({ radius: 1.2, tube: 0.4, res: 96 })
-  .rotation(t => t * 0.4, t => t * 0.25, 0)
+  .rotation(T.mul(0.4), T.mul(0.25), 0)
   .color('#ffffff')
   .out()
 
@@ -1825,8 +1873,8 @@ scene()
 
 ```js
 circle({ radius: 0.2, soft: 0.04, color: '#4fd1c5' })
-  .translate(t => Math.sin(t) * 0.25, 0, { wrap: 'repeat' })
-  .kaleido(6, { rotate: t => t * 0.1 })
+  .translate(T.mul(0.16).sin().range(-0.25, 0.25), 0, { wrap: 'repeat' })
+  .kaleido(6, { rotate: T.mul(0.1) })
   .tile(3, 2, (src, i, x, y) => (x + y) % 2 ? src.invert() : src)
   .out()
 ```
@@ -1954,8 +2002,9 @@ voronoi({ freq: 7, speed: 0.4, a: '#0d1030', b: '#3a7f8f' })
   pixel by its luma. `.tint(color, { bg: null })` turns any mask into a
   colored cutout.
 - Several naked `.out()`s stack in code order, later over earlier.
-- What's behind the bottom of that stack is `bg()`, so transparency reads as
-  the background color; `bg(null)` puts it back to black.
+- What's behind the bottom of that stack is the backdrop, `bg()` or the
+  `hdri()` sky, so transparency reads as the background. `bg(null)` puts it
+  back to black.
 
 ### keying — alpha from the picture itself
 
@@ -2027,7 +2076,7 @@ displacement map. (`.displace(map, amount)` works as a positional shorthand.)
 
 ```js
 text('fizzle')
-  .displace(noise({ channels: 2, period: 0.5, speed: 0.4 }), { amount: t => 0.04 + 0.03 * Math.sin(t) })
+  .displace(noise({ channels: 2, period: 0.5, speed: 0.4 }), { amount: T.mul(0.16).sin().range(0.01, 0.07) })
   .out()
 ```
 
@@ -2255,7 +2304,7 @@ directional({ intensity: 1.5 }).position(4, 6, 3).out()
 point({ color: '#66aaff', intensity: 50 }).position(-3, 2, 3).out()
 
 torusKnot({ radius: 1.1, tube: 0.32, res: 160 })
-  .rotation(t => t * 0.4, t => t * 0.3, 0)
+  .rotation(T.mul(0.4), T.mul(0.3), 0)
   .material({ color: '#ff5e8a', roughness: 0.3 })
   .out()
 
@@ -2346,7 +2395,7 @@ ambient({ intensity: 0.5 })
 directional({ intensity: 1.6 }).position(2, 4, 6).out()
 
 // well under one cycle across the board, so it sweeps rather than ripples
-const wave = ramp({ type: 'radial', freq: 0.12, shape: 'sin', phase: t => -t * 0.07 })
+const wave = ramp({ type: 'radial', freq: 0.12, shape: 'sin', phase: T.mul(-0.07) })
   .threshold(0.5, { soft: 0.15 })
   .field()
 
@@ -2405,7 +2454,7 @@ loop, closable anywhere in the chain:
 
 ```js
 circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
-  .translate(t => Math.sin(t * 1.3) * 0.3, t => Math.sin(t * 0.9) * 0.3)
+  .translate(T.mul(0.2).sin().range(-0.3, 0.3), T.mul(0.14).sin().range(-0.3, 0.3))
   .comp(input('trail').transform({ scale: 0.985, rotate: 0.01 }), 'add', 0.75)
   .out('trail')
   .bloom({ threshold: 0.4 })
@@ -2423,7 +2472,7 @@ comes back over the chain at the amount you name.
 
 ```js
 circle({ radius: 0.1, soft: 0.05, color: '#7ee787' })
-  .translate(t => Math.sin(t * 1.3) * 0.3, t => Math.sin(t * 0.9) * 0.3)
+  .translate(T.mul(0.2).sin().range(-0.3, 0.3), T.mul(0.14).sin().range(-0.3, 0.3))
   .feedback(0.75, p => p.transform({ scale: 0.985, rotate: 0.01 }))
   .bloom({ threshold: 0.4 })
   .out()
@@ -2472,7 +2521,7 @@ Texture.prototype.trail = function (amt = 0.9) {
 }
 
 circle({ radius: 0.08, soft: 0.04, color: '#7ee787' })
-  .translate(t => Math.sin(t * 1.3) * 0.3, t => Math.sin(t * 0.9) * 0.3)
+  .translate(T.mul(0.2).sin().range(-0.3, 0.3), T.mul(0.14).sin().range(-0.3, 0.3))
   .trail(0.92)
   .bloom()
   .out()
@@ -2487,7 +2536,7 @@ ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).position(4, 6, 3).out()
 
 Geometry.prototype.spin = function (rate = 0.3) {
-  return this.rotation(0, t => t * rate, 0)
+  return this.rotation(0, T.mul(rate), 0)
 }
 
 torus({ radius: 1.2, tube: 0.4 }).spin(0.5).color('#4fd1c5').out()
@@ -2567,7 +2616,7 @@ they land between, so a smooth map stays smooth.
 ambient({ intensity: 0.3 })
 directional({ intensity: 1.5 }).position(4, 6, 3).out()
 sphere({ radius: 0.9, res: 96 })
-  .position(t => Math.sin(t * 2) * 1.8, t => Math.sin(t * 3.1) * 0.6, 0)
+  .position(T.mul(0.32).sin().range(-1.8, 1.8), T.mul(0.5).sin().range(-0.6, 0.6), 0)
   .material({ color: '#ffb454' }).out()
 
 scene()
@@ -2602,7 +2651,7 @@ directional({ intensity: 1.5 }).position(4, 6, 3).out()
 point({ color: '#4d9dff', intensity: 50 }).position(-3, 1, 3).out()
 
 sphere({ radius: 0.9, res: 96 })
-  .position(t => Math.sin(t * 2) * 1.8, t => Math.sin(t * 3.1) * 0.6, 0)
+  .position(T.mul(0.32).sin().range(-1.8, 1.8), T.mul(0.5).sin().range(-0.6, 0.6), 0)
   .material({ color: '#ff5e8a', roughness: 0.3 })
   .out()
 
@@ -2619,7 +2668,7 @@ movement.
 ### geometry layers
 
 `.out('name')` on a **geometry** publishes it the same way: the object renders
-into its own layer instead of the visible scene. `input('name')` pulls that
+into its own layer instead of onto the display. `input('name')` pulls that
 layer as a texture: same camera, lit, on nothing. The layer carries real
 coverage alpha, so it comps `'over'` like a sprite. Lights hit every layer by
 default; a light's own `.out('name')` restricts it to one.
@@ -2628,7 +2677,7 @@ default; a light's own `.out('name')` restricts it to one.
 ambient({ intensity: 0.3 })
 directional({ intensity: 1.4 }).position(4, 6, 3).out()
 
-torusKnot({ res: 96 }).rotation(0, t => t * 0.5, 0).color('#8899ff').out('knot')
+torusKnot({ res: 96 }).rotation(0, T.mul(0.5), 0).color('#8899ff').out('knot')
 icosa({ radius: 1.2 }).noise({ amp: 0.3, speed: 0.4 }).color('#ff5f9e').out('blob')
 
 input('knot').edge({ strength: 2 })
@@ -2636,18 +2685,35 @@ input('knot').edge({ strength: 2 })
   .out()
 ```
 
-To put the whole scene over a texture, skip the layer round trip:
-`scene({ bg })` renders the 3D pass on its own backdrop. A chain there shows
-through behind the geometry, `null` leaves the render transparent so it comps
-`'over'` other outs, and a color stands in for `bg()` in that one read.
+`.render()` is the same layer without the name: the object alone, as a chain,
+right where it's written. Trails on one object while the rest stays sharp:
+
+```js
+bg('#101828')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
+
+box({ radius: 0.2 }).position(2, 0, 0).color('#66ccff').out()
+
+sphere().position(curve.circle(1.5, { axis: 'z', center: [-1, 0, 0] })(T.mul(0.3))).color('#ff5f9e')
+  .render()
+  .feedback(0.92, x => x.scale(1.02), 'under')
+  .out()
+```
+
+Geometry over a texture needs no layer: send the texture out first.
+`scene({ bg })` does the same inside one chain, for when the result goes on
+through more passes. A chain there shows through behind the geometry, `null`
+leaves the render transparent, and a color stands in for `bg()` in that one
+read.
 
 ```js
 ambient({ intensity: 0.4 })
 point({ intensity: 70 }).position(4, 4, 4).out()
 
-torusKnot({ res: 96 }).rotation(0, t => t * 0.4, 0).color('#ff7f50').out()
+torusKnot({ res: 96 }).rotation(0, T.mul(0.4), 0).color('#ff7f50').out()
 
-scene({ bg: noise({ period: 0.5, speed: 0.1, b: '#2a1a4a' }) }).out()
+scene({ bg: noise({ period: 0.5, speed: 0.1, b: '#2a1a4a' }) }).kaleido(6).out()
 ```
 
 ### texture chains as material maps
@@ -2660,7 +2726,7 @@ ambient({ intensity: 0.5 })
 directional({ intensity: 2.4 }).position(3, 5, 4).out()
 
 box({ width: 4.4, height: 2.8, depth: 0.25, res: 2 })
-  .rotation(0, t => Math.sin(t * 0.4) * 0.6, 0)
+  .rotation(0, T.mul(0.06).sin().range(-0.6, 0.6), 0)
   .material({
     map: noise({ freq: 3, octaves: 4, speed: 0.3, a: '#1a0533', b: '#4fd1c5' })
       .kaleido(6)
@@ -2896,7 +2962,7 @@ them, so flow goes around rather than being clipped afterwards.
 ```js
 const disc = circle({ radius: 0.12, center: [0.45, 0.5], bg: null })
 
-circle({ center: [0.05, t => 0.5 + Math.sin(t) * 0.3], radius: 0.03, color: '#7ee787', bg: null })
+circle({ center: [0.05, T.mul(0.16).sin().range(0.2, 0.8)], radius: 0.03, color: '#7ee787', bg: null })
   .fluid({ res: 320, fade: 0.1, ink: 6 })
   .obstacle(disc)
   .push([0.25, 0])
@@ -2967,7 +3033,7 @@ address.
 video()
   .pixellate(90)
   .posterize(4)
-  .hue(t => t * 0.03)
+  .hue(T.mul(0.03))
   .out()
 ```
 
@@ -3467,7 +3533,7 @@ torusKnot({ radius: 1, tube: 0.3, res: 128 })
   .position(0, m.note.range(-1.5, 1.5), 0)
   .scale(m.vel.smooth(0.01, 0.4).range(0.7, 1.5))
   .color([m.note, 0.45, m.note.sub(1).abs()])
-  .rotation(0, t => t * 0.4, 0)
+  .rotation(0, T.mul(0.4), 0)
   .out()
 ```
 

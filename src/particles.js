@@ -1379,7 +1379,7 @@ export class ParticleOp {
     };
 
     updater(engine.time, 0);
-    if (name != null) points.layers.set(engine.geoLayer(String(name)));
+    points.layers.set(name != null ? engine.geoLayer(String(name)) : engine.stackGeo());
     engine.add(points, updater);
 
     // .link(): the plexus lines, registered after the sim so they read this

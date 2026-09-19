@@ -454,6 +454,14 @@ class InstanceHandle {
   }
 }
 
+// .render(): the object alone on a layer of its own, handed back as a texture
+// chain — .out('name') and input('name') without the name
+function renderAsTexture() {
+  const name = this.engine.anonLayer();
+  this.out(name);
+  return new TextureOp(this.engine, 'in', { name });
+}
+
 class GeoOp {
   constructor(engine, type, opts) {
     // in scope for sketches as `Geometry` — see the same guard on TextureOp
@@ -1086,8 +1094,8 @@ class GeoOp {
 
     updater(0);
     // .out('name'): render into a named layer (pulled as a texture by
-    // input('name')) instead of the visible scene
-    if (name != null) mesh.layers.set(this.engine.geoLayer(String(name)));
+    // input('name')) instead of the display stack
+    mesh.layers.set(name != null ? this.engine.geoLayer(String(name)) : this.engine.stackGeo());
     this.engine.add(mesh, updater);
     // after add(), so mesh.parent is already set: a cached map attaches on the
     // spot, and mesh.parent is also the liveness test for one that arrives
@@ -1129,6 +1137,8 @@ class GeoOp {
     else t.pending.then((tex) => { if (tex && isAlive()) uniform.value = tex; });
   }
 }
+
+for (const Op of [GeoOp, SegmentsOp, ParticleOp]) Op.prototype.render = renderAsTexture;
 
 // The same verb on an image: person().particles() births on the bright pixels
 // of the live texture, each particle keeping the color of the pixel it was
@@ -1544,6 +1554,9 @@ export function makeApi(engine) {
     // (comps 'over' like a layer), a chain shows through behind the geometry,
     // a color stands in for bg()
     scene: (o) => new TextureOp(engine, 'scene', o ?? {}),
+    // the sketch's backdrop alone, as the camera sees it: the hdri() sky, or
+    // the bg() color when there isn't one
+    sky: () => new TextureOp(engine, 'sky', {}),
     // the same render as scene(), as a grayscale distance map: black near,
     // white far. depth({ near, far }) sets the world-space range it spans
     // (defaulting to the sketch's fog, else 0..20); depth({ focus, range })

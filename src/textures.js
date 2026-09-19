@@ -2840,7 +2840,26 @@ export class TextureOp {
     this.texBinds = bound.binds;
     this.lastFrame = -1;
     this.lastCtx = '';        // which context that frame was rendered in (see renderNode)
+    // these read what's drawn above them, so where they were called matters
+    if (kind === 'scene' || kind === 'depth') this.upto = engine.stackMark();
     engine.textureNodes.push(this);
+  }
+
+  // How far down the stack this chain's scene() reads reach: the geometry
+  // above that point is in the chain already, so a naked .out() of it stands in
+  // for those groups rather than landing on top of them.
+  _consumes(seen = new Set()) {
+    if (seen.has(this)) return 0;
+    seen.add(this);
+    let n = this.kind === 'scene' ? this.upto : 0;
+    // through a bus too: scene().out('a') read back as input('a') is the same read
+    const bus = this.kind === 'in' && this.params.name != null && this.engine.textureBuffers.get(this.params.name);
+    if (bus) n = Math.max(n, bus._consumes(seen));
+    for (const i of this.inputs) n = Math.max(n, i._consumes(seen));
+    for (const v of Object.values(this.params)) {
+      if (v instanceof TextureOp) n = Math.max(n, v._consumes(seen));
+    }
+    return n;
   }
 
   _n(kind, params = {}, extraInputs = []) {
@@ -3433,7 +3452,10 @@ export class TextureOp {
   // loop). Both are passthrough.
   out(name) {
     if (name != null) this.engine.textureBuffers.set(String(name), this);
-    else if (!this.engine.textureOutputs.includes(this)) this.engine.textureOutputs.push(this);
+    else if (!this.engine.textureOutputs.includes(this)) {
+      this.engine.textureOutputs.push(this);
+      this.engine.stack.push({ kind: 'tex', node: this });
+    }
     return this;
   }
 
@@ -3526,60 +3548,35 @@ export class TextureOp {
     }
   }
 
-  // scene({ bg }): this read's own 3D pass, so the backdrop is per-op rather
-  // than the sketch-wide bg()/hdri() slot. null clears transparent — real
-  // coverage alpha, like a geometry layer, with the same tradeoff (blended
-  // materials thin out over nothing). A chain renders transparent and comps
-  // 'over' it in display space; through scene.background it would be
-  // tone-mapped a second time. A color paints the backdrop for this pass only.
-  _renderSceneBg(ctx, bg) {
-    if (bg != null && typeof bg === 'object' && !(bg instanceof TextureOp)
-        && !bg.isColor && !Array.isArray(bg)) {
-      warn('scene: bg is a color, a texture chain, or null for transparent');
-      bg = null;
-    }
-    const chain = bg instanceof TextureOp ? bg : null;
-    // pulled before the 3D pass below flips render targets around
-    const under = chain ? chain.renderNode(ctx) : null;
-    const clear = bg == null;
-    // own linear HDR target — the shared sceneRT stays the plain scene()/depth() pass
-    let lin = this._lin;
-    if (!lin || lin.width !== ctx.w || lin.height !== ctx.h) {
-      lin?.dispose();
-      lin = this._lin = new THREE.WebGLRenderTarget(ctx.w, ctx.h, { type: THREE.HalfFloatType, samples: 4 });
-    }
-    const { renderer } = ctx;
-    const scene = this.engine.scene;
-    const prevBg = scene.background;
-    const prevAlpha = renderer.getClearAlpha();
-    if (clear || chain) {
-      scene.background = null;
-      renderer.setClearAlpha(0);
-    } else {
-      scene.background = writeColor(this._bgColor ??= new THREE.Color(), bg, ctx.t);
-    }
-    renderer.setRenderTarget(lin);
-    renderer.render(scene, this.engine.camera);
-    scene.background = prevBg;
-    renderer.setClearAlpha(prevAlpha);
-    const out = this._rt(ctx);
-    if (!chain) {
-      runPass(ctx, MAT_TONEMAP, lin.texture, null, out, (u) => { u.uKeepAlpha.value = clear ? 1 : 0; });
-      return out.texture;
-    }
-    const over = this._rt(ctx, 'auxA');
-    runPass(ctx, MAT_TONEMAP, lin.texture, null, over, (u) => { u.uKeepAlpha.value = 1; });
-    runPass(ctx, MAT_OVER, under, over.texture, out);
-    return out.texture;
-  }
-
   _render(ctx) {
     ensurePassMaterials();
 
+    // scene(): the geometry sent out above the call, on the sketch's
+    // backdrop. scene({ bg }) swaps that backdrop for this read: a color, a
+    // chain, or null for none — real coverage alpha, like a geometry layer,
+    // with the same tradeoff (glass has nothing behind it to refract).
     if (this.kind === 'scene') {
-      if (this.params.bg !== undefined) return this._renderSceneBg(ctx, this.params.bg);
+      let bg = this.params.bg;
+      if (bg != null && typeof bg === 'object' && !(bg instanceof TextureOp)
+          && !bg.isColor && !Array.isArray(bg)) {
+        warn('scene: bg is a color, a texture chain, or null for transparent');
+        bg = null;
+      }
+      const tex = ctx.sceneTex(ctx, this.upto, bg, this);
+      // a map slot reads mips, and a lone layer comes back as its own target
+      const k = ctx.rtKey ?? '';
+      if (!this._needsMips || tex === this[`_tgt_auxA${k}`]?.texture || tex === this[`_tgt_auxB${k}`]?.texture) return tex;
       const out = this._rt(ctx);
-      runPass(ctx, MAT_TONEMAP, ctx.sceneTex, null, out, (u) => { u.uKeepAlpha.value = 0; });
+      runPass(ctx, MAT_COPY, tex, null, out);
+      return out.texture;
+    }
+
+    // sky(): the sketch's backdrop on its own, as the camera sees it
+    if (this.kind === 'sky') {
+      const sky = ctx.skyTex();
+      if (sky) return sky;
+      const out = this._rt(ctx);
+      runPass(ctx, MAT_PLATE, clearTex(), null, out, (u) => setColor4(u.uBg.value, this.engine.bg, ctx.t));
       return out.texture;
     }
 
@@ -3592,7 +3589,7 @@ export class TextureOp {
       const fog = this.engine.scene.fog;
       const out = this._rt(ctx);
       this.mat ??= makeMaterial(SPECS.depth);
-      runPass(ctx, this.mat, ctx.sceneDepthTex ?? blackTex(), null, out, (u) => {
+      runPass(ctx, this.mat, ctx.depthTex(this.upto) ?? blackTex(), null, out, (u) => {
         u.uCam.value.set(cam.near, cam.far);
         u.uRange.value.set(resolve(p.near ?? fog?.near ?? 0, ctx.t), resolve(p.far ?? fog?.far ?? 20, ctx.t));
         u.uMode.value = p.focus != null ? 1 : 0;
@@ -4465,12 +4462,13 @@ export function resetTextureBuffers(engine) {
   st.frameBase = (st.frame ?? 0) + 1;   // the next frame is this run's frame 0
   for (const rt of st.fbRTs?.values() ?? []) rt.dispose();
   st.fbRTs?.clear();
-  for (const e of st.layerRTs?.values() ?? []) { e.lin.dispose(); e.out.dispose(); }
+  for (const e of st.layerRTs?.values() ?? []) { e.lin.depthTexture?.dispose(); e.lin.dispose(); e.out.dispose(); }
   st.layerRTs?.clear();
-  for (const key of ['feedbackRT', 'sceneRT', 'stackA', 'stackB']) {
-    st[key]?.depthTexture?.dispose();
-    st[key]?.dispose();
-    st[key] = null;
+  st.feedbackRT?.dispose();
+  st.feedbackRT = null;
+  for (const key of ['auxA', 'auxB']) {
+    st.display?.[key]?.dispose();
+    if (st.display) st.display[key] = null;
   }
 }
 
@@ -4486,29 +4484,12 @@ export function renderTextures(engine) {
   st.frame = (st.frame ?? 0) + 1;
   ensurePassMaterials();
 
-  // depth() reads the 3D pass's depth attachment, which is only allocated when
+  // depth() reads a 3D pass's depth attachment, which is only allocated when
   // a sketch asks for it (and stays once allocated — a re-run that drops
   // depth() isn't worth a realloc)
   const needsDepth = engine.textureNodes.some((n) => n.kind === 'depth');
-  // pure-texture sketches (generators/feedback only) skip the 3D pass entirely.
-  // With no texture .out() the display *is* the scene (we're only here to feed a
-  // material map) — it still goes through the offscreen render, so that
-  // scene() and input() mean the same thing they always do.
-  const outs = engine.textureOutputs;
-  const needsScene = !outs.length || needsDepth
-    || engine.textureNodes.some((n) => n.kind === 'scene' && n.params.bg === undefined);
-  if (needsScene && (!st.sceneRT || st.sceneRT.width !== size.x || st.sceneRT.height !== size.y
-      || (needsDepth && !st.sceneRT.depthTexture))) {
-    st.sceneRT?.depthTexture?.dispose();
-    st.sceneRT?.dispose();
-    // linear HDR; the scene texture's tonemap pass converts to display space
-    st.sceneRT = new THREE.WebGLRenderTarget(size.x, size.y, {
-      type: THREE.HalfFloatType,
-      samples: 4,
-      // MSAA resolves depth alongside color, so the 4× scene render is unchanged
-      depthTexture: needsDepth ? new THREE.DepthTexture(size.x, size.y) : null,
-    });
-  }
+  const stack = engine.stack;
+
   if (!st.feedbackRT || st.feedbackRT.width !== size.x || st.feedbackRT.height !== size.y) {
     st.feedbackRT?.dispose();
     st.feedbackRT = makeRT(size.x, size.y);
@@ -4527,41 +4508,149 @@ export function renderTextures(engine) {
     return rt;
   };
 
-  // named geometry layers: render the scene with the camera masked to one
-  // layer, on a transparent clear — the layer carries real coverage alpha, so
-  // it comps 'over' as a sprite and still adds/screens exactly as it did on
-  // black — then tonemap, same display-space boundary as scene(). Memoized
-  // per frame per name.
+  // One 3D pass as a display-space texture: the camera masked to `mask` (none
+  // draws the backdrop alone), tonemapped at the same boundary scene() always
+  // had. bg undefined keeps the sketch's backdrop and comes back opaque; null
+  // clears transparent, so the pass carries real coverage alpha and comps
+  // 'over' as a sprite; a Color paints this pass only. Memoized per frame per key.
   st.layerRTs ??= new Map();
-  const layerTex = (name, bit) => {
-    let e = st.layerRTs.get(name);
-    if (!e || e.lin.width !== size.x || e.lin.height !== size.y) {
+  let inMaps = false;
+  const pass3d = (key, mask, bg, hold = false) => {
+    let e = st.layerRTs.get(key);
+    // material maps render before the geometry that wears them, so a scene()
+    // inside one reads last frame's pass — a one-frame loop, like input()
+    if (hold && inMaps && e) {
+      e.wanted = st.frame;
+      e.redo = () => pass3d(key, mask, bg);
+      return e;
+    }
+    if (!e || e.lin.width !== size.x || e.lin.height !== size.y || (needsDepth && !e.lin.depthTexture)) {
+      e?.lin.depthTexture?.dispose();
       e?.lin.dispose();
       e?.out.dispose();
       e = {
-        lin: new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 }),
+        // linear HDR; MSAA resolves depth alongside color
+        lin: new THREE.WebGLRenderTarget(size.x, size.y, {
+          type: THREE.HalfFloatType,
+          samples: 4,
+          depthTexture: needsDepth ? new THREE.DepthTexture(size.x, size.y) : null,
+        }),
         out: makeRT(size.x, size.y),
         frame: -1,
       };
-      st.layerRTs.set(name, e);
+      st.layerRTs.set(key, e);
     }
     if (e.frame !== st.frame) {
       e.frame = st.frame;
       const cam = engine.camera;
-      const mask = cam.layers.mask;
-      const bg = engine.scene.background;
+      const prevMask = cam.layers.mask;
+      const prevBg = engine.scene.background;
       const clearAlpha = renderer.getClearAlpha();
-      engine.scene.background = null;
-      renderer.setClearAlpha(0);
-      cam.layers.mask = 1 << bit;
+      if (bg !== undefined) engine.scene.background = bg;
+      if (bg === null) renderer.setClearAlpha(0);
+      // three draws the backdrop as a mesh on layer 0, which a mask without
+      // that layer culls — so the backdrop alone is an empty scene wearing it
+      let scene = engine.scene;
+      if (mask == null) {
+        scene = st.skyScene ??= new THREE.Scene();
+        scene.background = engine.scene.background;
+        scene.backgroundBlurriness = engine.scene.backgroundBlurriness;
+        scene.backgroundIntensity = engine.scene.backgroundIntensity;
+        scene.backgroundRotation.copy(engine.scene.backgroundRotation);
+      } else cam.layers.mask = mask;
       renderer.setRenderTarget(e.lin);
-      renderer.render(engine.scene, cam);
-      cam.layers.mask = mask;
-      engine.scene.background = bg;
-      renderer.setClearAlpha(clearAlpha);
-      runPass(ctx, MAT_TONEMAP, e.lin.texture, null, e.out, (u) => { u.uKeepAlpha.value = 1; });
+      // the engine falls back to a plain render when this throws, and that
+      // render needs its camera back
+      try {
+        renderer.render(scene, cam);
+      } finally {
+        cam.layers.mask = prevMask;
+        engine.scene.background = prevBg;
+        renderer.setClearAlpha(clearAlpha);
+      }
+      runPass(ctx, MAT_TONEMAP, e.lin.texture, null, e.out, (u) => { u.uKeepAlpha.value = bg === null ? 1 : 0; });
     }
-    return e.out.texture;
+    return e;
+  };
+  const layerTex = (name, bit) => pass3d(name, 1 << bit, null).out.texture;
+  // a group of naked geometry .out()s. The \0 keeps these keys clear of any
+  // name a sketch can give a layer.
+  const groupPass = (g, bg, owner) => pass3d(
+    `\0g${g.bit}${bg === undefined ? 'bd' : bg === null ? 'a' : `c${engine.textureNodes.indexOf(owner)}`}`,
+    1 << g.bit, bg, true,
+  );
+  // only an hdri() backdrop is a picture; a bg() color is plated instead,
+  // since a clear color through the tonemap wouldn't come out the color asked for
+  const skyTex = () => (engine.scene.background?.isTexture ? pass3d('\0sky', null, undefined).out.texture : null);
+
+  // Entries folded bottom to top through premultiplied over. bg as in
+  // scene({ bg }): undefined is the sketch's backdrop, null none, else a color
+  // or a chain. The first geometry group at the very bottom renders with its
+  // backdrop in the same 3D pass, so glass has it to refract and edges
+  // antialias against it (three draws the backdrop as a mesh on layer 0, so
+  // only that group can); any other group goes in as a transparent layer.
+  // `owner` lends the two targets the fold ping-pongs between.
+  const onBackdrop = (e) => e?.kind === 'geo' && e.bit === 0;
+  const compose = (c, entries, bg, owner) => {
+    let i = 0;
+    const texs = [];
+    let plate = null;
+    if (bg instanceof TextureOp) texs.push(bg.renderNode(c));
+    else if (bg !== null) {
+      if (onBackdrop(entries[0])) {
+        const color = bg === undefined ? undefined : writeColor(owner._bgColor ??= new THREE.Color(), bg, c.t);
+        texs.push(groupPass(entries[i++], color, owner).out.texture);
+      } else if (bg === undefined && skyTex()) texs.push(skyTex());
+      else plate = bg === undefined ? engine.bg : bg;
+    }
+    for (; i < entries.length; i++) {
+      const e = entries[i];
+      texs.push(e.kind === 'geo' ? groupPass(e, null).out.texture : e.node.renderNode(c));
+    }
+    let acc = texs[0] ?? clearTex();
+    let flip = false;
+    const next = () => ((flip = !flip) ? owner._rt(c, 'auxA') : owner._rt(c, 'auxB'));
+    for (let k = 1; k < texs.length; k++) {
+      const target = next();
+      runPass(c, MAT_OVER, acc, texs[k], target);
+      acc = target.texture;
+    }
+    if (plate != null) {
+      const target = next();
+      runPass(c, MAT_PLATE, acc, null, target, (u) => setColor4(u.uBg.value, plate, c.t));
+      acc = target.texture;
+    }
+    return acc;
+  };
+  // scene(): the geometry sent out above the call, and only the geometry —
+  // texture .out()s in between stay where they are in the stack
+  const sceneTex = (c, n, bg, owner) => compose(c, stack.slice(0, n).filter((e) => e.kind === 'geo'), bg, owner);
+
+  // depth() reads the nearest geometry group above it, off whichever of its
+  // passes this frame already has
+  const depthTex = (n) => {
+    for (let i = n - 1; i >= 0; i--) {
+      const g = stack[i];
+      if (g.kind !== 'geo') continue;
+      for (const mode of ['bd', 'a']) {
+        const e = st.layerRTs.get(`\0g${g.bit}${mode}`);
+        if (e?.frame === st.frame && e.lin.depthTexture) return e.lin.depthTexture;
+      }
+      return groupPass(g, g.bit === 0 ? undefined : null).lin.depthTexture;
+    }
+    return null;
+  };
+
+  // the display's own pair of fold targets, handed to compose() like a node's
+  st.display ??= {
+    _rt(c, key) {
+      let rt = this[key];
+      if (!rt || rt.width !== c.w || rt.height !== c.h) {
+        rt?.dispose();
+        rt = this[key] = makeRT(c.w, c.h);
+      }
+      return rt;
+    },
   };
 
   const ctx = {
@@ -4581,8 +4670,6 @@ export function renderTextures(engine) {
     // that times quality(), which is a perf dial and must not move a framing
     res: engine.resolution,
     aspect: size.x / size.y,
-    sceneTex: needsScene ? st.sceneRT.texture : null,
-    sceneDepthTex: needsDepth ? st.sceneRT.depthTexture : null,
     feedbackTex: st.feedbackRT.texture,
     fbTex: (name) => fbRT(name).texture,
     // a reset trigger fired: blank the held frame, so the loop starts over
@@ -4599,54 +4686,76 @@ export function renderTextures(engine) {
       renderer.setClearColor(clearColorTmp, alpha);
     },
     layerTex,
+    sceneTex,
+    skyTex,
+    depthTex,
   };
 
-  // Material maps first: the 3D render is about to sample them, so they have
-  // to be this frame's. The trade is that sceneTex is still *last* frame's
-  // here — a chain that maps scene() onto geometry inside that same scene is a
-  // one-frame feedback loop, for the same reason input() is.
-  renderMaterialMaps(engine, ctx);
-  renderTileSets(engine, ctx);
-
-  if (needsScene) {
-    renderer.setRenderTarget(st.sceneRT);
-    renderer.render(engine.scene, engine.camera);
-  }
-
-  if (outs.length) {
-    let outTex = outs[0].renderNode(ctx);
-    // stacked outs fold left to right through the premultiplied-over pass, so
-    // the last .out() in the sketch lands on top; a single out skips all this
-    if (outs.length > 1) {
-      for (const key of ['stackA', 'stackB']) {
-        if (!st[key] || st[key].width !== size.x || st[key].height !== size.y) {
-          st[key]?.dispose();
-          st[key] = makeRT(size.x, size.y);
-        }
-      }
-      let flip = false;
-      for (let i = 1; i < outs.length; i++) {
-        const target = flip ? st.stackB : st.stackA;
-        runPass(ctx, MAT_OVER, outTex, outs[i].renderNode(ctx), target);
-        outTex = target.texture;
-        flip = !flip;
+  // scene() is read top to bottom like everything else, so one written above
+  // the geometry it means to show reads an empty frame
+  if (st.checkedGen !== engine.patchGen) {
+    st.checkedGen = engine.patchGen;
+    // once the whole sketch has run, so a bus published further down counts
+    for (const e of stack) if (e.kind === 'tex') e.taken = e.node._consumes();
+    const geoAt = (from, to) => stack.slice(from, to).some((e) => e.kind === 'geo');
+    for (const n of engine.textureNodes) {
+      if ((n.kind === 'scene' || n.kind === 'depth') && !geoAt(0, n.upto) && geoAt(n.upto)) {
+        warn(`${n.kind}(): reads what's drawn above it, and the geometry here is sent out below it, so it reads an empty frame. Move ${n.kind}() under the geometry`);
       }
     }
-    runPass(ctx, MAT_PLATE, outTex, null, null, (u) => setColor4(u.uBg.value, engine.bg, ctx.t));
-    // snapshot for next frame's input(); frozen while paused so trails hold.
-    // Unplated on purpose — the background is a display step, and folding it in
-    // here would hand every feedback loop an opaque last frame to work with.
+  }
+
+  // Material maps first: the 3D passes are about to sample them, so they have
+  // to be this frame's.
+  inMaps = true;
+  renderMaterialMaps(engine, ctx);
+  renderTileSets(engine, ctx);
+  inMaps = false;
+
+  if (stack.length > 1 || stack[0]?.kind === 'tex') {
+    // An unnamed input() wants the frame without its backdrop (the backdrop is
+    // a display step, and folding it in would hand every feedback loop an
+    // opaque last frame), so the whole stack folds over nothing and the
+    // backdrop goes under at the end. With nobody reading it, a bottom
+    // geometry group renders on the sky instead — see compose(). Never on a
+    // bg() color: through the tonemap it comes out a different color than the
+    // plate paints, and which line comes first shouldn't pick between them.
+    const clean = engine.textureNodes.some((n) => n.kind === 'in' && n.params.name == null);
+    // geometry a displayed chain already took in through scene() isn't drawn
+    // again on its own, or it would show twice through any transparency
+    let taken = 0;
+    for (const e of stack) if (e.kind === 'tex') taken = Math.max(taken, e.taken);
+    const shown = stack.filter((e, i) => e.kind === 'tex' || i >= taken);
+    const based = !clean && onBackdrop(shown[0]) && !!engine.scene.background?.isTexture;
+    const outTex = compose(ctx, shown, based ? undefined : null, st.display);
+    const sky = based ? null : skyTex();
+    if (sky) runPass(ctx, MAT_OVER, sky, outTex, null);
+    else runPass(ctx, MAT_PLATE, outTex, null, null, (u) => setColor4(u.uBg.value, engine.bg, ctx.t));
+    // snapshot for next frame's input(); frozen while paused so trails hold
     if (!engine.paused && outTex !== st.feedbackRT.texture) {
       runPass(ctx, MAT_COPY, outTex, null, st.feedbackRT);
     }
   } else {
-    // no texture .out() — the sketch is 3D that merely feeds a chain into a
-    // material, so what's on screen is the scene, reaching the canvas through
-    // the same tonemap the scene texture uses (and snapshot for next frame's
-    // input(), which is otherwise the one thing this path would break)
-    const opaque = (u) => { u.uKeepAlpha.value = 0; };
-    runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, null, opaque);
-    if (!engine.paused) runPass(ctx, MAT_TONEMAP, st.sceneRT.texture, null, st.feedbackRT, opaque);
+    // one geometry group and no texture .out() — the sketch is 3D that merely
+    // feeds a chain into a material, so what's on screen is that group on its backdrop
+    // (and the snapshot for next frame's input(), which is otherwise the one
+    // thing this path would break)
+    const tex = groupPass(stack[0] ?? { bit: 0 }, undefined).out.texture;
+    runPass(ctx, MAT_COPY, tex, null, null);
+    if (!engine.paused) runPass(ctx, MAT_COPY, tex, null, st.feedbackRT);
+  }
+  // a pass only a material map read still owes next frame its picture
+  for (const e of st.layerRTs.values()) {
+    if (e.wanted === st.frame && e.frame !== st.frame) e.redo();
+  }
+  // a pass nothing asked for lately (a renamed layer, a stack that changed
+  // shape) gives its targets back
+  for (const [key, e] of st.layerRTs) {
+    if (st.frame - e.frame < 120) continue;
+    e.lin.depthTexture?.dispose();
+    e.lin.dispose();
+    e.out.dispose();
+    st.layerRTs.delete(key);
   }
   // named buffers: render each published chain (memoized if it was already
   // pulled this frame) and snapshot it for next frame's cyclic input(name)

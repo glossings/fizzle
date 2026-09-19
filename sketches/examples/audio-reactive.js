@@ -14,7 +14,7 @@ const kick = audio().bandpass(30, 160).kicks()       // 1 on each kick, decays
 icosa({ radius: 1.1, res: 10 })
   .noise({ amp: bass.mul(1.4).add(0.08), period: 0.4, octaves: 4, speed: 0.6 })
   .scale(level.range(0.8, 1.7))
-  .rotation(0, t => t * 0.3, 0)
+  .rotation(0, T.mul(0.3), 0)
   .material({ color: '#4fd1c5', roughness: 0.35, metalness: 0.4 })
   .out()
 

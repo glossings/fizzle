@@ -13,7 +13,7 @@ plane({ width: 90, height: 90, res: 220 })
   .out()
 
 // function args -> the sketch drives the camera (orbit controls disabled)
-camera(t => Math.cos(t * 0.07) * 14, 4.5, t => Math.sin(t * 0.07) * 14)
+camera(...curve.circle(14, { center: [0, 4.5, 0] })(T.mul(0.011)))
 
 scene()
   .bloom({ threshold: 0.75, strength: 0.7 })

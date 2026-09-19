@@ -22,6 +22,6 @@ const seams = voronoi({ ...field, mode: 'edges', a: '#000000', b: '#ffd9a0' })
 glass
   .mul(depthInCell.mul(0.9).add(0.45))
   .comp(seams, 'add', 0.85)
-  .hue(t => t * 0.02)
+  .hue(T.mul(0.02))
   .bloom({ threshold: 0.55, strength: 0.9 })
   .out()
