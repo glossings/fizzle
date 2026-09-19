@@ -418,7 +418,8 @@ const SPECS = {
         return clamp((n > 0.0 ? s / n : 0.0) * 0.5 + 0.5, 0.0, 1.0);
       }
       void main() {
-        vec2 p = vUv * vec2(uAspect, 1.0) * uFreq;
+        // from the center, so a moving period zooms rather than slides off a corner
+        vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0) * uFreq;
         if (uChannels < 1.5) {
           gl_FragColor = mix(uColA, uColB, fbm2(p, 0.0));
         } else {
@@ -463,7 +464,7 @@ const SPECS = {
         return fract(sin(dot(c, vec2(419.2, 371.9)) + uSeed * 29.7) * 43758.5453);
       }
       void main() {
-        vec2 p = vUv * vec2(uAspect, 1.0) * uScale;
+        vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0) * uScale;
         vec2 base = floor(p);
         // cells and distance are both an exp(-d/blend) weighted mean over the 9
         // neighbors — blend is how far past its own cell a pixel listens. The
@@ -1570,7 +1571,7 @@ function bindTexParams(kind, params, inputs) {
   for (const [name, v] of Object.entries(params)) {
     if (!asMap(v)) continue;
     // scene({ bg: chain }) renders the chain itself, not through a uniform
-    if (kind === 'scene' && name === 'bg') continue;
+    if ((kind === 'scene' || kind === 'stack') && name === 'bg') continue;
     warn(`${kind}: ${name} does not take a texture — the default is used instead`);
     delete params[name];
   }
@@ -2849,23 +2850,25 @@ export class TextureOp {
     this.lastFrame = -1;
     this.lastCtx = '';        // which context that frame was rendered in (see renderNode)
     // these read what's drawn above them, so where they were called matters
-    if (kind === 'scene' || kind === 'depth') this.upto = engine.stackMark();
+    if (kind === 'scene' || kind === 'depth' || kind === 'stack') this.upto = engine.stackMark();
     engine.textureNodes.push(this);
   }
 
   // How far down the stack this chain's scene() reads reach: the geometry
   // above that point is in the chain already, so a naked .out() of it stands in
   // for those groups rather than landing on top of them.
-  _consumes(seen = new Set()) {
+  // Asked about 'stack' instead it's the same question for stack() reads,
+  // which stand in for every layer above them, textures too.
+  _consumes(seen = new Set(), kind = 'scene') {
     if (seen.has(this)) return 0;
     seen.add(this);
-    let n = this.kind === 'scene' ? this.upto : 0;
+    let n = this.kind === kind ? this.upto : 0;
     // through a bus too: scene().out('a') read back as input('a') is the same read
     const bus = this.kind === 'in' && this.params.name != null && this.engine.textureBuffers.get(this.params.name);
-    if (bus) n = Math.max(n, bus._consumes(seen));
-    for (const i of this.inputs) n = Math.max(n, i._consumes(seen));
+    if (bus) n = Math.max(n, bus._consumes(seen, kind));
+    for (const i of this.inputs) n = Math.max(n, i._consumes(seen, kind));
     for (const v of Object.values(this.params)) {
-      if (v instanceof TextureOp) n = Math.max(n, v._consumes(seen));
+      if (v instanceof TextureOp) n = Math.max(n, v._consumes(seen, kind));
     }
     return n;
   }
@@ -3589,14 +3592,16 @@ export class TextureOp {
     // backdrop. scene({ bg }) swaps that backdrop for this read: a color, a
     // chain, or null for none — real coverage alpha, like a geometry layer,
     // with the same tradeoff (glass has nothing behind it to refract).
-    if (this.kind === 'scene') {
+    // stack() is the same read of every layer above the call, textures and
+    // their blend modes included.
+    if (this.kind === 'scene' || this.kind === 'stack') {
       let bg = this.params.bg;
       if (bg != null && typeof bg === 'object' && !(bg instanceof TextureOp)
           && !bg.isColor && !Array.isArray(bg)) {
-        warn('scene: bg is a color, a texture chain, or null for transparent');
+        warn(`${this.kind}: bg is a color, a texture chain, or null for transparent`);
         bg = null;
       }
-      const tex = ctx.sceneTex(ctx, this.upto, bg, this);
+      const tex = (this.kind === 'scene' ? ctx.sceneTex : ctx.stackTex)(ctx, this.upto, bg, this);
       // a map slot reads mips, and a lone layer comes back as its own target
       const k = ctx.rtKey ?? '';
       if (!this._needsMips || tex === this[`_tgt_auxA${k}`]?.texture || tex === this[`_tgt_auxB${k}`]?.texture) return tex;
@@ -4681,6 +4686,20 @@ export function renderTextures(engine) {
   // scene(): the geometry sent out above the call, and only the geometry —
   // texture .out()s in between stay where they are in the stack
   const sceneTex = (c, n, bg, owner) => compose(c, stack.slice(0, n).filter((e) => e.kind === 'geo'), bg, owner);
+  // What of the stack is drawn on its own. Geometry a chain took in through
+  // scene() isn't, or it would show twice through any transparency, and
+  // neither is any layer a chain took in through stack().
+  const visible = (entries) => {
+    let taken = 0, cut = 0;
+    for (const e of entries) {
+      if (e.kind !== 'tex') continue;
+      taken = Math.max(taken, e.taken);
+      cut = Math.max(cut, e.cut);
+    }
+    return entries.filter((e, i) => i >= cut && (e.kind === 'tex' || i >= taken));
+  };
+  // stack(): every layer sent out above the call, folded as the display would
+  const stackTex = (c, n, bg, owner) => compose(c, visible(stack.slice(0, n)), bg, owner);
 
   // depth() reads the nearest geometry group above it, off whichever of its
   // passes this frame already has
@@ -4743,6 +4762,7 @@ export function renderTextures(engine) {
     },
     layerTex,
     sceneTex,
+    stackTex,
     skyTex,
     depthTex,
   };
@@ -4752,11 +4772,18 @@ export function renderTextures(engine) {
   if (st.checkedGen !== engine.patchGen) {
     st.checkedGen = engine.patchGen;
     // once the whole sketch has run, so a bus published further down counts
-    for (const e of stack) if (e.kind === 'tex') e.taken = e.node._consumes();
+    for (const e of stack) {
+      if (e.kind !== 'tex') continue;
+      e.taken = e.node._consumes();
+      e.cut = e.node._consumes(new Set(), 'stack');
+    }
     const geoAt = (from, to) => stack.slice(from, to).some((e) => e.kind === 'geo');
     for (const n of engine.textureNodes) {
       if ((n.kind === 'scene' || n.kind === 'depth') && !geoAt(0, n.upto) && geoAt(n.upto)) {
         warn(`${n.kind}(): reads what's drawn above it, and the geometry here is sent out below it, so it reads an empty frame. Move ${n.kind}() under the geometry`);
+      }
+      if (n.kind === 'stack' && n.upto === 0 && stack.length) {
+        warn("stack(): reads the layers sent out above it, and there are none, so it reads an empty frame. Move stack() under them");
       }
     }
   }
@@ -4777,11 +4804,7 @@ export function renderTextures(engine) {
     // bg() color: through the tonemap it comes out a different color than the
     // plate paints, and which line comes first shouldn't pick between them.
     const clean = engine.textureNodes.some((n) => n.kind === 'in' && n.params.name == null);
-    // geometry a displayed chain already took in through scene() isn't drawn
-    // again on its own, or it would show twice through any transparency
-    let taken = 0;
-    for (const e of stack) if (e.kind === 'tex') taken = Math.max(taken, e.taken);
-    const shown = stack.filter((e, i) => e.kind === 'tex' || i >= taken);
+    const shown = visible(stack);
     // (a blend mode does want it under: see compose())
     const based = !clean && (shown.some(blended) || (onBackdrop(shown[0]) && !!engine.scene.background?.isTexture));
     const outTex = compose(ctx, shown, based ? undefined : null, st.display);

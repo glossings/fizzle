@@ -42,6 +42,7 @@ export const GLOBALS = {
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
   scene: ['scene({ bg? })', "Texture source: the lit 3D render of the geometry sent to a naked .out() above this call, on the sketch's backdrop (tone-mapped display space). A chain that reads it and goes .out() is drawn in place of that geometry."],
+  stack: ['stack({ bg? })', "Texture source: every layer sent to a naked .out() above this call, geometry and texture chains with their .blend() modes, composited on the sketch's backdrop as the display would. A chain that reads it and goes .out() is drawn in place of those layers. bg swaps the backdrop for this read: a color, a chain, or null for none."],
   sky: ['sky()', "Texture source: the sketch's backdrop alone, as the camera sees it. The hdri() sky, or the bg() color without one."],
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far. With { focus, range } it measures distance from a focal plane instead — a depth-of-field mask."],
   input: ['input(name?, { reset })', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite). reset blanks the held frame on the rising edge of its value — a fn of t cuts a feedback loop from code, true cuts it once per run."],
@@ -483,6 +484,9 @@ for (const keys of [GLOBAL_CONFIG.text, GLOBAL_CONFIG.text3d, METHOD_CONFIG.asci
 const GLOBAL_KEY_DOCS = {
   scene: {
     bg: "Swap the backdrop for this read only: a color stands in for bg(), a texture chain shows through behind the geometry, and null leaves it transparent so whatever sits below in the stack shows through.",
+  },
+  stack: {
+    bg: "Swap the backdrop for this read only: a color stands in for bg(), a texture chain goes under the layers, and null leaves it transparent, which is what a feedback loop wants.",
   },
   input: {
     reset: 'Blanks the buffer on the rising edge of its value — a loop reading it starts from black again. A fn of t fires it from code (reset: t => t % 4 < 0.1 cuts every four seconds; a kick trigger cuts on the beat); true cuts once per run, a clean start on every ctrl+enter.',
@@ -1158,7 +1162,7 @@ export const KIND_LABEL = {
 // found it.
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
-  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sky text video videofile videoseq voronoi'],
+  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sky stack text video videofile videoseq voronoi'],
   ['signals', 'audio audiofile B band beat gamepad midi mouse rand restartMedia select sig T tempo'],
   ['structure', 'curve data layout link segments spread'],
   ['lights', 'ambient directional hdri hemi point spot'],

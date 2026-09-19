@@ -1592,6 +1592,23 @@ ring({ inner: 0.2, outer: 0.3, color: '#ffe066', bg: null }).blend('difference')
 // ring({ outer: 0.45, color: '#ffffff', bg: null }).blend('overlay').when(beat(2, 0.5), x => x.blend('difference')).out()   // the mode flips on the beat
 ```
 
+`stack()` is every layer above it as one picture, blend modes included. A chain
+that reads it goes on screen in place of those layers, so the whole comp takes
+more ops:
+
+```js
+bg('#203060')
+ambient({ intensity: 0.6 })
+directional({ intensity: 2 }).position(4, 6, 3).out()
+
+sphere({ radius: 1.6 }).color('#e8e2d0').out()
+noise({ period: 0.7, speed: 0.15, a: '#ff4f9e', b: '#3fe0ff' }).blend('difference').out()
+
+stack().kaleido(6).bloom({ threshold: 0.5, strength: 1.5 }).out()
+```
+
+`stack({ bg: null })` leaves the backdrop out, like `scene({ bg })`.
+
 ### sources
 
 - `scene()` — the lit 3D render of the geometry sent to a naked `.out()` above

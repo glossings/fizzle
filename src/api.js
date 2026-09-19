@@ -1554,6 +1554,8 @@ export function makeApi(engine) {
     // (comps 'over' like a layer), a chain shows through behind the geometry,
     // a color stands in for bg()
     scene: (o) => new TextureOp(engine, 'scene', o ?? {}),
+    // stack({ bg }): every layer above the call, textures and blends included
+    stack: (o) => new TextureOp(engine, 'stack', o ?? {}),
     // the sketch's backdrop alone, as the camera sees it: the hdri() sky, or
     // the bg() color when there isn't one
     sky: () => new TextureOp(engine, 'sky', {}),
