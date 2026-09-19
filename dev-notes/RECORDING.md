@@ -235,7 +235,7 @@ only bites while you don't need it.)
 
 A benchmark in desktop Safari — same engine as iOS — said `drawImage(glCanvas)`
 costs nothing there, and that compositing from a `<video>` fed by
-`captureStream` (the projector's trick, and the fix I was about to ship) is
+`captureStream` (the projector's trick, and the fix that was about to ship) is
 *worse*: 2ms a frame against 0. That change would have been a regression on a
 plausible-sounding theory. Desktop WebKit is not iOS WebKit — a tile-based GPU
 can pay for a mid-frame framebuffer read in a way a desktop one doesn't — but it
@@ -276,7 +276,7 @@ arrives later, in the compositor, when the frame is presented and captured.
 Main-thread timing cannot see any of it.
 
 Which means **the earlier desktop Safari benchmark proved nothing**. It reported
-0.00ms for `drawImage(glCanvas)` and I read that as "the copy is free" — it only
+0.00ms for `drawImage(glCanvas)`, which got read as "the copy is free" — it only
 ever showed that the copy doesn't block the caller, which is true and
 uninteresting. Its one real finding stands (the `<video>` path costs 2ms of
 actual main-thread time that the direct path doesn't), but the comparison it was

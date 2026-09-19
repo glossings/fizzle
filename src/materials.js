@@ -35,8 +35,7 @@ export function applyMaterialScalars(material, m) {
 // isPhysical); a sketch that never mentions them pays nothing, since physical
 // is the more expensive shader and transmission costs a second scene render.
 // (what each one does is in MATERIAL_DOCS below, which the editor reads out on
-// ctrl+hover — the annotations that used to live here, where only I could see
-// them, are more use to whoever's typing the key)
+// ctrl+hover)
 const PHYSICAL_SCALARS = [
   'transmission', 'thickness', 'ior', 'dispersion', 'attenuationDistance',
   'clearcoat', 'clearcoatRoughness', 'iridescence', 'iridescenceIOR',

@@ -14,7 +14,8 @@ bottom records where the implementation moved.
 
 ## Where it landed
 
-The ask was L-systems. The answer is a more general primitive they fall out of:
+The starting point was L-systems. What landed is a more general primitive they
+fall out of:
 `layout(rule)` — user code steering a transform cursor and placing copies,
 collected into an indexed set of oriented transforms that `.instance()` draws.
 
@@ -26,12 +27,12 @@ The reasoning chain, in case it's revisited:
    a rewrite rule is a function calling itself. So no grammar API at all.
    Classic L-systems become a ten-line helper in a sketch, or a docs example.
 2. First draft: explicit recursion with `e.scope(() => { ... branch(depth-1) })`.
-3. Simplification (Aria's): the callback only describes the step —
+3. Simplification: the callback only describes the step —
    `e.branch(x => x.turn(0.55).scale(0.75))` — and the framework re-runs the
    same rule at the result, one generation deeper. Kills the depth threading,
    the termination check, and the manual recursion. The callback signature is
    exactly the `.instance()` layout-fn idiom.
-4. Queryable state on `e` (also Aria's) then dissolves the depth argument:
+4. Queryable state on `e` then dissolves the depth argument:
    rules terminate themselves (`if (e.scale < 0.15) return`), so depth is only
    a safety cap with a generous default, next to a hard node budget.
 5. `emit` renamed `place`, taking a label — the layout is a *plan*, geometry is
@@ -166,7 +167,7 @@ on the spot rather than cached.
 (a copy here) and `.forward()` (move), and assumed a segment was the two in
 sequence. It isn't: `.place()` centers the copy on the cursor, so a segment
 straddles its joint instead of running from it, and at a fork both children
-straddle the same joint and cross each other. Aria caught it as "a bunch of Xs
+straddle the same joint and cross each other. It showed up as "a bunch of Xs
 up the length of the tree". `.span()` is the turtle's `F`: center the copy on
 the step, then take the step. It needs no new op kind or replay case, being
 `forward(d/2).place().forward(d/2)`, and it closes every joint to zero gap.
@@ -263,9 +264,8 @@ and copies outside it are clipped, so a structure has to be built at a size that
 fits. A `{ zoom }` option shipped first, scaling the ortho camera's extent. It
 was cut the same day: zooming out by k is a similarity transform of the drawing,
 which is to say it is exactly what scaling the structure already does, one step
-later and in a second place. Aria's call, and correct — a framing helper, if one
-is ever wanted, belongs on Layout where the coordinates live, not on the
-consumer that draws them.
+later and in a second place. A framing helper, if one is ever wanted, belongs on
+Layout where the coordinates live, not on the consumer that draws them.
 
 The argument that kept it alive too long was that shrinking a rule trips its own
 `e.size` stop sooner and builds a simpler structure (measured: the flake goes

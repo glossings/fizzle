@@ -59,7 +59,7 @@ it broke one.
 `blockPageZoom()` stays: it stops a *deliberate* page pinch, which is still
 worth stopping. It never had anything to do with the focus zoom.
 
-Requested outright and not up for reassessment: the one-surface model, the
+Fixed requirements, not up for reassessment: the one-surface model, the
 three buttons, one-finger horizontal pan, zoom/pan non-blending on both
 surfaces, and the camera lock.
 
