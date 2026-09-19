@@ -9,6 +9,7 @@ import { isTouch, forPlatform, exampleApplies } from './touch.js';
 import { initAudioModal } from './audio-modal.js';
 import { recordable } from './record.js';
 import { initOrganize } from './organize.js';
+import { profile, setProfiling } from './profile.js';
 import {
   autoTags, autoTagsFor, forgetSketch, isoDay, keyOf, loadLibrary, manualTags, matches,
   noteCreated, sortSketches, splitKey, SORTS,
@@ -129,7 +130,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     // recFormat: mp4 on a phone, where the recording's destination is the
     // share sheet and nothing else there will reach the camera roll. On a
     // laptop a container that survives an interrupted take is worth more.
-    { quality: isTouch ? 0.75 : 1, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120,
+    { quality: isTouch ? 0.75 : 1, fpsCap: 0, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120,
       resFixed: false, resWidth: 1920, resHeight: 1080, sort: 'name',
       // recScale: only takes with the code in them are composited, and only
       // those pay for it. Full size costs a phone two thirds of its frame rate
@@ -151,6 +152,14 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
           <option value="0.5">low (0.5×)</option>
           <option value="0.75">med (0.75×)</option>
           <option value="1">high (1×)</option>
+        </select>
+      </label>
+      <label>fps cap
+        <select id="sb-fpscap">
+          <option value="0">off</option>
+          <option value="120">120</option>
+          <option value="60">60</option>
+          <option value="30">30</option>
         </select>
       </label>
       <label><input id="sb-res-on" type="checkbox"> fixed resolution</label>
@@ -179,6 +188,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       </label>
       <label><input id="sb-live" type="checkbox"> live color updates</label>
       <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
+      ${import.meta.env?.DEV ? '<label><input id="sb-profile" type="checkbox"> profile</label><div id="sb-prof" hidden></div>' : ''}
       <a id="sb-docs" href="docs.html" target="_blank">docs &amp; reference ↗</a>
     </section>
     <section>
@@ -264,6 +274,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     settings.resWidth = dim(settings.resWidth, 1920);
     settings.resHeight = dim(settings.resHeight, 1080);
     engine.setQuality(settings.quality);
+    engine.fpsCap = settings.fpsCap || null;
     // the tempo lives in the audio manager now; this is the default a
     // sketch's tempo() overrides, not the last word
     engine.defaultBpm = settings.bpm;
@@ -272,6 +283,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     engine.setResolutionOverride(settings.resFixed ? [settings.resWidth, settings.resHeight] : null);
     document.documentElement.style.setProperty('--editor-font', `${settings.fontSize}px`);
     $('#sb-quality').value = String(settings.quality);
+    $('#sb-fpscap').value = String(settings.fpsCap);
     $('#sb-font').value = settings.fontSize;
     $('#sb-live').checked = settings.liveColor;
     $('#sb-res-on').checked = settings.resFixed;
@@ -293,6 +305,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     persist();
   };
   $('#sb-quality').addEventListener('change', (e) => { settings.quality = Number(e.target.value); applySettings(); persist(); });
+  $('#sb-fpscap').addEventListener('change', (e) => { settings.fpsCap = Number(e.target.value); applySettings(); persist(); });
   $('#sb-font').addEventListener('change', (e) => setFontSize(Number(e.target.value) || 15));
   $('#sb-res-on').addEventListener('change', (e) => { settings.resFixed = e.target.checked; applySettings(); persist(); });
   for (const [id, key, fallback] of [['#sb-res-w', 'resWidth', 1920], ['#sb-res-h', 'resHeight', 1080]]) {
@@ -365,6 +378,37 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     $('#sb-fps').textContent = engine.frames - lastFrames;
     lastFrames = engine.frames;
   }, 1000);
+
+  // Off on every load: the timer queries it runs on cost a little themselves.
+  if ($('#sb-profile')) {
+    const pane = $('#sb-prof');
+    const ms = (v) => (v >= 0.005 ? v.toFixed(2) : '·');
+    const draw = () => {
+      const rows = profile.rows;
+      if (!rows.length) { pane.textContent = 'measuring…'; return; }
+      const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
+      const top = rows[0].gpu + rows[0].cpu || 1;
+      const shown = rows.slice(0, 14);
+      const cell = (name, line, gpu, cpu, share) => `<div class="sb-prof-row" style="--share:${share}%">
+        <span>${name}${line ? `<i>:${line}</i>` : ''}</span><span>${gpu}</span><span>${cpu}</span></div>`;
+      pane.innerHTML = cell('ms per frame', null, profile.gpu ? 'gpu' : '', 'cpu', 0)
+        + shown.map((r) => cell(r.label, r.line, profile.gpu ? ms(r.gpu) : '', ms(r.cpu),
+          Math.round(100 * (r.gpu + r.cpu) / top))).join('')
+        + (rows.length > shown.length ? cell(`+ ${rows.length - shown.length} more`, null, '', '', 0) : '')
+        + cell('total', null, profile.gpu ? ms(sum('gpu')) : '', ms(sum('cpu')), 0)
+        + (profile.gpu ? '' : '<p>no GPU timers in this browser, so CPU time only</p>');
+    };
+    let timer = null;
+    $('#sb-profile').addEventListener('change', (e) => {
+      setProfiling(e.target.checked);
+      pane.hidden = !e.target.checked;
+      clearInterval(timer);
+      if (e.target.checked) {
+        pane.textContent = 'measuring…';
+        timer = setInterval(draw, 500);
+      }
+    });
+  }
 
   // --- sketch list, search & playlists ---
 

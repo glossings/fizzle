@@ -428,6 +428,20 @@ html.cam-drag, html.cam-drag * { cursor: default !important; }
 .sb-res span { display: flex; align-items: center; gap: 4px; }
 #sidebar .sb-res input[type='number'] { width: 52px; }
 .sb-res.sb-off { opacity: 0.4; }
+#sb-prof { font-size: 11px; color: rgba(255, 255, 255, 0.45); margin-bottom: 8px; }
+#sb-prof p { margin: 6px 0 0; }
+.sb-prof-row {
+  display: grid;
+  grid-template-columns: 1fr 40px 40px;
+  padding: 2px 4px;
+  color: #dfe4ee;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(to right, rgba(79, 209, 197, 0.22) var(--share), transparent var(--share));
+}
+.sb-prof-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-prof-row span + span { text-align: right; }
+.sb-prof-row i { font-style: normal; color: rgba(255, 255, 255, 0.4); }
+.sb-prof-row:first-child, .sb-prof-row:last-of-type { color: rgba(255, 255, 255, 0.45); }
 #sb-docs {
   display: block;
   margin: 10px 0 2px;

@@ -6,6 +6,7 @@ import { carried, isClaiming } from './carry.js';
 import { Layout } from './layout.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
 import { sig } from './audio.js';
+import { site, begin, end, PASS_3D } from './profile.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
 // target; chains form a DAG evaluated once per frame in dependency order.
@@ -2849,6 +2850,9 @@ export class TextureOp {
     this.texBinds = bound.binds;
     this.lastFrame = -1;
     this.lastCtx = '';        // which context that frame was rendered in (see renderNode)
+    // named after the call that made it, except a sim, which every
+    // .push()/.obstacle() on it remakes
+    this._site = site(kind, kind !== 'fluid');
     // these read what's drawn above them, so where they were called matters
     if (kind === 'scene' || kind === 'depth' || kind === 'stack') this.upto = engine.stackMark();
     engine.textureNodes.push(this);
@@ -3578,9 +3582,11 @@ export class TextureOp {
     // _evaluating marks this node's subtree as in progress, so an input() of a
     // buffer we're currently producing falls back to last frame's snapshot
     this._evaluating = true;
+    begin(this._site);
     try {
       return (this._outTex = this._render(ctx));
     } finally {
+      end();
       this._evaluating = false;
     }
   }
@@ -4604,6 +4610,7 @@ export function renderTextures(engine) {
         scene.backgroundIntensity = engine.scene.backgroundIntensity;
         scene.backgroundRotation.copy(engine.scene.backgroundRotation);
       } else cam.layers.mask = mask;
+      begin(PASS_3D);
       renderer.setRenderTarget(e.lin);
       // the engine falls back to a plain render when this throws, and that
       // render needs its camera back
@@ -4615,6 +4622,7 @@ export function renderTextures(engine) {
         renderer.setClearAlpha(clearAlpha);
       }
       runPass(ctx, MAT_TONEMAP, e.lin.texture, null, e.out, (u) => { u.uKeepAlpha.value = bg === null ? 1 : 0; });
+      end();
     }
     return e;
   };

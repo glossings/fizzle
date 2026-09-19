@@ -5,6 +5,7 @@ import { carried } from './carry.js';
 import { ParticleData, SegmentsOp, asData } from './link.js';
 import { warn } from './warn.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
+import { site } from './profile.js';
 
 // GPU particles as a chainable op. A geometry is the emitter —
 // sphere().particles({ rate: 20000 }) births particles scattered over the
@@ -608,6 +609,7 @@ export class ParticleOp {
     }
     if (typeof opts === 'number') opts = { max: opts };
     this.engine = engine;
+    this._site = site('particles');
     this.opts = opts ?? {};
     this.source = source;
     this._forces = [];      // { kind: 'force'|'turb'|'attract', ... } in chain order
@@ -1380,7 +1382,7 @@ export class ParticleOp {
 
     updater(engine.time, 0);
     points.layers.set(name != null ? engine.geoLayer(String(name)) : engine.stackGeo());
-    engine.add(points, updater);
+    engine.add(points, updater, this._site);
 
     // .link(): the plexus lines, registered after the sim so they read this
     // frame's ingest. Color follows the dots unless said otherwise; 'solid'

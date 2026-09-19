@@ -122,7 +122,10 @@ is a shortlist you can step through. Playlists and tags are saved in
 letterboxed in your window and matched by the projector's, so
 `resolution(1920, 1080)` before a set is the whole setup. Sidebar quality
 still scales the pixels underneath. The sidebar's **fixed resolution** sets the
-same thing for every sketch and overrides the call while it's on.
+same thing for every sketch and overrides the call while it's on. The
+sidebar's **fps cap** holds the render to 120, 60 or 30 frames a second on a
+display that would run it faster, which keeps a laptop cool and matches a 60Hz
+projector.
 
 Every run mirrors the code into the URL hash, so the address bar is always a
 shareable link. The browser's back and forward buttons step through the

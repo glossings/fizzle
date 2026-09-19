@@ -10,6 +10,7 @@ import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
 import { claimDuring, sweepCarried, resetCarried } from './carry.js';
+import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
 // current sketch created. Re-running a sketch disposes the old patch and
@@ -81,6 +82,7 @@ export class Engine {
     this.paused = false;
     this.frames = 0;      // total frames rendered, for the fps readout
     this.quality = 1;
+    this.fpsCap = null;   // frames per second to hold to; null = the display's rate
     this.sketchRes = null;  // [w, h] from resolution(); null = fill the window
     this.resOverride = null; // the sidebar's fixed size, which outranks the sketch
     this._resKey = '';      // what resize() last applied, so a re-run is a no-op
@@ -164,9 +166,27 @@ export class Engine {
 
     // a throw escaping the loop callback would end the loop for good (three
     // only schedules the next frame after the callback returns)
-    this.renderer.setAnimationLoop(() => {
+    this.renderer.setAnimationLoop((now) => {
+      if (this.overCap(now)) return;
       try { this.tick(); } catch (e) { warn(e.message ?? String(e)); }
     });
+  }
+
+  // Whether the cap says to sit this display frame out. Frames go through on
+  // a schedule rather than by the gap since the last one, because the
+  // display's rate is rarely a multiple of the cap: by the gap, 144Hz under a
+  // cap of 60 would settle on 48. A display already at about the cap skips
+  // nothing, or the two clocks drifting apart would drop a frame every second.
+  overCap(now) {
+    const since = now - (this._lastRaf ?? now);
+    this._lastRaf = now;
+    if (since > 0 && since < 100) this._vsync = this._vsync ? this._vsync + (since - this._vsync) * 0.1 : since;
+    if (!this.fpsCap || !this._vsync) return false;
+    const gap = 1000 / this.fpsCap;
+    if (gap < this._vsync * 1.1) return false;
+    if (now < (this._due ?? 0) - 1) return true;
+    this._due = Math.max((this._due ?? 0) + gap, now);
+    return false;
   }
 
   // A pointer position against the rect the render occupies in whichever window
@@ -270,6 +290,7 @@ export class Engine {
 
   tick() {
     this.frames++;
+    frameStart(this.renderer);
     // wall clock in seconds; only ever read as a difference, so the epoch
     // doesn't matter (THREE.Clock was this plus a deprecation warning)
     const now = performance.now() / 1000;
@@ -286,8 +307,10 @@ export class Engine {
       for (const ae of this.audios.values()) ae.update();
       for (const m of this.media.values()) m.ae?.update();
       for (const fn of this.updaters) {
+        begin(tagOf(fn));
         // keep rendering even if one updater throws, but say so
         try { fn(this.time, dt); } catch (e) { warn(e.message ?? String(e)); }
+        end();
       }
     }
     // camera stays interactive while paused (unless the sketch drives it)
@@ -308,10 +331,13 @@ export class Engine {
         this.renderer.render(this.scene, this.camera);
       }
     } else {
+      begin(PASS_3D);
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
+      end();
     }
     this.onFrame?.();
+    frameEnd();
   }
 
   togglePause() {
@@ -324,10 +350,22 @@ export class Engine {
     return this.paused;
   }
 
-  add(object3d, updater) {
+  // `at` is the object's row in the profiler, which charges it both its
+  // updater and its draws: a site() made where the sketch began it, or a name
+  add(object3d, updater, at = object3d.type) {
     this.scene.add(object3d);
     this.patch.push(object3d);
-    if (updater) this.updaters.push(updater);
+    const s = typeof at === 'string' ? site(at) : at;
+    const enter = () => begin(s);
+    object3d.traverse((o) => {
+      if (!o.isMesh && !o.isPoints && !o.isLine) return;
+      o.onBeforeRender = o.onBeforeShadow = enter;
+      o.onAfterRender = o.onAfterShadow = end;
+    });
+    if (updater) {
+      tag(updater, s);
+      this.updaters.push(updater);
+    }
   }
 
   // Lazy audio capture: created/started on first use (audio() in a

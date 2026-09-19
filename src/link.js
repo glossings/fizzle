@@ -644,7 +644,7 @@ export class SegmentsOp {
     const layer = name != null ? engine.geoLayer(String(name)) : engine.stackGeo();
     mesh.layers.set(layer);
     fill?.mesh.layers.set(layer);
-    engine.add(mesh, updater);
+    engine.add(mesh, updater, 'link');
     return this;
   }
 }

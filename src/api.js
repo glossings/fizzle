@@ -17,6 +17,7 @@ import { Curve, makeCurve, curveCircle, curveLine, curveHelix, spread } from './
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
+import { site, tag } from './profile.js';
 import { sig, Signal, valueNoise, barPhase, setBpmSource } from './audio.js';
 import { bandValue } from './bands.js';
 import { midiHandle, gamepadHandle } from './control.js';
@@ -470,6 +471,7 @@ class GeoOp {
     }
     this.engine = engine;
     this.type = type;
+    this._site = site(type);
     this.opts = opts ?? {};
     this._pos = [0, 0, 0];
     this._rot = [0, 0, 0];
@@ -1096,7 +1098,7 @@ class GeoOp {
     // .out('name'): render into a named layer (pulled as a texture by
     // input('name')) instead of the display stack
     mesh.layers.set(name != null ? this.engine.geoLayer(String(name)) : this.engine.stackGeo());
-    this.engine.add(mesh, updater);
+    this.engine.add(mesh, updater, this._site);
     // after add(), so mesh.parent is already set: a cached map attaches on the
     // spot, and mesh.parent is also the liveness test for one that arrives
     // later — a patch cleared in the meantime has nowhere to put it
@@ -1835,7 +1837,10 @@ export function makeApi(engine) {
     B: sig((t) => barPhase(t, 1)),
     // escape hatches
     THREE,
-    onFrame(fn) { engine.updaters.push(fn); },
+    onFrame(fn) {
+      tag(fn, site('onFrame'));
+      engine.updaters.push(fn);
+    },
 
     // The chain types themselves, so a sketch can extend them:
     // `Texture.prototype.trail = function (amt) { ... }` and every texture
