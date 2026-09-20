@@ -63,8 +63,8 @@ export const GLOBALS = {
   fluid: ["fluid({ res, speed, fade, damping, vorticity, iterations, wrap })", "Texture generator: an incompressible fluid sim. .push(map) drives the field, .ink(chain) pours dye into it, .obstacle(mask) puts solids in its way; the chain itself is the dye, and .velocity()/.curl() read the fields behind it. Contents survive a re-run."],
   glsl: ["glsl(source, uniforms)", "Texture generator: a fragment shader you write. vUv is the pixel (0..1), uTime the clock, uFrame the frame count since the last restart, uDelta the frame's own length, uTexel one pixel across and down, uAspect the frame's width over its height; tex0 is black, nothing having come before it. uniforms is an object of names you choose, each holding a number, a 2/3/4 array, a color, a fn of t, or a texture chain, which arrives as a sampler2D of that name.\nA bare expression is a whole body, or write void main() yourself, or paste a Shadertoy mainImage(), whose globals are all mapped. A shader that doesn't compile warns with the line number and draws nothing."],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right' })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
-  text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right', tracking, leading })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
+  text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', tracking, leading, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
   curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along. curve(fn) lifts your own function; curve(layout) follows an unbranched layout's trail."],
@@ -752,6 +752,8 @@ const GLOBAL_KEY_DOCS = {
     font: "Any CSS family name, 'google:Name', or a font URL. Default a monospace stack.",
     weight: 'CSS weight, 100..900. Default 700.',
     align: "Which end of the line pos anchors. Default 'center'.",
+    tracking: 'Extra space after every letter, in ems: 0.1 adds a tenth of the font size. Negative tightens, and far enough negative piles the letters on top of each other. Default 0.',
+    leading: 'Distance from one line to the next, in ems: 1 sets lines a font size apart, 2 double-spaces. Default 1.2.',
   },
   text3d: {
     size: 'Cap height in world units. Default 1.',
@@ -761,6 +763,8 @@ const GLOBAL_KEY_DOCS = {
     font: "A font name, 'google:Name', or a .ttf/.otf/.typeface.json URL; renders in helvetiker until the real one arrives. A bare name tries installed fonts (Chrome/Edge, one-time prompt), then Google Fonts; the seven common system faces have stand-ins that work in any browser.",
     weight: "'bold' selects the bold built-in when no font is named.",
     align: "How multiline text justifies against its widest line. Default 'left'.",
+    tracking: 'Extra space after every letter, in ems: 0.1 adds a tenth of size. Negative tightens, and far enough negative piles the letters on top of each other. Default 0.',
+    leading: "Distance from one line to the next, in ems: 1 sets lines one size apart, 2 double-spaces. Default is the font's own line height.",
     center: 'Center the text on the origin. Default true.',
   },
   audiofile: {

@@ -956,7 +956,7 @@ scene()
 
 ## 3d text
 
-`text3d('hi', { size, depth, bevel, res, font, weight, align, center })` extrudes
+`text3d('hi', { size, depth, bevel, res, font, weight, align, tracking, leading, center })` extrudes
 real type. `font` takes a bare name, resolved against your installed fonts first
 (Chrome/Edge, one-time permission prompt) and then fetched from Google Fonts.
 Use `'google:Name'` to skip the local lookup, or a `.ttf`/`.otf`/
@@ -993,6 +993,19 @@ ambient({ intensity: 0.3 })
 directional({ intensity: 1.6 }).position(2, 4, 6).out()
 
 text3d('ready\nsteady\ngo', { size: 0.9, depth: 0.2, align: 'center' })
+  .color('#7ee787')
+  .out()
+```
+
+`tracking` spaces the letters and `leading` spaces the lines, both in ems:
+`tracking: 0.3` adds 0.3 × `size` after every letter, `leading: 1` sets each
+line one `size` below the last. `text()` takes the same two.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.6 }).position(2, 4, 6).out()
+
+text3d('ready\nsteady\ngo', { size: 0.7, depth: 0.2, align: 'center', tracking: 0.3, leading: 1.1 })
   .color('#7ee787')
   .out()
 ```
@@ -1663,10 +1676,11 @@ stack().kaleido(6).bloom({ threshold: 0.5, strength: 1.5 }).out()
   far past its own cell a pixel listens, in cell widths. 0 is hard, higher
   melts the cells together. All three shade `a`→`b`, so any of them is also a
   mask or a `.displace()` map.
-- `text('hi', { size, color, bg, pos, font, weight, align })` —
+- `text('hi', { size, color, bg, pos, font, weight, align, tracking, leading })` —
   canvas-rendered text. `size` is a font size in screen px (values ≤ 1 =
   fraction of screen height); any CSS font, `\n` for multiline, content may be
-  a function of `t`. `bg: null` puts the letters on nothing.
+  a function of `t`. `bg: null` puts the letters on nothing. `tracking` spaces
+  the letters and `leading` the lines, both in ems of `size`.
 - `video(name?)` — live camera (see **video input**).
 - `person(name?)` — a live person mask cut from that same camera (see **video
   input**).

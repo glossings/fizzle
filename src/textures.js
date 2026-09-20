@@ -3703,8 +3703,11 @@ export class TextureOp {
       const font = ff.family;
       const weight = p.weight ?? 700;
       const align = p.align ?? 'center';
+      // both in ems, so they hold their look across sizes
+      const tracking = resolve(p.tracking ?? 0, ctx.t) * fontPx;
+      const lineH = resolve(p.leading ?? 1.2, ctx.t) * fontPx;
       // ff.loaded flips when a URL font finishes loading, forcing a redraw
-      const sig = [str, fontPx, color, bg ?? '', px, py, font, ff.loaded, weight, align, ctx.w, ctx.h].join('\x1f');
+      const sig = [str, fontPx, color, bg ?? '', px, py, font, ff.loaded, weight, align, tracking, lineH, ctx.w, ctx.h].join('\x1f');
       if (sig !== this._textSig) {
         this._textSig = sig;
         if (!this._canvas) {
@@ -3727,10 +3730,14 @@ export class TextureOp {
         g.font = `${weight} ${Math.round(fontPx)}px ${font}`;
         g.textAlign = align;
         g.textBaseline = 'middle';
+        if ('letterSpacing' in g) g.letterSpacing = `${tracking}px`;
+        else if (tracking) warn('text: tracking needs canvas letterSpacing, which this browser lacks — drawing it untracked');
+        // the canvas spaces after the last glyph too, which drags anything
+        // but 'left' off its anchor by that trailing gap
+        const x0 = px * c.width + (align === 'center' ? tracking / 2 : align === 'right' ? tracking : 0);
         const lines = str.split('\n');
-        const lineH = fontPx * 1.2;
         const y0 = (1 - py) * c.height - ((lines.length - 1) * lineH) / 2;
-        lines.forEach((line, i) => g.fillText(line, px * c.width, y0 + i * lineH));
+        lines.forEach((line, i) => g.fillText(line, x0, y0 + i * lineH));
         this._ctex.needsUpdate = true;
       }
       return this._ctex;

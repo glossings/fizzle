@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { Font, FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -206,6 +206,28 @@ const unphased = (c) => {
   return c((t) => t);
 };
 
+// three's layout takes no spacing options: it advances by each glyph's `ha` and
+// drops a line by the font's bounding box. Both are font data, so tracking and
+// leading go in as a derived font and everything downstream lays out as usual.
+// Both are in ems, which is what makes the derived font independent of size.
+const spacedFonts = new WeakMap();
+function spacedFont(font, tracking, leading) {
+  const d = font?.data;
+  if (!d || (!tracking && leading == null)) return font;
+  let byKey = spacedFonts.get(font);
+  if (!byKey) spacedFonts.set(font, (byKey = new Map()));
+  const key = `${tracking}|${leading}`;
+  let spaced = byKey.get(key);
+  if (!spaced) {
+    const glyphs = {};
+    for (const [c, gl] of Object.entries(d.glyphs)) glyphs[c] = { ...gl, ha: gl.ha + tracking * d.resolution };
+    const boundingBox = leading == null ? d.boundingBox
+      : { ...d.boundingBox, yMax: d.boundingBox.yMin + leading * d.resolution - d.underlineThickness };
+    byKey.set(key, (spaced = new Font({ ...d, glyphs, boundingBox })));
+  }
+  return spaced;
+}
+
 // three starts every line at x = 0, so a multiline TextGeometry is always
 // ragged right. Anything but 'left' gets laid out a line at a time and shifted
 // to the alignment edge of the widest one. Same line spacing three uses, so
@@ -287,7 +309,7 @@ function buildGeometry(type, o = {}, extra = {}) {
     case 'text3d': {
       const bevel = o.bevel ?? 0.02;
       const g = textLines(String(resolve(o.text ?? 'text', 0)), {
-        font: extra.font ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular),
+        font: spacedFont(extra.font ?? (o.weight === 'bold' ? FONTS.bold : FONTS.regular), o.tracking ?? 0, o.leading),
         size: o.size ?? 1,
         depth: o.depth ?? 0.25,
         curveSegments: o.res ?? 8,
