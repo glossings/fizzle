@@ -287,6 +287,36 @@ Untried, if a phone ever needs more resolution than half: compositing into a
 *WebGL* canvas via `texImage2D` rather than a 2D one, in case WebKit has an
 IOSurface path for canvas-to-texture that `drawImage` doesn't.
 
+### ...so the fast path is narrower than it first looked
+
+The direct path was originally taken for any take that started with no code on
+screen. That reads "the code is hidden" as "the code will never appear", and
+those are different things: ctrl+m and ctrl+h are per-performance toggles, so a
+set that starts on the picture and brings the code up partway through is a
+normal way to play. Every such take lost the code, with a warning as the only
+sign.
+
+The per-pixel finding above says the fast path doesn't have to cover that case
+to earn its keep. The 20fps measurement is a phone at **full** scale; at the
+half scale touch defaults to, compositing held the vsync cap, and a laptop never
+paid at any size. So the condition is the cost, not what happens to be on
+screen:
+
+```js
+const direct = isTouch && k >= 1 && !codeLayer() && w === canvas.width && h === canvas.height;
+```
+
+Desktop composites always. A phone composites at its default scale. The one
+configuration that still can't be joined by the code is a phone recording full
+size with the code hidden, which is the only one where compositing was ever
+measured to hurt, and the warning there now names the scale so there's a way
+out of it.
+
+It also settles a smaller inconsistency: `direct` ignores `recScale`, so a
+half-scale phone take with the code hidden used to go direct and record at full
+size, logging a resolution the setting said it hadn't asked for. `k >= 1` is
+now part of the condition, so the two can't disagree.
+
 ### Three things were making it look worse than the screen
 
 Reported as "blurry, jumpy", and it was three separate causes stacked, two of

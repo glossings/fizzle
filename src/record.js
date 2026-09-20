@@ -555,7 +555,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       if (now - lastFrame < 500) return;
       lastFrame = now;
       if (codeLayer()) {
-        warn('recording: this take started with no code on screen, so it records the picture only — stop and start again to put the code in');
+        warn('recording: this take is at full rec. scale with the code hidden, which is the one case that records the picture only — stop, set rec. scale to half, and start again to put the code in');
       }
       // nothing here can letterbox a stream it isn't compositing
       if (outW !== canvas.width || outH !== canvas.height) {
@@ -784,14 +784,21 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     // Compositing exists to put the code over the picture. With no code to put
     // there, and a frame that's the drawing buffer at its own size, the copy
     // would be pixel-for-pixel identical to what the canvas already has — so
-    // hand the recorder that canvas instead and take a full-frame readback per
-    // frame back out of the render loop. It's the same trick the projector
-    // mirror uses, and on a phone that readback is most of what recording
-    // costs: the compositor does it off the main thread or not at all.
+    // the recorder can take that canvas instead and the render loop is left
+    // alone. It's the same trick the projector mirror uses.
     //
-    // Decided once, because a MediaRecorder can't change source mid-take.
+    // Only worth doing where the composite actually costs something, because a
+    // MediaRecorder can't change source mid-take: a direct take is one that
+    // can never let the code in, however long it rolls. Measured, the bill is
+    // per-pixel and a phone is the only one who gets it — full scale there
+    // took 60fps to 20, half scale cost nothing readable, and a laptop never
+    // paid at any size. So the fast path lives exactly there and nowhere else,
+    // and every other take composites and can be joined by the code at any
+    // point.
     const [w, h] = getSize();
-    const direct = !codeLayer() && w === canvas.width && h === canvas.height;
+    const k = getScale?.() ?? 1;
+    const direct = isTouch && k >= 1
+      && !codeLayer() && w === canvas.width && h === canvas.height;
 
     if (direct) {
       out = ctx = null;
@@ -800,10 +807,6 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       stream = canvas.captureStream(MAX_FPS);
       track = stream.getVideoTracks()[0];
     } else {
-      // Scale only bites here. Direct capture is already costing the render
-      // nothing at full size, so shrinking it would trade quality for a saving
-      // that isn't there.
-      const k = getScale?.() ?? 1;
       out = document.createElement('canvas');
       out.width = outW = even(w * k);
       out.height = outH = even(h * k);

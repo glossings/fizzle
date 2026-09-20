@@ -132,10 +132,12 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     // laptop a container that survives an interrupted take is worth more.
     { quality: isTouch ? 0.75 : 1, fpsCap: 0, fontSize: 15, liveColor: true, open: !isTouch, bpm: 120,
       resFixed: false, resWidth: 1920, resHeight: 1080, sort: 'name',
-      // recScale: only takes with the code in them are composited, and only
-      // those pay for it. Full size costs a phone two thirds of its frame rate
-      // doing that; half costs it nothing measurable. A laptop doesn't notice
-      // either way, so it keeps every pixel.
+      // recScale: what a recording costs is per-pixel, and a phone is the only
+      // one who feels it — full size there costs two thirds of the frame rate,
+      // half costs nothing measurable, and a laptop doesn't notice at any
+      // size, so it keeps every pixel. Half is also what leaves a phone able
+      // to record the code at all: at full scale a take with the code hidden
+      // falls back to capturing the canvas directly, and can't be joined.
       recFormat: isTouch ? 'mp4' : 'mkv', recScale: isTouch ? 0.5 : 1, recAudio: true },
     JSON.parse(localStorage.getItem(LS_SETTINGS) ?? '{}')
   );

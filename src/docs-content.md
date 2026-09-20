@@ -91,13 +91,11 @@ take started before the music still gets it. If the sound stops arriving the
 recorder holds the picture back too; the status line says so, and after half a
 minute of it the take stops and saves what it has.
 
-The code is in the recording exactly when it's on screen, so `ctrl + h` (or
-`ctrl + m` with no projector) takes it out of the file too — decided when you
-press record, so a take that starts with the code hidden stays that way, and
-the status line says so if you show it part way through. Hiding it first also
-costs the sketch nothing at all: with nothing to draw over the picture the
-canvas is recorded straight. **rec. scale** trades size for speed on the takes
-that do carry code.
+The code is in the recording exactly when it's on screen, and it follows the
+toggle as the take rolls: `ctrl + h` (or `ctrl + m` with no projector) takes it
+out of the file from that moment, showing it again puts it back. Start on the
+picture alone and bring the code up part way through if that's the set.
+**rec. scale** trades resolution for speed on a machine that needs it.
 
 The `● 0:42` in the corner is yours alone — it's not in the file and not on the
 projector.
