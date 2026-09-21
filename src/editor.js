@@ -51,10 +51,10 @@ export function fillCall(view, fn, args, suffix = '') {
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
 //   this window's code · ctrl+p sidebar · ctrl+a audio manager · ctrl+r
-//   restart · ctrl+e record · ctrl+[ / ctrl+] previous / next in the playlist
-//   · F1 projector window
+//   restart · ctrl+e record · ctrl+j snippets · ctrl+[ / ctrl+] previous /
+//   next in the playlist · F1 projector window
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onStep, onChange, onScroll }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
@@ -80,6 +80,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-a', run: () => { onToggleAudio?.(); return true; } },
       { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
       { key: 'Ctrl-e', run: () => { onRecord?.(); return true; } },
+      { key: 'Ctrl-j', run: () => { onSnippets?.(); return true; } },
       // brackets rather than the arrows: ctrl+up/down belong to Mission
       // Control on a Mac and never reach the page
       { key: 'Ctrl-[', run: () => { onStep?.(-1); return true; } },
@@ -172,6 +173,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
     else if (e.key === 'e') { e.preventDefault(); onRecord?.(); }
+    else if (e.key === 'j') { e.preventDefault(); onSnippets?.(); }
     else if (e.key === '[') { e.preventDefault(); onStep?.(-1); }
     else if (e.key === ']') { e.preventDefault(); onStep?.(1); }
   });

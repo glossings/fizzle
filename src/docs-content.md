@@ -53,6 +53,7 @@ a chain ends in `.out()`.
 | `ctrl + hover` | pop docs for the API name under the cursor |
 | `F1` | open / close the projector window |
 | `ctrl + e` | start / stop recording |
+| `ctrl + j` | snippets: keep the selected code, or browse and insert what you've kept |
 | `ctrl + r` | restart media and accumulated state |
 | drag / scroll | orbit / zoom the camera |
 
@@ -115,6 +116,41 @@ playlist in the **playlists** tab and `ctrl + ]` / `ctrl + [` walk its running
 order. With no playlist open they walk the list on screen instead, so a search
 is a shortlist you can step through. Playlists and tags are saved in
 `sketches/user/library.json`, alongside the sketches they play.
+
+**Snippets (`ctrl + j`)** keep a piece of a sketch for next time.
+
+Select some code and press `ctrl + j` to keep it. The window shows the code in
+an editor, so you can trim it before saving, with a name and comma separated
+tags above it. Anything the selection needs from the rest of the sketch comes
+along: select a chain that uses `speed` and the `const speed = ...` line is
+added above it, listed as a chip you can ✕ to leave behind. `enter` in a field
+saves. So does `ctrl + s` in the code.
+
+Press `ctrl + j` with nothing selected to browse what you've kept, newest
+first. Typing searches names, tags and the code itself (`tag:glow` for tags
+only). `↑` `↓` choose. `enter` or a row's **→** inserts at the cursor with the
+indentation of the line it lands in. Drag a row into the code to drop it
+somewhere else. Click a row, or press `tab`, to edit its code on the
+right: `ctrl + s` saves the edit and `esc` drops it. Click a name to rename it;
+**✕** twice deletes.
+
+The code you selected goes in at the cursor. The lines it brought along go
+above the statement the cursor is in, so a chain dropped into the middle of
+another chain, or into a callback, doesn't take its `const` in there with it.
+An insert leaves out any `const` line the sketch already has word for word. If
+the sketch declares the same name differently or already sends out the same
+bus (`.out('a')`), the insert still happens and the status line names what to
+change.
+
+Each snippet is a plain file in `sketches/user/snippets/`, with its tags on the
+first line:
+
+```
+// @tags feedback, glow
+const speed = 0.4
+
+input().scale(1.01).comp(noise({ speed }), 'add', 0.9)
+```
 
 **`resolution(width, height)`** pins the render to an exact size and shape,
 letterboxed in your window and matched by the projector's, so

@@ -4,7 +4,8 @@
     ctrl+enter  run                ctrl+h   hide code
     ctrl+.      pause              ctrl+m   hide code here
     ctrl+r      restart media      ctrl+p   sidebar
-    ctrl+e      record             F1       projector window
+    ctrl+e      record             ctrl+j   snippets
+    F1          projector window
 
   F1 opens the visuals in a second window on their own — that's the one to
   drag to a projector, leaving the code on your laptop.

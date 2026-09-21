@@ -144,6 +144,77 @@ function libraryApi() {
   };
 }
 
+// Snippets: pieces of code kept for re-use, one .js file each in
+// sketches/user/snippets/ so they travel with the sketches they came from.
+//
+//   GET    /api/snippets              -> [{ name, mtime, source }]
+//   PUT    /api/snippets/:name        -> save
+//   POST   /api/snippets/:name/rename -> body is the new name; 409 if it's taken
+//   DELETE /api/snippets/:name        -> delete
+//
+// The list carries the source: snippets are a few lines each, and the browser
+// searches inside them.
+const SNIPPETS = path.join(DIRS.user, 'snippets');
+
+function snippetApi() {
+  return {
+    name: 'snippet-api',
+    configureServer(server) {
+      server.middlewares.use('/api/snippets', (req, res) => {
+        const send = (code, body) => {
+          res.statusCode = code;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(body);
+        };
+        try {
+          const parts = (req.url ?? '/').split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
+          if (req.method === 'GET' && parts.length === 0) {
+            return send(200, JSON.stringify(listDir(SNIPPETS).map((s) => ({
+              ...s, source: fs.readFileSync(path.join(SNIPPETS, s.name + '.js'), 'utf8'),
+            }))));
+          }
+          const [name, verb] = parts;
+          if (parts.length > 2 || !nameOk(name ?? '')) return send(400, '{"error":"bad path"}');
+          const file = path.join(SNIPPETS, name + '.js');
+          if (verb != null) {
+            if (verb !== 'rename' || req.method !== 'POST') return send(400, '{"error":"bad path"}');
+            let body = '';
+            req.on('data', (c) => (body += c));
+            req.on('end', () => {
+              const to = body.trim();
+              if (!nameOk(to)) return send(400, '{"error":"bad name"}');
+              const dest = path.join(SNIPPETS, to + '.js');
+              if (!fs.existsSync(file)) return send(404, '{"error":"not found"}');
+              // a case-only rename is the same file on a case-insensitive disk
+              if (fs.existsSync(dest) && to.toLowerCase() !== name.toLowerCase()) return send(409, '{"error":"taken"}');
+              fs.renameSync(file, dest);
+              send(200, '{"ok":true}');
+            });
+            return;
+          }
+          if (req.method === 'PUT') {
+            let body = '';
+            req.on('data', (c) => (body += c));
+            req.on('end', () => {
+              fs.mkdirSync(SNIPPETS, { recursive: true });
+              fs.writeFileSync(file, body);
+              send(200, '{"ok":true}');
+            });
+            return;
+          }
+          if (req.method === 'DELETE') {
+            fs.rmSync(file, { force: true });
+            return send(200, '{"ok":true}');
+          }
+          send(405, '{"error":"unsupported method"}');
+        } catch (e) {
+          send(500, JSON.stringify({ error: String(e) }));
+        }
+      });
+    },
+  };
+}
+
 // Google Fonts proxy: GET /api/gfont/:family?weight=700 -> raw .ttf bytes.
 // Needed because Google's css2 endpoint only serves .ttf URLs to non-browser
 // user agents — real browsers get woff2, which opentype.js can't decompress.
@@ -258,7 +329,7 @@ function transcodeApi() {
 }
 
 export default defineConfig({
-  plugins: [sketchApi(), libraryApi(), gfontApi(), transcodeApi()],
+  plugins: [sketchApi(), libraryApi(), snippetApi(), gfontApi(), transcodeApi()],
   build: {
     rollupOptions: {
       // two pages: the app itself and the interactive docs

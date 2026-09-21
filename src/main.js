@@ -10,6 +10,7 @@ import { initProjector } from './projector.js';
 import { initRecorder } from './record.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import { learnMidi, learnPad } from './control.js';
+import { initSnippets } from './snippets.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
 
 // the welcome sketch's header comes in a desktop and a touch version
@@ -55,6 +56,8 @@ window.addEventListener('fizzle-notice', (e) => {
   status.className = 'show';
   setTimeout(() => { if (status.textContent === msg) status.className = ''; }, 6000);
 });
+
+const snippets = initSnippets({ getView: () => view, flash });
 
 // `push` leaves a history entry behind: true for the runs a person asked for,
 // false for the ones the app did on their behalf (page load, live color drag).
@@ -432,6 +435,7 @@ initDrop();
     onToggleProjector: toggleProjector,
     onToggleProjectorCode: toggleProjectorCode,
     onRecord: () => recorder.toggle(),
+    onSnippets: () => snippets.toggle(),
     // ctrl+[ / ctrl+]: the next sketch in the playlist, or in the list the
     // sidebar is showing. The sidebar knows which and says what it moved to.
     onStep: async (delta) => {

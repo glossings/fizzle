@@ -8,12 +8,18 @@ Ordered roughly by leverage.
 
 ## Suggested order
 
-Sections below are grouped by kind, which is not the order to do them in. The
-grouping that matters is: **things that fail invisibly, then things that cost
-too much, then things that are merely missing.** A missing feature announces
-itself — you go to write it, it isn't there, you write something else. A silent
-wrong answer costs an afternoon and teaches you nothing, and this list grew by
-several entries that were found exactly that way.
+**First, the three sections at the top of this file, in the order they
+appear:** target pooling, playlist crossfade, then `load()` and `param()`.
+Together they are what lets separate sketches be combined into one
+performance, and pooling goes first because the other two both put more than
+one sketch's buffers on the GPU at once.
+
+After those, the sections below are grouped by kind, which is not the order to
+do them in. The grouping that matters is: **things that fail invisibly, then
+things that cost too much, then things that are merely missing.** A missing
+feature announces itself — you go to write it, it isn't there, you write
+something else. A silent wrong answer costs an afternoon and teaches you
+nothing, and this list grew by several entries that were found exactly that way.
 
 1. **A way to print a number out of the graph.** `.field()` landed the GPU→CPU
    bridge, but it reads 8-bit luma clamped to 0..1 — a field that renders black
@@ -29,21 +35,261 @@ several entries that were found exactly that way.
 4. **Signal ergonomics** — `hash()`, `.since()`, `perFrame()`, the `kicks()`
    first-frame fix. Small, independent, and each one deletes a hand-rolled
    block that sketches currently get subtly wrong.
-5. **Bus sub-stepping**, then **target pooling.** This is what turns composed
-   simulation from a stunt into a feature.
+5. **Bus sub-stepping.** This is what turns composed simulation from a stunt
+   into a feature.
 6. **Everything else**: generators, filters, deformers, particle collision,
    `prose()`, booleans, SDFs. Real features, all announce themselves when
    missing, none of them blocked on the rest.
 
 Most of what follows is "add an operator." That's four edits, and the last two
 are the ones easy to forget: the implementation (a `SPECS` entry in
-[src/textures.js:165](../src/textures.js#L165) for a texture op, a `buildGeometry` case in
-[src/api.js:245](../src/api.js#L245) for geometry), the chain method or `api.js`
+[src/textures.js:188](../src/textures.js#L188) for a texture op, a `buildGeometry` case in
+[src/api.js:268](../src/api.js#L268) for geometry), the chain method or `api.js`
 export, a `DOCS` entry in [src/docs.js](../src/docs.js) (tooltip says what the call
 does and which params exist; per-param detail goes on the param), and the
-category strings at [src/docs.js:1073](../src/docs.js#L1073) that drive completion.
+category strings at [src/docs.js:1097](../src/docs.js#L1097) that drive completion.
 
 ---
+
+## Target pooling
+
+Every op in a chain owns a full-frame half-float target for as long as the
+sketch lives ([`_rt`, src/textures.js:3558](../src/textures.js#L3558)), one per
+slot per render context:
+
+```js
+noise().kaleido(6).blur(4).out()
+// noise   -> its own 1920x1080 RGBA16F target, ~16 MB
+// kaleido -> its own, ~16 MB
+// blur    -> its own, ~16 MB
+```
+
+`noise`'s pixels are dead the moment `kaleido` has read them, and its target
+stays allocated anyway. So memory is priced per operation rather than per
+picture: a Gray-Scott sketch at 1080×1920 holds ~18 targets, about 300 MB, a
+twenty-op chain at 4K is over a gigabyte, and the only dial is the quality
+slider. It is also the cost that doubles whenever two sketches are alive at
+once, which is what the two sections below both do.
+
+[ ] **Intermediates borrow a target for the frame and hand it back.**
+
+  ```js
+  // in _render, instead of this._rt(ctx):
+  const rt = pool.take(w, h, needsMips);
+  draw(inputs, rt);
+  // once the last consumer of this node has rendered this frame:
+  pool.give(rt);
+  ```
+
+  The chain above then needs two targets rather than three, and a long linear
+  chain needs two or three however long it gets. Pool keyed by size and mip
+  flag, since `_rt` already reallocates on either changing.
+
+  What decides when a target can go back is the number of consumers still to
+  read it this frame. `renderNode` memoizes per frame and hands every consumer
+  the same texture, so a node feeding two branches has to hold its target until
+  the second has drawn. Count consumers when the graph is built (it only
+  changes on a run), count down as each one renders, release at zero.
+
+[ ] **What keeps a target of its own**, because its pixels have to outlive the
+  frame or be read outside the walk:
+
+  - anything published with `.out('name')`, and the display's own feedback
+    target (both are read *next* frame by `input()`)
+  - `.delay()` rings, `.flow()`'s previous frame, `fluid()`'s grids, particle
+    state: already their own allocations, and carried across runs
+  - a node a material wears as a map, or a `.field()` reads back: consumed
+    outside the texture walk, at a time the pool can't see
+  - the last node of each `.out()`, until the stack has composited it
+  - whatever a 3D pass returns (`pass3d` keeps its own per-layer targets)
+
+  Get this list wrong and the failure is a texture that shows a *different
+  chain's* picture for a frame, which looks like a compositing bug rather than
+  an allocation one. Worth a debug switch that clears a target to magenta on
+  `give`, so a read-after-release is loud.
+
+[ ] **Release what the pool no longer needs.** A run that drops a heavy chain
+  should give the memory back: free targets unused for a second or two, and
+  everything of a stale size on resize.
+
+[ ] **Measure before and after**, in the profiler's terms: targets alive and
+  bytes held, on the reaction-diffusion example and on the heaviest example
+  chain. `.math()` fusion (under "New texture filters") attacks the same cost
+  from the other side, by needing fewer passes in the first place; `.glsl()`
+  already does that by hand. Pooling is the one that helps sketches nobody
+  rewrites.
+
+Per-chain resolution (its own section below) is the third lever on the same
+bill: a 512×512 simulation bus is cheaper than any amount of pooling at frame
+size.
+
+## Playlist crossfade
+
+ctrl+] / ctrl+[ step through a playlist ([src/main.js:435](../src/main.js#L435))
+and the change is a hard cut: the old sketch is torn down, the new one
+evaluates, and the first frame of the new one replaces the last frame of the
+old. In a set that reads as a glitch unless it lands on a beat.
+
+[ ] **Freeze-dissolve first.** On a step, copy the outgoing sketch's last
+  displayed frame into a held target, run the new sketch as usual, and draw the
+  held frame over it with an opacity that falls from 1 to 0:
+
+  ```js
+  // on step
+  held = copyOf(displayTarget);
+  fadeStart = now;
+  // per frame, after the new sketch's stack has composited
+  const k = 1 - (now - fadeStart) / fadeSeconds;
+  if (k > 0) drawOver(held, k); else held = null;
+  ```
+
+  One extra target for the length of the fade and nothing else: the outgoing
+  sketch is gone, so it costs no GPU time and needs none of the scoping that
+  `load()` does. What it gives up is motion, since the outgoing picture is
+  frozen while it fades. At half a second that is hard to see; at four it is a
+  still photo dissolving.
+
+  Settle before building:
+  - where the length comes from. A setting in the sidebar, with beats as the
+    unit when a tempo is known (`1 bar`), seconds otherwise.
+  - 0 means today's cut, and should stay reachable per step (shift held?), for
+    the cut that *is* meant to land on the beat.
+  - a step during a fade restarts it from whatever is on screen.
+  - the projector window and a recording both see the fade, since both read
+    the display target.
+
+[ ] **A true crossfade**, both sketches running while one fades into the other.
+  This is the scoping `load()` builds, used twice: the outgoing sketch keeps
+  its scope alive, the incoming one evaluates into a second, and the display
+  mixes the two until the first is released. Blocked on `load()` for the
+  scoping and on target pooling for the memory, since for the length of the
+  fade both sketches' targets are allocated. Only worth it if the frozen
+  version turns out to be visible at the fade lengths actually used in a set.
+
+[ ] Either version opens the door to **transitions other than a dissolve**: a
+  wipe, a luma key on the incoming picture, a fade through a `.glsl()` pass.
+  The mix is one pass with two inputs and a 0..1 progress, so the shape is a
+  named set of mix shaders. Not before the plain dissolve has been used.
+
+## `load()` and `param()`: one sketch as a texture in another
+
+Playlists put sketches in sequence. Nothing puts one *inside* another:
+reusing a finished sketch as a layer of a new one means pasting its code in,
+after which the two copies drift apart.
+
+```js
+load('kirbster v2').edge().chroma().out()
+load('kirbster v2', { bus: 'glow' }).blur(8).out()
+```
+
+`load(name)` runs the named sketch and returns everything it sends out, folded
+the way the display would fold it, as one texture with a transparent
+background. `{ bus }` returns one of its `.out('name')` buses instead. It costs
+what pasting the code would: the loaded chains join the same per-frame walk.
+
+[ ] **Scope the loaded sketch so it can't clobber the host.** Today `.out()`
+  writes into engine-wide lists ([src/textures.js:3494](../src/textures.js#L3494)),
+  so a loaded sketch's naked `.out()` would land on the display and its
+  `.out('glow')` would overwrite the host's. The loaded sketch evaluates
+  against the same API bound to a scope of its own:
+
+  ```js
+  const makeScope = () => ({ stack: [], buffers: new Map(), updaters: [] });
+
+  out(name) {
+    if (name != null) this.scope.buffers.set(name, this);
+    else this.scope.stack.push({ kind: 'tex', node: this });
+  }
+
+  load(name, { bus } = {}) {
+    const scope = makeScope();
+    const api = makeApi(engine, scope);
+    try { new Function(...names, source(name))(...values(api)); }
+    catch (e) { warn(`load('${name}'): ${e.message}`); return transparent(); }
+    return bus ? scope.buffers.get(bus) : composeStack(scope.stack);
+  }
+  ```
+
+  The host sketch gets a scope too (the root one), so there is one code path.
+  State that survives a re-run ([src/carry.js](../src/carry.js)) is keyed per
+  load, so adding or removing a `load()` line never shifts what the host's own
+  `.smooth()` or `.delay()` inherits.
+
+[ ] **3D renders into the texture.** Geometry in a loaded sketch goes on layer
+  bits of its own and reaches the host only through the returned texture, the
+  way `scene()` and geometry `.out('name')` already work
+  ([`pass3d`, src/textures.js:4577](../src/textures.js#L4577)). Lights sent out
+  in a loaded sketch light that sketch's layers only. The 32-layer budget is
+  shared between the host and every load; past it, the existing warning fires.
+
+[ ] **Camera.** A loaded sketch that calls `camera()` gets a camera of its
+  own, driven by that call and untouched by orbiting. One that doesn't renders
+  through the host's camera, whatever is driving it: there is one set of orbit
+  controls, so sharing is the only way a loaded sketch can be orbited at all,
+  and it still works when the host is pure 2D. Two loads without a `camera()`
+  orbit together.
+
+[ ] **`fog()` and `hdri()` are per load.** `pass3d` already swaps
+  `scene.background` in for one pass and restores it
+  ([src/textures.js:4606](../src/textures.js#L4606)); fog and environment
+  (with its intensity and rotation) are the same kind of property and get the
+  same treatment. Inside a load, `fog()` ([src/api.js:1572](../src/api.js#L1572))
+  and `hdri()` ([src/materials.js:525](../src/materials.js#L525)) write to the
+  scope's record instead of the shared scene, and the pass applies it. Check
+  that three doesn't recompile a material when fog differs between passes; it
+  shouldn't, since each mesh only ever renders under its own sketch's
+  settings. This swap is also most of what "One world per sketch" below asks
+  for per layer, so build it where both can use it.
+
+[ ] **Settings there is one of do nothing inside a load, and say so.**
+  `resolution()`, `tempo()` and `bg()` warn once (`resolution() inside
+  load('kirbster v2') does nothing: the host sketch owns it`) and return. The
+  same goes for anything that opens UI: an empty `videofile()` or
+  `.material()` asking for a picker, a midi learn. Open question: whether
+  `load(name, { bg: true })` should keep the loaded sketch's backdrop instead
+  of returning it transparent. Start without it.
+
+[ ] **Source has to be there synchronously.** `load()` runs while the host
+  evaluates, and sketch source arrives through an async fetch
+  ([src/sidebar.js](../src/sidebar.js)). Keep every sketch's source cached once
+  the list has loaded; on a miss return a transparent texture, fetch, and
+  re-run the host when it lands (the way a late `hdri()` applies itself).
+  Editing a loaded sketch in another tab should re-run hosts that load it.
+
+[ ] **Failure modes all warn and render transparent**, never throw into the
+  host: unknown name (suggest the nearest), a loaded sketch that throws, an
+  unknown `bus` (list the ones it has), and a cycle (`a` loads `b` loads `a`,
+  caught by keeping the chain of names being loaded).
+
+[ ] **Completion.** Inside `load('`, complete sketch names from the sidebar's
+  list; inside `{ bus: '`, the buses that sketch publishes; inside the params
+  object, its declared params ([src/complete.js](../src/complete.js)).
+
+[ ] **`param(name, default)`**, so a loaded sketch can be played rather than
+  just shown:
+
+  ```js
+  // kirbster v2.js
+  const speed = param('speed', 1);
+  noise({ speed }).out()
+
+  // host
+  load('kirbster v2', { speed: 2.5 })
+  load('kirbster v2', { speed: audio().smooth(0.2) })
+  ```
+
+  Run on its own, `param()` returns the default. Loaded, it returns what the
+  host passed, which can be a number, a fn of `t` or a signal like any other
+  argument. Declared rather than inferred from the sketch's own `const`s:
+  sketches run inside a block precisely so their declarations shadow injected
+  names, so an injected override would lose, and rewriting source to get
+  around that is more magic than the feature is worth. `param()` is also the
+  natural place for a midi learn to attach later, which would make one call
+  the answer to both "drive this from the host" and "drive this from a knob".
+  Warn on a key the loaded sketch never declares.
+
+[ ] Ships with an example in `sketches/examples/` (one that loads another
+  example, with a bus pull and a param) and a docs entry.
 
 ## no way to browse the API without leaving the editor
 
@@ -75,7 +321,7 @@ thought mid-set.
 
 ## `camera()` has nowhere to put roll or the lens
 
-`camera()` is a position plus a look-at target ([src/api.js:1416](../src/api.js#L1416)),
+`camera()` is a position plus a look-at target ([src/api.js:1454](../src/api.js#L1454)),
 and the dynamic path re-runs `lookAt` every frame against three's default `up`
 of `+Y`. Pan and tilt are therefore reachable by animating the target, and roll
 is not reachable at all: anything a sketch writes to `camera.rotation.z` is
@@ -107,7 +353,7 @@ New properties should ride that form.
   keeps playing, which reads as the edit having done nothing. Take slot-4
   number as `tx, ty, tz`; the existing dispatch (object in slot 1 = config,
   array in slot 4 = target) leaves the branch free. One guard while in there:
-  `asVec()` accepts `{x, y, z}` ([src/api.js:197](../src/api.js#L197)), so
+  `asVec()` accepts `{x, y, z}` ([src/api.js:198](../src/api.js#L198)), so
   dispatch the config form on the presence of its keys, not on
   `typeof === 'object'`, or `camera(somePosition)` lands in the wrong branch.
 
@@ -118,10 +364,10 @@ New properties should ride that form.
 ## `.edge()` `spread > 1` is a comb under iteration
 
 The balanced kernel fixed the axis lock, but `spread` still moves the taps to
-`±spread` texels ([src/textures.js:553](../src/textures.js#L553)) and leaves
+`±spread` texels ([src/textures.js:597](../src/textures.js#L597)) and leaves
 everything between them unattenuated — the same comb the big-radius `.blur()`
 had before it learned to walk its radius in doubling steps
-([src/textures.js:1900](../src/textures.js#L1900)). Harmless as a look; fatal in
+([src/textures.js:2460](../src/textures.js#L2460)). Harmless as a look; fatal in
 feedback, where the loop amplifies whatever the operator's stopband lets
 through.
 
@@ -130,9 +376,9 @@ through.
 
 ## `.field()` reads the chain through one tap per texel
 
-`.field()` ends a chain as a CPU sampler ([src/textures.js:2898](../src/textures.js#L2898)),
+`.field()` ends a chain as a CPU sampler ([src/textures.js:3509](../src/textures.js#L3509)),
 and the chain lands in its small target through a single copy pass
-([src/textures.js:4044](../src/textures.js#L4044)) — one bilinear tap per field
+([src/textures.js:4873](../src/textures.js#L4873)) — one bilinear tap per field
 texel. A high-frequency source — raw video, fine voronoi — shimmers between
 texels as it moves. Smooth fields, which is what layouts mostly want, don't
 notice.
@@ -144,7 +390,7 @@ notice.
 
 ## `.scroll()` hands the callback a signal for `i` where an integer would do
 
-`i` is a signal ([src/textures.js:3065](../src/textures.js#L3065)) because every
+`i` is a signal ([src/textures.js:3400](../src/textures.js#L3400)) because every
 variant is built once, when `.scroll()` is called: one chain per parity slot,
 and the repeat a slot holds changes as repeats slide through it. So
 `i.mul(0.11)` and `i.select(WORDS)`, where `i * 0.11` and `WORDS[i % 6]`
@@ -155,7 +401,7 @@ the shape is a consequence of the implementation, not of the problem.
 Nothing forces it. Numeric params are uniforms, never baked into GLSL, and
 three reuses a compiled program for identical source, so a fresh chain per
 repeat costs no compile. `repeatCell()`
-([src/textures.js:2402](../src/textures.js#L2402)) already knows which repeat
+([src/textures.js:2638](../src/textures.js#L2638)) already knows which repeat
 each slot holds on every frame, and since that is deterministic in `t` it
 knows the next one too.
 
@@ -181,7 +427,7 @@ A named bus that only ever does arithmetic never acquires coverage: `input()`
 on a cold buffer is alpha 0, `math` preserves the left side's alpha, so the
 whole loop stays transparent. Then any op that respects coverage multiplies it
 away — `.threshold()` ends `vec4(vec3(m), 1.0) * src.a`
-([src/textures.js:945](../src/textures.js#L945)), `.tint()` and the comp modes
+([src/textures.js:1118](../src/textures.js#L1118)), `.tint()` and the comp modes
 likewise — and returns black on a field that is numerically fine. Nothing warns;
 the sketch just doesn't light up, and the natural next move is to go and retune
 the maths that was never wrong.
@@ -190,7 +436,7 @@ The workaround is to head the loop with `constant('#000000').add(input(…))`,
 which is a whole extra full-frame pass to say "this is opaque".
 
 [ ] `.opaque()` (or `.alpha()` accepting a *set* rather than the multiply it
-  currently does — [src/textures.js:1042](../src/textures.js#L1042)) so there's
+  currently does — [src/textures.js:3096](../src/textures.js#L3096)) so there's
   a cheap, findable way to say it.
 [ ] Better: `warn()` once when a coverage-respecting op is handed an input whose
   alpha is uniformly 0. Cheap to detect at the node level for the common case
@@ -204,7 +450,7 @@ wrong slot has to say so or it costs an hour.
 
 [ ] **An options object in a positional number slot reaches the uniform.**
   `.chroma({ amount: 0.02 })` reads like every other op, but the signature is
-  `chroma(amount, o)` ([src/textures.js:2553](../src/textures.js#L2553)), so the
+  `chroma(amount, o)` ([src/textures.js:3026](../src/textures.js#L3026)), so the
   object lands in `uAmount`, `resolve()` hands it back unchanged and the
   shader gets NaN — the pass then samples at NaN coordinates and the picture
   goes wrong somewhere else entirely, with nothing in the console. (`crop` has
@@ -223,6 +469,11 @@ still all-or-nothing. None of these need a multi-scene rewrite — the shape
 that fits the API is opt-in per-read overrides, defaults unchanged, like
 `scene({ bg })` was.
 
+`load()` (top of this file) needs fog, environment and camera swapped per 3D
+pass for a loaded sketch. That is the same mechanism the fog, camera and
+environment items here want per layer, so whichever lands first should build
+it for both.
+
 [ ] **`depth()` only sees the display scene.** The depth texture comes from the
   main render, where the camera's layer mask excludes layered meshes — so
   `input('knot').mask(depth(), ...)` quietly masks with a depth map the knot
@@ -236,8 +487,9 @@ that fits the API is opt-in per-read overrides, defaults unchanged, like
 [ ] **One camera.** Every pass looks through the orbit camera, so there's no
   picture-in-picture, no fixed-frame overlay while the main view orbits, no
   rendering a shape head-on as a map for a material. The big one; probably a
-  second camera as an op a layer pull can name, and worth waiting for a sketch
-  that demands it before designing.
+  second camera as an op a layer pull can name. `load()` is the first thing to
+  demand it (a loaded sketch that calls `camera()` keeps its own), so design
+  the per-pass camera there and expose it to layers afterwards.
 [ ] **Environment lights everything.** `scene.environment` reaches every
   material on every layer; three has no per-layer environment, so a stylized
   unlit layer next to a PBR one takes manual material discipline. Cheapest
@@ -257,7 +509,7 @@ between that and it being a feature rather than a stunt:
   the frame is shown — would decouple them, and is the difference between a
   reaction-diffusion or fluid sketch that is watchable and one that is a
   screensaver. Everything needed is already in the bus loop
-  ([src/textures.js:4036](../src/textures.js#L4036)); the work is making
+  ([src/textures.js:4858](../src/textures.js#L4858)); the work is making
   `renderNode`'s per-frame memo advance per *step* instead.
 
   Pin the nesting semantics first — advancing the memo per step is not enough
@@ -271,18 +523,8 @@ between that and it being a feature rather than a stunt:
   n times". `fluid()` sidesteps all of this by keeping its loop in JS, and is
   the reference to check a composed solver against once this lands.
 
-[ ] **Buffer cost.** One persistent full-frame target per node with no pooling
-  ([src/textures.js:2947](../src/textures.js#L2947)) means an arithmetic-heavy
-  chain is priced per operation: a Gray-Scott sketch at 1080×1920 holds
-  ~18 half-float targets, about 300 MB, and the only dial is the quality
-  slider. Targets whose contents die within a frame (every intermediate that
-  isn't published or fed back) could come from a small pool keyed by size. The
-  `.math()` fusion above is the cheaper half of the same problem.
-
-[ ] Neither is blocked on the other, and `.glsl()` (which landed) already buys
-  some of the same thing — a hand-written pass fuses arbitrary arithmetic into
-  one target. Worth deciding how much pooling and `.math()` are still worth
-  now that the escape hatch exists.
+[ ] **Buffer cost** is the other thing, and has its own section: "Target
+  pooling" at the top of this file. Neither is blocked on the other.
 
 ## `fluid()` — what hasn't been looked at
 
@@ -445,8 +687,8 @@ disguise:
   sources no mip fix either — the shader evaluated at 64×64 is the right
   answer by construction. (Image/video sources still want minification
   filtering; the mip note stands for those.)
-- **Simulations** ("Buffer cost" above) want a 512×512 bus, not eighteen
-  full-frame targets.
+- **Simulations** ("Target pooling" at the top) want a 512×512 bus, not
+  eighteen full-frame targets.
 
 [ ] `.res(w, h?)` as a chain operator (maybe `{ aspect }` sugar): sources
   default to the frame, every node inherits its first input's size, `.res()`
@@ -479,7 +721,7 @@ Two adjacent costs in the tile-set machinery, same neighborhood:
 [ ] **Only render targets follow the context a node is rendered in.** A tile set
   renders its sources at the tile's size, so a chain shared with the main graph
   draws once per size, into a target set per size (`ctx.rtKey`,
-  [src/textures.js:2952](../src/textures.js#L2952)). The state that *isn't*
+  [src/textures.js:3563](../src/textures.js#L3563)). The state that *isn't*
   keyed that way is still single: `.delay()`'s ring, `ascii()`'s atlas,
   `text()`'s canvas. Sharing one of those between a tile set and an `.out()`
   rebuilds it twice a frame. Per-chain resolution (above) is where this gets
@@ -512,11 +754,11 @@ uniforms (numbers or fns of `t`).
 
 [ ] `sharpen`, `emboss`, `erode`, `dilate` — all four are 3×3 neighbor
   operations, so add them as `mode`s of the existing `neighbor` spec
-  ([src/textures.js:550](../src/textures.js#L550)) behind
+  ([src/textures.js:594](../src/textures.js#L594)) behind
   `.edge()`/`.slope()`/`.normalMap()`, not new specs. Erode/dilate take the
   min/max of the neighborhood; emboss is a directional difference plus 0.5.
 [ ] `.math({ pow, mul, div, add, sub })` — expose the `math` spec
-  ([src/textures.js:640](../src/textures.js#L640)) as one public op. Every slot
+  ([src/textures.js:684](../src/textures.js#L684)) as one public op. Every slot
   already takes a texture, so one pass can do `a * b + c - d`; spelled with the
   chain methods that is four passes and four full-frame targets, and there is
   no other way to write it short of `.glsl()`. A sketch doing arithmetic in the
@@ -536,6 +778,8 @@ uniforms (numbers or fns of `t`).
 [ ] `.repeat(nx, ny, { mirror, offset })` — `fract(uv * n)`, one texture read,
   identical cells. Distinct from `.tile()`, which renders a pass per distinct
   cell variant so each cell can be its own chain. Document the difference.
+  Close to a static `.scroll()`, which landed: decide whether this is a cell
+  count on that op rather than an op of its own.
 [ ] More radial distortions as extra `.warp()` keys rather than new ops — each
   is a different function applied to the radius before resampling: `invert`
   (1/r, turns the frame inside out), `sqrt` (compresses the center, expands
@@ -546,30 +790,10 @@ uniforms (numbers or fns of `t`).
 
 `.grain()` and `.lut()` have landed, and `.bloom({ color })` with them, so
 halation is a key rather than a hand-built branch. What is left is the stock
-library: the ops can apply a CLUT, but there is nothing to apply.
-
-[x] **`.grain(amount, { size, mono })`.** White noise hashed from the cell and
-  the frame, luma response `1 - abs(2 * luma - 1)`, mono by default. `size`
-  counts the frame's own pixels (`frameGrid`, factored out of `crop`), not the
-  drawing buffer's, so `quality()` and a scaled recording leave the grain the
-  size it looked.
-[x] **`.lut(source, { mix })` — HaldCLUT sampling.** Eight taps and a manual
-  trilinear. Hardware filtering can't be leaned on: neighbors in green and blue
-  are a row or a whole slice away in the image, so a bilinear fetch blends in
-  colors from the wrong part of the cube. The cube's edge falls out of the
-  image width alone (level L is L³ wide), so a name resolving through the media
-  store — the same path `imagefile()` takes — is the whole loading story.
-
-  The trap, and it cost an hour: a texture loaded as a *picture* gets two
-  conveniences a cube must not have. Mips send a chain sweeping the cube across
-  one frame to a level averaging unrelated colors, and `flipY` — three's
-  default — silently reverses blue. Both are turned off on the texture the
-  first time it reaches a `lut` node.
-
-  Checked against the real collection: a level-12 stock (1728×1728, cube edge
-  144) matches a CPU trilinear lookup of the same file exactly on four probe
-  colors. All 294 files are valid hald shapes, 66 of them grayscale PNGs (the
-  black-and-white stocks) and one at level 16, all through the same path.
+library: the ops can apply a CLUT, but there is nothing to apply. (`.lut()` was
+checked against the whole collection below: all 294 files are valid hald
+shapes and load through the one path, grayscale stocks and the level-16 one
+included.)
 
 [ ] **Serve the stocks ourselves.** Still the missing half: `.lut('portra 400 2')`
   resolves through the media store, so today it means "drop a PNG in", and
@@ -651,22 +875,11 @@ it does not come to rest *on* the edge.
   filled disc all by itself. Always shoot the same sketch with the force
   removed before believing any of it.
 
-## infinite scroll, and the family it belongs to
+## the family infinite scroll belongs to
 
-The scroll itself works today: `.translate(t => t * 0.2, 0, { wrap: 'repeat' })`
-runs forever in any direction, and `wrap: 'mirror'` gives mirrored repeats. What
-is missing is a hook on the repeat.
-
-[ ] **`.scroll([vx, vy], (s, i) => ...)`** — the same motion, with each repeat
-  handed to a callback. `i` is the absolute repeat index, how many have gone
-  by rather than where one sits, so repeat 7 can be hue-shifted, flipped, or
-  restarted (a video that starts over per repeat) while repeat 6 is still
-  sliding off. `.tile(nx, ny, (src, i, x, y) => ...)` is the precedent and
-  already shares one render between identical variants. Cheaper than tile,
-  too: at most two repeats are visible along an axis, so a distinct-per-repeat
-  chain costs two passes rather than `nx * ny`. Overlaps
-  `.repeat(nx, ny, { mirror, offset })` above — decide whether that is this
-  one's static case and delete it if so.
+`.scroll(vx, vy, (src, i, phase) => ...)` landed: the frame repeats forever,
+and each repeat is handed to a callback. (Its `i` being a signal is its own
+section above.)
 
 [ ] **The family, which is the actual prize.** Scroll is *translate under a
   periodic wrap*. Conjugate it by a coordinate change and the rest fall out:
@@ -686,7 +899,7 @@ is missing is a hook on the repeat.
 ## New geometry primitives
 
 Each is one `three` constructor wired into `buildGeometry`
-([src/api.js:245](../src/api.js#L245)) plus a factory next to `sphere`/`box`.
+([src/api.js:268](../src/api.js#L268)) plus a factory next to `sphere`/`box`.
 Keep the `res` convention the existing primitives use, since `.noise()` and the
 deformers need the subdivisions.
 
@@ -793,7 +1006,7 @@ already has, so they want `res`.
 ## Signals
 
 Chain methods go next to `.smooth()` at
-[src/audio.js:440](../src/audio.js#L440), where each is attached onto the
+[src/audio.js:450](../src/audio.js#L450), where each is attached onto the
 signal fn.
 
 [ ] **A full-precision read, and a place to print it.** `.field()` is the
@@ -807,7 +1020,7 @@ signal fn.
 
 [ ] `.since(threshold)` — seconds since this signal last crossed up through
   `threshold`, counting up forever until the next hit. `.counter()` already
-  does the edge detection ([src/audio.js:350](../src/audio.js#L350)); this is
+  does the edge detection ([src/audio.js:360](../src/audio.js#L360)); this is
   the other half, and it's what every "restart an animation on the beat" sketch
   hand-rolls in `onFrame` with a latch, a timer and a `Math.min(1, …)`. With
   it, a crossfade on each kick is `kick.since().div(0.6)` and needs no mutable
@@ -824,7 +1037,7 @@ signal fn.
   private one to promote or replace).
 
 [ ] `kicks()` fires a free hit on its first frame
-  ([src/audio.js:421](../src/audio.js#L421)): `s.avg` starts at 0 and `dt` is 0,
+  ([src/audio.js:429](../src/audio.js#L429)): `s.avg` starts at 0 and `dt` is 0,
   so anything above `floor` at load triggers. Then the average catches up and a
   quiet or bass-shy source may never cross again — so the sketch flashes once
   at load and looks broken rather than silent. Seed `avg` from the first sample
@@ -853,7 +1066,7 @@ signal fn.
 
 [ ] `.collide(shape, { bounce, friction })` — the one force particles don't
   have. `force`/`turbulence`/`attract`/`drag` all act on the particle alone
-  ([src/particles.js:642](../src/particles.js#L642)); nothing in the system has
+  ([src/particles.js:636](../src/particles.js#L636)); nothing in the system has
   a notion of a surface to stop against, so "sand pouring through a room and
   piling up against a hidden shape" — the whole class of sketches where the
   invisible object is revealed by what settles on it — can't be written at all.
@@ -937,7 +1150,7 @@ as opaque leaf cards — the one class of asset there that can't look right.
 ## See-through shadows
 
 `out()` decides `castShadow` from `transmission > 0 || opacity < 1`
-([src/api.js:937](../src/api.js#L937)), because the depth pass ignores both and
+([src/api.js:969](../src/api.js#L969)), because the depth pass ignores both and
 would throw a solid black silhouette. Two problems with the rule as written:
 
 [ ] It resolves function-driven values at t=0 only, so `opacity: t => ...` that
@@ -966,7 +1179,7 @@ addressing conveniences around them:
   exposed.
 
 [ ] `.uv(i)` to go with `.sample(i)` / `.normal(i)`
-  ([src/api.js:503](../src/api.js#L503)) — the mesh's own uv at the scattered
+  ([src/api.js:552](../src/api.js#L552)) — the mesh's own uv at the scattered
   point, which `MeshSurfaceSampler.sample()` already interpolates through its
   unused fourth argument. It's what lets a `.field()` drive copies scattered
   over *any* surface, not just a grid. Return something neutral and warn when

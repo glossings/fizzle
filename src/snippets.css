@@ -1,0 +1,182 @@
+/* snippets (ctrl+j) — save the selection, or browse, edit and insert */
+#sn-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+#sn-modal.show { display: flex; }
+/* a row is being dragged to the code: out of the way, but still there for the
+   drag to belong to */
+#sn-modal.dragging { opacity: 0; pointer-events: none; backdrop-filter: none; }
+
+#sn-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 94vw);
+  max-height: 80vh;
+  background: rgba(10, 12, 18, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #cfd4e0;
+  font-size: 13px;
+  overflow: hidden;
+}
+#sn-panel.sn-browse-mode { width: min(960px, 94vw); }
+#sn-panel header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.sn-title {
+  color: #7ee787;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.sn-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sn-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 14px;
+}
+#sn-close:hover { color: #fff; }
+
+.sn-save, .sn-browse { display: none; flex-direction: column; gap: 8px; padding: 10px 12px 0; min-height: 0; }
+.sn-save-mode .sn-save, .sn-browse-mode .sn-browse { display: flex; }
+.sn-fields { display: flex; gap: 8px; }
+.sn-fields input { flex: 1; min-width: 0; }
+
+#sn-panel input {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 6px 8px;
+  font: inherit;
+  outline: none;
+}
+#sn-panel input:focus { border-color: #7ee787; }
+
+/* the code panes: the main editor's look, minus what it does to float over a
+   canvas (the 40vh tail, the per-line backing, the fit-content width) */
+.sn-code {
+  min-height: 0;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.sn-code:focus-within { border-color: rgba(126, 231, 135, 0.5); }
+.sn-save .sn-code { height: 38vh; }
+#sn-modal .cm-editor { height: 100%; font-size: 13px; }
+#sn-modal .cm-editor.cm-focused { outline: none; }
+#sn-modal .cm-editor .cm-scroller { padding: 8px 0 8px 8px; line-height: 1.5; }
+#sn-modal .cm-editor .cm-content { width: auto; }
+#sn-modal .cm-editor .cm-line { background: none; width: auto; }
+#sn-modal .cm-editor .cm-activeLine { background: rgba(255, 255, 255, 0.04); }
+
+#sn-carries { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#sn-carries:empty { display: none; }
+.sn-carries-lead { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
+.sn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  color: #c9d1e3;
+  background: rgba(126, 231, 135, 0.12);
+  border: 1px solid rgba(126, 231, 135, 0.3);
+  border-radius: 4px;
+  padding: 1px 2px 1px 7px;
+}
+.sn-chip.off { color: rgba(255, 255, 255, 0.4); background: none; border-color: rgba(255, 255, 255, 0.15); text-decoration: line-through; }
+.sn-chip button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  text-decoration: none;
+}
+.sn-chip button:hover { color: #fff; }
+
+.sn-body { display: flex; gap: 10px; height: 48vh; min-height: 0; }
+#sn-list { flex: 0 0 38%; min-width: 0; overflow-y: auto; outline: none; }
+.sn-body .sn-code { flex: 1; min-width: 0; }
+.sn-empty { padding: 14px 8px; color: rgba(255, 255, 255, 0.45); font-size: 12px; }
+.sn-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 4px 5px 8px;
+  border-radius: 5px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.sn-row.current { background: rgba(255, 255, 255, 0.07); }
+.sn-row.pinned { background: rgba(126, 231, 135, 0.14); border-left-color: #7ee787; }
+.sn-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sn-row-name { color: #fff; align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.sn-row-name:hover { text-decoration: underline dotted rgba(255, 255, 255, 0.4); }
+.sn-row-meta { font-size: 11px; color: rgba(255, 255, 255, 0.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sn-panel .sn-rename { padding: 1px 4px; width: 22ch; max-width: 100%; }
+.sn-row button {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.sn-row:hover button, .sn-row.current button { color: rgba(255, 255, 255, 0.7); }
+.sn-row button:hover { color: #fff; border-color: rgba(255, 255, 255, 0.25); }
+.sn-row button.armed { color: #ff8a8a; border-color: rgba(255, 138, 138, 0.5); }
+
+/* an edit is open: the list can't take the code away until it's saved or dropped */
+#sn-modal.editing #sn-list, #sn-modal.editing #sn-search { opacity: 0.4; pointer-events: none; }
+#sn-modal:not(.editing) .sn-when-editing { display: none; }
+#sn-modal.editing .sn-when-idle { display: none; }
+
+#sn-panel footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+#sn-note { flex: 1; min-width: 0; font-size: 12px; color: rgba(255, 255, 255, 0.55); }
+#sn-note.bad { color: #ff8a8a; }
+#sn-panel footer button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+#sn-panel footer button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+#sn-panel footer button:disabled { opacity: 0.4; cursor: default; }
+#sn-panel footer .sn-primary { border-color: rgba(126, 231, 135, 0.6); }
