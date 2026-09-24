@@ -1,7 +1,10 @@
 // Snippets (ctrl+j): a piece of a sketch kept for re-use, with the declarations
 // it leans on. With code selected, ctrl+j names and tags it; with nothing
 // selected it opens the browser: search, read, edit, and put one back at the
-// cursor (enter, the row's →, or drag the row into the code).
+// cursor (enter, the row's →, or drag the row into the code). Every sketch is
+// in the browser too, under the snippets: read-only, and it goes in as a labeled
+// block (sketch-blocks.js) with a sketch('name') line to show it, so its bg,
+// camera and the rest stay its own.
 //
 // A snippet is a plain .js file whose first line may carry its tags:
 //
@@ -23,7 +26,9 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { sketchLanguage } from './complete.js';
 import { autoTags, isoDay } from './library.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
+import { allSketches, sketchSource } from './sidebar.js';
 import { carriesFor, planInsert, slotFor, topLevelDecls } from './snippet-deps.js';
+import { blockLabels } from './sketch-blocks.js';
 
 const LS_SNIPPETS = 'td-snippets'; // { name: { source, mtime } }
 const SNIPPET_DND = 'application/x-fizzle-snippet';
@@ -113,6 +118,18 @@ export function busClashes(code, doc) {
 // name it declares.
 const suggestedName = (code) => [...busesIn(code)][0] ?? topLevelDecls(code)[0]?.names[0] ?? '';
 
+// A sketch's name as a label: 'kirbster v2' -> kirbster_v2, numbered when the
+// sketch already has a block called that.
+const RESERVED = new Set('break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof new return super switch this throw try typeof var void while with yield let static await enum null true false'.split(' '));
+function labelFor(name, doc) {
+  let base = name.trim().replace(/[^\w$]+/g, '_').replace(/^_+|_+$/g, '') || 'sketch';
+  if (/^\d/.test(base) || RESERVED.has(base)) base = `_${base}`;
+  const taken = new Set(blockLabels(doc).map((b) => b.name));
+  let label = base;
+  for (let n = 2; taken.has(label); n++) label = `${base}_${n}`;
+  return label;
+}
+
 // every word has to land somewhere; tag:x only looks at tags
 function matches(query, s) {
   return query.toLowerCase().split(/\s+/).filter(Boolean).every((w) => (
@@ -178,13 +195,14 @@ export function initSnippets({ getView, flash }) {
   // browse
   let all = [];         // every snippet
   let shown = [];       // the ones the search leaves
-  let sel = null;       // name
+  let sel = null;       // key: 'snippet:name', or a sketch's 'user:name' / 'examples:name'
+  let listing = 0;      // bumps per open, so a slow source load knows it's stale
   let pinned = false;   // a click or the arrows chose this row; hover stops swapping it
   let dirty = false;    // its code has been edited and not yet saved
   let at = 0;           // where an insert lands, taken on the way in
 
   const $ = (q) => el.querySelector(q);
-  const current = () => shown.find((s) => s.name === sel) ?? null;
+  const current = () => shown.find((s) => s.key === sel) ?? null;
 
   function build() {
     el = document.createElement('div');
@@ -261,7 +279,7 @@ export function initSnippets({ getView, flash }) {
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (dirty || !shown.length) return;
-      const i = shown.findIndex((s) => s.name === sel);
+      const i = shown.findIndex((s) => s.key === sel);
       select(shown[Math.max(0, Math.min(shown.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]);
       pin(); // the arrows are as deliberate as a click
     } else if (e.key === 'Enter') {
@@ -412,12 +430,51 @@ export function initSnippets({ getView, flash }) {
       return note(e.message, true);
     }
     if (mode !== 'browse') return;
-    all = listed.map((s) => {
-      // derived tags answer a search ("particles") without anyone typing them in
-      const allTags = [...s.tags, ...autoTags(s.code)];
-      return { ...s, allTags, hay: [s.name, ...allTags, s.code].join('\n').toLowerCase() };
-    });
+    let sketches = [];
+    try { sketches = await allSketches(); } catch { /* the snippets are still worth showing */ }
+    if (mode !== 'browse') return;
+    // what was kept on purpose first, then your sketches newest first, then the examples
+    const rank = (f) => (f.scope === 'user' ? 0 : 1);
+    sketches.sort((x, y) => rank(x) - rank(y) || y.mtime - x.mtime || x.name.localeCompare(y.name));
+    all = [
+      ...listed.map((s) => index({ ...s, key: `snippet:${s.name}`, kind: 'snippet' })),
+      ...sketches.map((f) => index({
+        key: `${f.scope}:${f.name}`, kind: 'sketch', scope: f.scope, name: f.name, mtime: f.mtime,
+        tags: f.scope === 'examples' ? ['sketch', 'example'] : ['sketch'], code: null,
+      })),
+    ];
     renderList();
+    loadSources(++listing);
+  }
+
+  // derived tags answer a search ("particles") without anyone typing them in
+  function index(s) {
+    s.allTags = [...s.tags, ...(s.code ? autoTags(s.code) : [])];
+    s.hay = [s.name, ...s.allTags, s.code ?? ''].join('\n').toLowerCase();
+    return s;
+  }
+
+  function fill(s) {
+    return (s.loading ??= (async () => {
+      let src = '';
+      try { src = (await sketchSource(s.scope, s.name)) ?? ''; } catch { /* shows empty */ }
+      s.code = src;
+      index(s);
+      if (s.key === sel && mode === 'browse' && !dirty) select(s);
+    })());
+  }
+
+  // In the background, so a search reaches inside sketches nobody has hovered.
+  async function loadSources(gen) {
+    const queue = all.filter((s) => s.kind === 'sketch');
+    const worker = async () => {
+      for (let s; (s = queue.shift());) {
+        if (gen !== listing || mode !== 'browse') return;
+        await fill(s);
+      }
+    };
+    await Promise.all(Array.from({ length: 8 }, worker));
+    if (gen === listing && mode === 'browse' && !dirty && $('#sn-search').value.trim()) renderList();
   }
 
   function renderList() {
@@ -432,25 +489,38 @@ export function initSnippets({ getView, flash }) {
       empty.textContent = q.trim() ? 'no snippets match' : 'nothing kept yet: select some code in the editor, then ctrl+j';
       list.append(empty);
     }
-    for (const s of shown) list.append(row(s));
+    for (const s of shown) {
+      if (s.kind === 'sketch' && shown[shown.indexOf(s) - 1]?.kind !== 'sketch') {
+        const div = document.createElement('div');
+        div.className = 'sn-divider';
+        div.textContent = 'sketches';
+        list.append(div);
+      }
+      list.append(row(s));
+    }
     select(current() ?? shown[0] ?? null);
     if (pinned && current()) pin(); else unpin();
   }
 
   function row(s) {
     const r = document.createElement('div');
-    r.className = 'sn-row';
-    r.dataset.name = s.name;
+    const kept = s.kind === 'snippet';
+    r.className = `sn-row${kept ? '' : ' sn-row-sketch'}`;
+    r.dataset.key = s.key;
     r.draggable = true;
-    r.title = 'hover to preview, click to pin it and edit on the right · enter or → puts it in at the cursor, or drag it where you want it';
+    r.title = kept
+      ? 'hover to preview, click to pin it and edit on the right · enter or → puts it in at the cursor, or drag it where you want it'
+      : "a whole sketch: it goes in as a block of its own, with a sketch('name') line to show it · enter or →, or drag it where you want it";
 
     const main = document.createElement('div');
     main.className = 'sn-row-main';
     const label = document.createElement('span');
     label.className = 'sn-row-name';
     label.textContent = s.name;
-    label.title = 'click to rename';
-    label.addEventListener('click', (e) => { e.stopPropagation(); renameInline(s, label); });
+    if (kept) {
+      label.title = 'click to rename';
+      label.addEventListener('click', (e) => { e.stopPropagation(); renameInline(s, label); });
+    }
     const meta = document.createElement('span');
     meta.className = 'sn-row-meta';
     meta.textContent = [...s.tags.map((t) => `#${t}`), ...(s.mtime ? [isoDay(s.mtime)] : [])].join(' · ');
@@ -478,11 +548,11 @@ export function initSnippets({ getView, flash }) {
       } catch (err) {
         return note(err.message, true);
       }
-      if (sel === s.name) { sel = null; pinned = false; }
+      if (sel === s.key) { sel = null; pinned = false; }
       refresh();
     });
     del.addEventListener('mouseleave', () => { del.classList.remove('armed'); del.textContent = '✕'; });
-    r.append(put, del);
+    r.append(put, ...(kept ? [del] : []));
 
     // hover peeks, click pins: once a row is pinned the pointer can cross the
     // others on its way to the code without the preview changing under it
@@ -495,9 +565,9 @@ export function initSnippets({ getView, flash }) {
     // text/plain too, so the editor draws its drop cursor as the pointer crosses
     // the code; the private type is how the drop knows to re-indent and check
     r.addEventListener('dragstart', (e) => {
-      if (dirty) return e.preventDefault();
+      if (dirty || s.code == null) return e.preventDefault();
       e.dataTransfer.setData('text/plain', s.code);
-      e.dataTransfer.setData(SNIPPET_DND, s.name);
+      e.dataTransfer.setData(SNIPPET_DND, s.key);
       e.dataTransfer.effectAllowed = 'copy';
       // out of the way so the drop lands on the code, but only hidden: a drag
       // let go anywhere else leaves the browser where it was. Deferred, since
@@ -530,7 +600,7 @@ export function initSnippets({ getView, flash }) {
       } catch (e) {
         return note(e.message, true);
       }
-      if (sel === s.name) sel = to;
+      if (sel === s.key) sel = `snippet:${to}`;
       refresh();
     };
     input.addEventListener('keydown', (e) => {
@@ -544,22 +614,25 @@ export function initSnippets({ getView, flash }) {
   }
 
   function select(s) {
-    sel = s?.name ?? null;
+    sel = s?.key ?? null;
     for (const r of $('#sn-list').querySelectorAll('.sn-row')) {
-      const on = r.dataset.name === sel;
+      const on = r.dataset.key === sel;
       r.classList.toggle('current', on);
       if (on) r.scrollIntoView({ block: 'nearest' });
     }
     browsePane.set(s?.code ?? '');
-    browsePane.lock(!(s && pinned));
+    browsePane.lock(!(s?.kind === 'snippet' && pinned));
     $('#sn-go').disabled = !s;
+    if (s?.kind !== 'sketch') return note('');
+    if (s.code == null) { note('loading…'); return void fill(s); }
+    note(`a whole sketch, read-only here · goes in as ${labelFor(s.name, '')}: { ... } with its own bg, camera and the rest`);
   }
 
   function pin() {
     if (!sel) return;
     pinned = true;
-    browsePane.lock(false);
-    for (const r of $('#sn-list').querySelectorAll('.sn-row')) r.classList.toggle('pinned', r.dataset.name === sel);
+    browsePane.lock(current()?.kind !== 'snippet');
+    for (const r of $('#sn-list').querySelectorAll('.sn-row')) r.classList.toggle('pinned', r.dataset.key === sel);
   }
 
   function unpin() {
@@ -570,6 +643,7 @@ export function initSnippets({ getView, flash }) {
   function editCurrent() {
     if (dirty || !sel) return;
     pin();
+    if (current()?.kind === 'sketch') return note('a sketch is edited by opening it; from here it can only be put in');
     browsePane.focusEnd();
   }
 
@@ -578,7 +652,7 @@ export function initSnippets({ getView, flash }) {
   function setDirty(on) {
     dirty = on;
     el.classList.toggle('editing', on);
-    note(on ? `editing "${sel}" · ctrl+s saves, esc cancels` : '');
+    note(on ? `editing "${current()?.name}" · ctrl+s saves, esc cancels` : '');
   }
 
   function cancelEdit() {
@@ -600,16 +674,43 @@ export function initSnippets({ getView, flash }) {
     // in place, not a refresh: the list is newest first, and a save would
     // send the row you were on to the top
     s.code = formatSnippet(code, []);
-    s.hay = [s.name, ...s.allTags, s.code].join('\n').toLowerCase();
+    index(s);
     setDirty(false);
     note(`saved "${s.name}"`);
   }
 
   // --- putting one back ---
 
+  // A whole sketch goes in as a labeled block, untouched, and a sketch('name')
+  // to show it. On an empty line that's the block and then `.out()` under it.
+  // Anywhere else the cursor is in the middle of something, so the block goes
+  // above that statement and the cursor gets the bare sketch('name'), which is
+  // what a .comp( or a select([ was waiting for.
+  function insertSketch(s, pos) {
+    const view = getView();
+    const doc = view.state.doc.toString();
+    const label = labelFor(s.name, doc);
+    const line = view.state.doc.lineAt(pos);
+    const open = !line.text.trim();
+    const slot = open ? line.from : slotFor(doc, pos);
+    const above = slot ? view.state.doc.lineAt(slot - 1).text : '';
+    const body = s.code.replace(/\s+$/, '').replace(/^(?=.)/gm, '  ');
+    const block = `${above.trim() ? '\n' : ''}${label}: {\n${body}\n}\n`;
+    const use = open ? `sketch('${label}').out()` : `sketch('${label}')`;
+    view.dispatch({
+      changes: [{ from: slot, insert: open ? block : `${block}\n` }, { from: open ? line.from : pos, to: open ? line.to : pos, insert: use }],
+      selection: { anchor: (open ? line.from : pos) + block.length + (open ? 0 : 1) + use.length },
+      scrollIntoView: true,
+      userEvent: 'input.paste',
+    });
+    close();
+    flash(`inserted ${s.name} as ${label}`);
+  }
+
   // The selected code goes in at `pos`; what it brought along goes above the
   // statement `pos` is in, where a declaration belongs.
   function insert(s, pos) {
+    if (s.kind === 'sketch') return insertSketch(s, pos);
     const view = getView();
     const doc = view.state.doc.toString();
     // a declaration the sketch already has word for word isn't landed twice
@@ -645,9 +746,11 @@ export function initSnippets({ getView, flash }) {
     window.dispatchEvent(new CustomEvent('fizzle-warning', { detail: `inserted ${s.name}: this sketch ${said.join(' and ')}` }));
   }
 
-  function insertCurrent() {
+  async function insertCurrent() {
     const s = current();
-    if (s && !dirty) insert(s, Math.min(at, getView().state.doc.length));
+    if (!s || dirty) return;
+    if (s.code == null) await fill(s);
+    if (mode === 'browse') insert(s, Math.min(at, getView().state.doc.length));
   }
 
   // A row let go over the code. Capture, so this gets there before the
@@ -658,8 +761,8 @@ export function initSnippets({ getView, flash }) {
     dropWired = true;
     const view = getView();
     view.dom.addEventListener('drop', (e) => {
-      const name = e.dataTransfer?.getData(SNIPPET_DND);
-      const s = name && all.find((x) => x.name === name);
+      const key = e.dataTransfer?.getData(SNIPPET_DND);
+      const s = key && all.find((x) => x.key === key);
       if (!s) return;
       e.preventDefault();
       e.stopPropagation();

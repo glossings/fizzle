@@ -17,6 +17,8 @@ import { Curve, makeCurve, curveCircle, curveLine, curveHelix, spread } from './
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
 import { warn } from './warn.js';
+import { rewriteBlocks } from './sketch-blocks.js';
+import { SAVED_BLOCK } from './engine.js';
 import { site, tag } from './profile.js';
 import { sig, Signal, valueNoise, barPhase, setBpmSource } from './audio.js';
 import { bandValue } from './bands.js';
@@ -1280,8 +1282,16 @@ class LightOp {
   out(name) {
     // lights hit every layer by default (three culls lights by camera layer
     // mask); .out('name') restricts one to a single named geometry layer
-    if (name != null) this.light.layers.set(this.engine.geoLayer(String(name)));
-    else this.light.layers.enableAll();
+    // (every layer of the sketch or block it's sent out in, that is: see
+    // engine.settleLights, which narrows this once the layers are known)
+    const mine = this.engine.scope.lights;
+    if (name != null) {
+      this.light.layers.set(this.engine.geoLayer(String(name)));
+      if (mine.includes(this.light)) mine.splice(mine.indexOf(this.light), 1);
+    } else {
+      this.light.layers.enableAll();
+      if (!mine.includes(this.light)) mine.push(this.light);
+    }
     // ambient() adds itself, so calling .out() on one only re-layers it
     if (this._added) return this;
     this._added = true;
@@ -1329,6 +1339,26 @@ for (const C of [GeoOp, InstanceHandle]) {
 LightOp.prototype.pos = LightOp.prototype.position;
 
 export function makeApi(engine) {
+  // sketch('kirbster v2'): a saved sketch run as a block. One per name, so two
+  // reads share a build, unless it's handed params, which make it its own.
+  // 'pending' while the source is on its way (the sketch re-runs when it lands).
+  const savedBlock = (name, params) => {
+    const src = engine.sketchSources.get(name);
+    if (src == null) {
+      if (engine.sketchMissing.has(name) || !engine.onNeedSketch) return null;
+      engine.onNeedSketch(name);
+      return 'pending';
+    }
+    const key = SAVED_BLOCK + name;
+    let block = params ? null : engine.root.blocks.get(key);
+    if (!block) {
+      const names = Object.keys(api);
+      const fn = () => new Function(...names, `"use strict";\n{${rewriteBlocks(src)}\n}`)(...names.map((n) => api[n]));
+      block = { name, fn, home: engine.root, scope: null, node: null, building: false, saved: true, params: params ?? null };
+      if (!params) engine.root.blocks.set(key, block);
+    }
+    return block;
+  };
   setBpmSource(() => engine.bpm);
   const geo = (type) => (opts) => new GeoOp(engine, type, opts);
 
@@ -1452,6 +1482,23 @@ export function makeApi(engine) {
     // takes x/y/z/target too, so one call can place the camera and then hand
     // it over.
     camera(x = 0, y = 2, z = 8, target = [0, 0, 0]) {
+      // Inside a block the camera is the block's own: it frames that block's
+      // picture and nothing you orbit moves it. (A block that never calls this
+      // is seen through the sketch's camera, so it can still be orbited.)
+      if (engine.scope.parent) {
+        if (x !== null && typeof x === 'object' && !Array.isArray(x)) {
+          if (x.pad || x.fly) warn("camera({ pad / fly }) inside a block: a controller drives the sketch's own camera. The block keeps the position it's given");
+          ({ x = 0, y = 2, z = 8, target = [0, 0, 0] } = x);
+        }
+        const cam = engine.ownCamera();
+        const place = (t) => {
+          cam.position.set(resolve(x, t), resolve(y, t), resolve(z, t));
+          cam.lookAt(...resolve3(target, t));
+        };
+        place(0);
+        if ([x, y, z, ...target].some((v) => typeof v === 'function')) engine.updaters.push(place);
+        return;
+      }
       if (x !== null && typeof x === 'object' && !Array.isArray(x)) {
         const o = x;
         engine.cameraTouched = true;
@@ -1500,9 +1547,10 @@ export function makeApi(engine) {
       // half so both paths share one updater
       let tick = null;
       const gen = engine.patchGen;
+      const world = engine.world; // the scene's, or the block's this was called in
       const attach = (loaded) => {
         // a re-run since the load started owns the scene now — don't light it
-        if (loaded && engine.patchGen === gen) tick = applyHdri(engine, loaded, o);
+        if (loaded && engine.patchGen === gen) tick = applyHdri(world, loaded, o);
       };
       if (h.env) attach(h);
       else h.pending.then(attach);
@@ -1523,7 +1571,7 @@ export function makeApi(engine) {
     // quietly animates a color nothing is showing.
     bg(color) {
       const c = makeColor(color);
-      engine.scene.background = c;
+      engine.world.background = c; // the scene's, or the block's
       // and behind the texture stack, so a chain with transparency in it shows
       // the background rather than the black the canvas happens to be cleared
       // to. Kept as the value, not the Color: the texture side resolves a fn
@@ -1540,6 +1588,7 @@ export function makeApi(engine) {
     // a square. Sidebar quality still scales the pixels underneath, and the
     // sidebar's fixed resolution, when on, outranks this entirely.
     resolution(width, height) {
+      if (engine.scope.parent) return warn(`resolution() inside ${engine.scope.name}: a block renders at the sketch's size for now, so this does nothing`);
       if (width !== null && typeof width === 'object') ({ width, height } = width);
       const px = (n) => Math.max(1, Math.round(n));
       engine.sketchRes = width == null ? null : [px(width), px(height ?? width)];
@@ -1548,6 +1597,7 @@ export function makeApi(engine) {
     // dropping the call hands it back. Deliberately not a fn of t: barPhase
     // counts t * bpm, so a moving tempo jumps the beat instead of easing it.
     tempo(bpm) {
+      if (engine.scope.parent) return warn(`tempo() inside ${engine.scope.name}: there is one clock, and it's the sketch's, so this does nothing`);
       if (bpm == null) {
         engine.sketchBpm = null;
         return;
@@ -1569,8 +1619,63 @@ export function makeApi(engine) {
         ({ color = 0x0a0a0f, near = 5, far = 30 } = color);
       }
       const fog = new THREE.Fog(makeColor(color), near, far);
-      engine.scene.fog = fog;
+      engine.world.fog = fog;
       if (isDynamicColor(color)) engine.updaters.push((t) => setColor(fog.color, color, t));
+    },
+
+    // A labeled block is a sketch inside the sketch (sketch-blocks.js rewrites
+    // `kirb: { ... }` into the first of these), and sketch('kirb') is everything
+    // it sends out as one texture: on its own bg() when it has one, transparent
+    // when it doesn't. Its fog, hdri and camera are its own. Built the first
+    // time something asks for it, so a block nothing reads costs nothing.
+    __sketch: (name, fn) => engine.defineBlock(String(name), fn),
+    sketch(name, params) {
+      const nothing = () => new TextureOp(engine, 'constant', { color: null });
+      let block = engine.findBlock(String(name));
+      // a written-out block reads the names around it, so it has nowhere to
+      // put these — quietly doing nothing with them is the confusing version
+      if (block && params) warn(`sketch('${name}', { ... }): ${name} is a block in this sketch, and a block reads the names declared above it rather than params`);
+      block ??= savedBlock(String(name), params);
+      if (block === 'pending') return nothing();
+      if (!block) {
+        const known = [];
+        for (let sc = engine.scope; sc; sc = sc.parent) known.push(...sc.blocks.keys());
+        warn(`sketch('${name}'): there's no block called ${name} above this line, and no saved sketch by that name${known.length ? ` (there is ${known.join(', ')})` : ''}`);
+        return nothing();
+      }
+      if (block.building || engine.savedStack.includes(block.name)) {
+        warn(`sketch('${name}') inside ${name}: a sketch can't hold itself. input() is its own last frame`);
+        return nothing();
+      }
+      if (!block.scope) {
+        if (block.saved) engine.savedStack.push(block.name);
+        try { engine.buildBlock(block); } finally { if (block.saved) engine.savedStack.pop(); }
+      }
+      if (!block.node) {
+        // made where the block is written, whoever asked first
+        const was = engine.scope;
+        engine.scope = block.home;
+        try {
+          block.node = new TextureOp(engine, 'sketch');
+          block.node.target = block.scope;
+        } finally {
+          engine.scope = was;
+        }
+      }
+      return block.node;
+    },
+
+    // Inside a saved sketch: a value the sketch using it can set.
+    // sketch('kirbster v2', { speed: 2 }) makes param('speed', 1) return 2; run
+    // on its own it returns the 1. A written-out block doesn't need this, since
+    // it can read the names around it.
+    param(name, dflt) {
+      for (let sc = engine.scope; sc; sc = sc.parent) {
+        if (!sc.params) continue;
+        sc.paramsRead.add(name);
+        return name in sc.params ? sc.params[name] : dflt;
+      }
+      return dflt;
     },
 
     // textures — texture operators (see textures.js). Chains render only with .out()

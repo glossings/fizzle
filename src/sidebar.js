@@ -120,6 +120,16 @@ async function deleteUser(name) {
 
 // --- sidebar ---------------------------------------------------------------
 
+// Every sketch there is, for the snippet browser: the user's own first, then
+// the examples. Source comes separately since the list is long and cheap.
+export async function allSketches() {
+  return [
+    ...(await listUser()).map((f) => ({ scope: 'user', ...f })),
+    ...Object.keys(EXAMPLES).sort().map((name) => ({ scope: 'examples', name, mtime: 0 })),
+  ];
+}
+export const sketchSource = (scope, name) => (scope === 'examples' ? EXAMPLES[name] : loadUser(name));
+
 export async function initSidebar({ engine, getCode, setCode, run }) {
   const settings = Object.assign(
     // A phone opens with the sidebar shut: 264px of it is a third of the
@@ -535,6 +545,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
           e.stopPropagation();
           if (!confirm(`Delete sketch "${s.name}"?`)) return;
           await deleteUser(s.name);
+          engine.forgetSketch(s.name);
           forgetSketch(lib, s.key);
           if (current.scope === 'user' && current.name === s.name) setCurrent(null, s.name);
           refreshList();
@@ -702,12 +713,14 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
     if (!name) return;
     if (!nameOk(name)) return alert(NAME_RULE);
     await saveUser(name, getCode());
+    engine.forgetSketch(name);
     setCurrent('user', name);
     refreshList();
   }
   $('#sb-save').addEventListener('click', async () => {
     if (current.scope === 'user') {
       await saveUser(current.name, getCode());
+      engine.forgetSketch(current.name);
       refreshList();
     } else {
       saveAs(current.name);

@@ -180,3 +180,15 @@
 #sn-panel footer button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
 #sn-panel footer button:disabled { opacity: 0.4; cursor: default; }
 #sn-panel footer .sn-primary { border-color: rgba(126, 231, 135, 0.6); }
+
+/* every sketch, under the snippets: there to be put in, not edited */
+.sn-divider {
+  margin: 8px 0 2px;
+  padding: 0 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.35);
+}
+.sn-row-sketch .sn-row-name { color: rgba(255, 255, 255, 0.75); cursor: pointer; }
+.sn-row-sketch .sn-row-name:hover { text-decoration: none; }

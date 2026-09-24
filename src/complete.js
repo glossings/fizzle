@@ -25,6 +25,8 @@ import { MAP_SLOTS, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { mediaList } from './media.js';
 import { midiPortNames } from './control.js';
 import { bandStore } from './bands.js';
+import { blockLabels } from './sketch-blocks.js';
+import { allSketches } from './sidebar.js';
 import {
   GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
   GLOBAL_ARGS, METHOD_ARGS, GLOBAL_SECTIONS,
@@ -322,6 +324,7 @@ export function apiCompletions(context) {
     return stringValues(state, node, pos)
       ?? deviceValues(state, node, pos)
       ?? bandValues(state, node, pos)
+      ?? sketchValues(state, node, pos)
       ?? mediaCompletions(context, node);
   }
 
@@ -457,6 +460,44 @@ function bandValues(state, node, pos) {
   if (!callee || callee.method || callee.name !== 'band') return null;
   if (argIndex(parent, node) !== 0) return null;
   return valueResult(state, pos, node, ['level', ...bandStore.bands.map((b) => b.name)]);
+}
+
+// Inside sketch('…'): the labeled blocks written out in this sketch, then
+// every saved sketch you could name instead — yours, then the examples, since
+// sketch() takes either. Inside input('…') it's the buses a block publishes,
+// spelled 'block/bus'.
+function sketchValues(state, node, pos) {
+  const parent = node.parent;
+  if (parent?.name !== 'ArgList') return null;
+  const callee = calleeName(state, parent.parent);
+  if (!callee || callee.method || argIndex(parent, node) !== 0) return null;
+  const src = state.doc.toString();
+  const blocks = blockLabels(src);
+  if (callee.name === 'input') return busValues(state, node, pos, src, blocks);
+  if (callee.name !== 'sketch') return null;
+  const labels = [...new Set(blocks.map((b) => b.name))];
+  const body = stringBody(state, pos, node);
+  // the list is a fetch, so this one resolves late like the media slots do;
+  // boosted labels keep what's in the file above what's merely on disk
+  return (async () => {
+    let saved = [];
+    try { saved = await allSketches(); } catch { /* the labels are still worth offering */ }
+    const options = [
+      ...labels.map((label) => ({ label, type: 'enum', detail: 'block', boost: 1 })),
+      ...saved
+        .filter((f) => !labels.includes(f.name))
+        .map((f) => ({ label: f.name, type: 'constant', detail: f.scope === 'examples' ? 'example' : 'sketch' })),
+    ];
+    return options.length ? { ...body, options, validFor: /^[^'"]*$/ } : null;
+  })();
+}
+
+function busValues(state, node, pos, src, blocks) {
+  if (!blocks.length) return null;
+  const buses = blocks.flatMap((b) => (
+    [...src.slice(b.open, b.close).matchAll(/\.out\(\s*(['"`])([^'"`/]+)\1/g)].map((m) => `${b.name}/${m[2]}`)
+  ));
+  return buses.length ? valueResult(state, pos, node, [...new Set(buses)]) : null;
 }
 
 // Inside quotes: the imported files this slot can use.

@@ -520,8 +520,8 @@ export function hasMaps(m) {
 // lights every material in the scene; the raw equirect texture is what you
 // actually see behind them. Anything animatable is read per frame by the
 // updater the caller registers.
-export function applyHdri(engine, h, o) {
-  const scene = engine.scene;
+// `scene` is the scene, or the record a labeled block keeps in place of one.
+export function applyHdri(scene, h, o) {
   scene.environment = h.env;
   if (o.background !== false) scene.background = h.texture;
   return (t, resolve) => {

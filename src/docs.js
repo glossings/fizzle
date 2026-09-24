@@ -45,7 +45,9 @@ export const GLOBALS = {
   stack: ['stack({ bg? })', "Texture source: every layer sent to a naked .out() above this call, geometry and texture chains with their .blend() modes, composited on the sketch's backdrop as the display would. A chain that reads it and goes .out() is drawn in place of those layers. bg swaps the backdrop for this read: a color, a chain, or null for none."],
   sky: ['sky()', "Texture source: the sketch's backdrop alone, as the camera sees it. The hdri() sky, or the bg() color without one."],
   depth: ['depth({ near, far }) | depth({ focus, range })', "Texture source: the same 3D render as scene(), as a grayscale distance map — black near, white far. With { focus, range } it measures distance from a focal plane instead — a depth-of-field mask."],
-  input: ['input(name?, { reset })', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite). reset blanks the held frame on the rising edge of its value — a fn of t cuts a feedback loop from code, true cuts it once per run."],
+  input: ['input(name?, { reset })', "Texture source: with no name, last frame's display output. With a name, whatever .out(name) published — a texture bus, or a geometry layer rendered on nothing (real alpha, so it comps 'over' as a sprite). reset blanks the held frame on the rising edge of its value — a fn of t cuts a feedback loop from code, true cuts it once per run.\n- Inside a labeled block, input() is the block's own last frame, and a name is looked for in the block first, then in the sketch around it.\n- input('kirb/glow') reads the bus glow out of the block kirb."],
+  sketch: ["sketch('name', params?)", "Texture source: everything the block called name sends out, as one texture. A block is name: { ... } with a whole sketch inside: its bg(), fog(), hdri() and camera() are its own, and so are its const names and its buses.\n- With a bg() or an hdri() sky inside, the texture is opaque on it. Without one it is transparent, so it comps over other layers.\n- A block with no camera() is seen through the sketch's camera, so it still orbits.\n- input('name/bus') reads one of the block's .out('bus') buses.\n- A block nothing reads is never run, and one that is not being shown holds still.\n- With no block of that name it is a saved sketch, run the same way: sketch('kirbster v2'). The second argument sets that sketch's param() values.\n- select([sketch('a'), sketch('b')], B) switches between blocks, and sketch('a').comp(sketch('b'), 'over', fade) cross-fades them."],
+  param: ["param(name, default)", "A value the sketch using this one can set. Run on its own, a sketch gets the default back. Used as sketch('orb', { speed: 2 }), param('speed', 0.4) returns 2.\n- The value can be anything an argument can: a number, a color, a fn of t, a signal.\n- Only a saved sketch needs it. A block written out in the same sketch reads the names around it."],
   constant: ['constant(color)', "Texture generator: one flat color, whole frame. Any color form, or a fn of t; null, [r, g, b, a] and '#rrggbbaa' carry transparency, like every texture color slot."],
   ramp: ["ramp({ type: 'linear'|'radial'|'angular', a, b, angle, phase, period, freq, shape: 'saw'|'tri'|'sin'|'sqr' })", "Texture generator: a two-color sweep — straight across, out from the center, or around it. period/freq repeat it into bands, shape waveshapes each cycle, phase scrolls."],
   circle: ['circle({ radius, thickness, soft, center, color, bg })', 'Texture generator: a hard-edged disc (soft feathers it), or a ring once thickness cuts the middle out. radius, thickness, soft and center take fns of t, or textures.'],
@@ -1102,7 +1104,7 @@ const globalKinds = {
   curvens: 'curve',
   data: 'data',
   segments: 'segments link',
-  texture: 'scene depth input constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid glsl',
+  texture: 'scene depth input sketch constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid glsl',
   signal: 'beat audio audiofile band rand select sig T B mouse',
   midi: 'midi',
   gamepad: 'gamepad',
@@ -1128,7 +1130,7 @@ const methodKinds = {
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
-        remap lookup lut grain tint alpha displace comp mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
+        remap lookup lut grain tint alpha displace comp blend mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
         fluid ink push obstacle velocity curl pressure field`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
@@ -1166,11 +1168,11 @@ export const KIND_LABEL = {
 // found it.
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
-  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sky stack text video videofile videoseq voronoi'],
+  ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sketch sky stack text video videofile videoseq voronoi'],
   ['signals', 'audio audiofile B band beat gamepad midi mouse rand restartMedia select sig T tempo'],
   ['structure', 'curve data layout link segments spread'],
   ['lights', 'ambient directional hdri hemi point spot'],
-  ['scene', 'bg camera fog hsl hsv resolution'],
+  ['scene', 'bg camera fog hsl hsv param resolution'],
   ['escape hatches', 'bufferId Geometry glsl onFrame Signal Texture THREE'],
 ].map(([name, list]) => [name, names(list)]);
 

@@ -9,7 +9,7 @@ Ordered roughly by leverage.
 ## Suggested order
 
 **First, the three sections at the top of this file, in the order they
-appear:** target pooling, playlist crossfade, then `load()` and `param()`.
+appear:** target pooling, playlist crossfade, then sub-sketches.
 Together they are what lets separate sketches be combined into one
 performance, and pooling goes first because the other two both put more than
 one sketch's buffers on the GPU at once.
@@ -145,7 +145,7 @@ old. In a set that reads as a glitch unless it lands on a beat.
 
   One extra target for the length of the fade and nothing else: the outgoing
   sketch is gone, so it costs no GPU time and needs none of the scoping that
-  `load()` does. What it gives up is motion, since the outgoing picture is
+  sub-sketches do. What it gives up is motion, since the outgoing picture is
   frozen while it fades. At half a second that is hard to see; at four it is a
   still photo dissolving.
 
@@ -159,10 +159,12 @@ old. In a set that reads as a glitch unless it lands on a beat.
     the display target.
 
 [ ] **A true crossfade**, both sketches running while one fades into the other.
-  This is the scoping `load()` builds, used twice: the outgoing sketch keeps
-  its scope alive, the incoming one evaluates into a second, and the display
-  mixes the two until the first is released. Blocked on `load()` for the
-  scoping and on target pooling for the memory, since for the length of the
+  This is the sub-sketch scoping used twice: the outgoing sketch keeps its
+  scope alive, the incoming one evaluates into a second, and the display mixes
+  the two until the first is released. (Inside one file it needs nothing new:
+  `sketch('a').comp(sketch('b'), 'over', fade)` is already a crossfade.)
+  The scoping exists now; what's left is keeping the outgoing sketch's scope
+  alive across a step, and target pooling for the memory, since for the length of the
   fade both sketches' targets are allocated. Only worth it if the frozen
   version turns out to be visible at the fade lengths actually used in a set.
 
@@ -171,125 +173,66 @@ old. In a set that reads as a glitch unless it lands on a beat.
   The mix is one pass with two inputs and a 0..1 progress, so the shape is a
   named set of mix shaders. Not before the plain dissolve has been used.
 
-## `load()` and `param()`: one sketch as a texture in another
+## Sub-sketches: what's left
 
-Playlists put sketches in sequence. Nothing puts one *inside* another:
-reusing a finished sketch as a layer of a new one means pasting its code in,
-after which the two copies drift apart.
+Labeled blocks landed: `kirb: { ... }` is a sketch inside the sketch, rewritten
+to a call before it runs ([src/sketch-blocks.js](../src/sketch-blocks.js)),
+built into a scope of its own the first time `sketch('kirb')` asks
+([`buildBlock`, src/engine.js](../src/engine.js)), with its own stack, buses,
+lights, `bg()`, `fog()`, `hdri()`, `camera()` and carried state. `sketch('name')`
+falls through to a saved sketch, `param()` sets its values, `input('kirb/glow')`
+reads into a block, idle blocks hold still, and the snippet browser pastes whole
+sketches as blocks. Why a label rather than `sketch(() => {})` or
+`sketch({ ... })`: the first is the only function in the language that takes
+nothing and returns nothing, and the second isn't JavaScript, so the editor's
+parser gives up inside it and completion, hover docs and indentation go with it.
 
-```js
-load('kirbster v2').edge().chroma().out()
-load('kirbster v2', { bus: 'glow' }).blur(8).out()
-```
+[ ] **`resolution()` inside a block** warns and does nothing. It should be that
+  block's render size, which is per-chain resolution (its own section below)
+  arriving by another door.
 
-`load(name)` runs the named sketch and returns everything it sends out, folded
-the way the display would fold it, as one texture with a transparent
-background. `{ bus }` returns one of its `.out('name')` buses instead. It costs
-what pasting the code would: the loaded chains join the same per-frame walk.
+[ ] **The 32-layer budget.** Every block with geometry takes at least one
+  three.js layer, shared with the sketch, and a ten-block set of 3D sketches
+  runs out (the existing warning fires). The way out is handing layers to
+  blocks only for the frames they render.
 
-[ ] **Scope the loaded sketch so it can't clobber the host.** Today `.out()`
-  writes into engine-wide lists ([src/textures.js:3494](../src/textures.js#L3494)),
-  so a loaded sketch's naked `.out()` would land on the display and its
-  `.out('glow')` would overwrite the host's. The loaded sketch evaluates
-  against the same API bound to a scope of its own:
+[ ] **Memory.** A block's targets are allocated the first time it renders and
+  then stay, so cycling through ten heavy blocks ends up holding all ten sets.
+  "Release what the pool no longer needs" in the pooling section is what makes
+  a big set affordable.
 
-  ```js
-  const makeScope = () => ({ stack: [], buffers: new Map(), updaters: [] });
+[ ] **A block in a `select([...])` still builds at run time**, since the list
+  is built eagerly. Deferring the build to the first frame it is chosen would
+  trade ctrl+enter time for a shader-compile hitch at the moment of the switch.
+  Only worth it if running a big set gets slow.
 
-  out(name) {
-    if (name != null) this.scope.buffers.set(name, this);
-    else this.scope.stack.push({ kind: 'tex', node: this });
-  }
+[ ] **Tile sets in an idle block still redraw.** Material maps and `.field()`
+  readbacks skip a block nobody is looking at
+  ([`scopeLive`, src/engine.js](../src/engine.js)); `renderTileSets` doesn't
+  yet.
 
-  load(name, { bus } = {}) {
-    const scope = makeScope();
-    const api = makeApi(engine, scope);
-    try { new Function(...names, source(name))(...values(api)); }
-    catch (e) { warn(`load('${name}'): ${e.message}`); return transparent(); }
-    return bus ? scope.buffers.get(bus) : composeStack(scope.stack);
-  }
-  ```
+[ ] **`camera({ pad })` / `camera({ fly })` inside a block** warn and keep the
+  position. A controller driving a block's camera needs the rig in
+  [src/camera-pad.js](../src/camera-pad.js) to take a camera rather than the
+  engine's.
 
-  The host sketch gets a scope too (the root one), so there is one code path.
-  State that survives a re-run ([src/carry.js](../src/carry.js)) is keyed per
-  load, so adding or removing a `load()` line never shifts what the host's own
-  `.smooth()` or `.delay()` inherits.
+[ ] **Restart on entry.** A block that comes back picks up where it left off.
+  Some want to start over each time they're switched in: an option on
+  `sketch()`, or a signal the block can read.
 
-[ ] **3D renders into the texture.** Geometry in a loaded sketch goes on layer
-  bits of its own and reaches the host only through the returned texture, the
-  way `scene()` and geometry `.out('name')` already work
-  ([`pass3d`, src/textures.js:4577](../src/textures.js#L4577)). Lights sent out
-  in a loaded sketch light that sketch's layers only. The 32-layer budget is
-  shared between the host and every load; past it, the existing warning fires.
+[ ] **Saved sketches by name**, the loose ends:
+  - a saved sketch edited in another tab doesn't re-run the sketches using it
+    (saving it in this tab does drop the cached source);
+  - `sketch('name', { ... })` builds its own copy per call, so two reads with
+    params never share a build;
+  - nothing completes a saved sketch's `param()` keys (the names themselves
+    complete, blocks first, then your sketches, then the examples);
+  - `param()` is the natural place for a midi learn to attach.
 
-[ ] **Camera.** A loaded sketch that calls `camera()` gets a camera of its
-  own, driven by that call and untouched by orbiting. One that doesn't renders
-  through the host's camera, whatever is driving it: there is one set of orbit
-  controls, so sharing is the only way a loaded sketch can be orbited at all,
-  and it still works when the host is pure 2D. Two loads without a `camera()`
-  orbit together.
-
-[ ] **`fog()` and `hdri()` are per load.** `pass3d` already swaps
-  `scene.background` in for one pass and restores it
-  ([src/textures.js:4606](../src/textures.js#L4606)); fog and environment
-  (with its intensity and rotation) are the same kind of property and get the
-  same treatment. Inside a load, `fog()` ([src/api.js:1572](../src/api.js#L1572))
-  and `hdri()` ([src/materials.js:525](../src/materials.js#L525)) write to the
-  scope's record instead of the shared scene, and the pass applies it. Check
-  that three doesn't recompile a material when fog differs between passes; it
-  shouldn't, since each mesh only ever renders under its own sketch's
-  settings. This swap is also most of what "One world per sketch" below asks
-  for per layer, so build it where both can use it.
-
-[ ] **Settings there is one of do nothing inside a load, and say so.**
-  `resolution()`, `tempo()` and `bg()` warn once (`resolution() inside
-  load('kirbster v2') does nothing: the host sketch owns it`) and return. The
-  same goes for anything that opens UI: an empty `videofile()` or
-  `.material()` asking for a picker, a midi learn. Open question: whether
-  `load(name, { bg: true })` should keep the loaded sketch's backdrop instead
-  of returning it transparent. Start without it.
-
-[ ] **Source has to be there synchronously.** `load()` runs while the host
-  evaluates, and sketch source arrives through an async fetch
-  ([src/sidebar.js](../src/sidebar.js)). Keep every sketch's source cached once
-  the list has loaded; on a miss return a transparent texture, fetch, and
-  re-run the host when it lands (the way a late `hdri()` applies itself).
-  Editing a loaded sketch in another tab should re-run hosts that load it.
-
-[ ] **Failure modes all warn and render transparent**, never throw into the
-  host: unknown name (suggest the nearest), a loaded sketch that throws, an
-  unknown `bus` (list the ones it has), and a cycle (`a` loads `b` loads `a`,
-  caught by keeping the chain of names being loaded).
-
-[ ] **Completion.** Inside `load('`, complete sketch names from the sidebar's
-  list; inside `{ bus: '`, the buses that sketch publishes; inside the params
-  object, its declared params ([src/complete.js](../src/complete.js)).
-
-[ ] **`param(name, default)`**, so a loaded sketch can be played rather than
-  just shown:
-
-  ```js
-  // kirbster v2.js
-  const speed = param('speed', 1);
-  noise({ speed }).out()
-
-  // host
-  load('kirbster v2', { speed: 2.5 })
-  load('kirbster v2', { speed: audio().smooth(0.2) })
-  ```
-
-  Run on its own, `param()` returns the default. Loaded, it returns what the
-  host passed, which can be a number, a fn of `t` or a signal like any other
-  argument. Declared rather than inferred from the sketch's own `const`s:
-  sketches run inside a block precisely so their declarations shadow injected
-  names, so an injected override would lose, and rewriting source to get
-  around that is more magic than the feature is worth. `param()` is also the
-  natural place for a midi learn to attach later, which would make one call
-  the answer to both "drive this from the host" and "drive this from a knob".
-  Warn on a key the loaded sketch never declares.
-
-[ ] Ships with an example in `sketches/examples/` (one that loads another
-  example, with a bus pull and a param) and a docs entry.
+[ ] **Particles and links look for lights across every block**
+  ([src/particles.js:1370](../src/particles.js#L1370),
+  [src/link.js:635](../src/link.js#L635) traverse the whole scene), so a block
+  with none can be told there is one. Ask the scope instead.
 
 ## no way to browse the API without leaving the editor
 
@@ -448,6 +391,26 @@ Small, and they matter more here than they would elsewhere: a livecoding sketch
 has no stack trace worth reading and no step debugger, so an argument in the
 wrong slot has to say so or it costs an hour.
 
+[ ] **`noise()` past `freq` 289 repeats, diagonally, with nothing said.**
+  simplex reduces its lattice coordinate `mod 289`
+  ([`snoise`, src/noise.js:21](../src/noise.js#L21)), so the field is periodic:
+  shifting the input by `(289, -289, 0)` reproduces it exactly (checked in the
+  shader against that shift, three times it, a half shift and a pure-x shift —
+  only multiples of the first come back identical). That translation is a 45
+  degree diagonal in xy, so the repeat lands `289 / freq` of the frame height
+  and `289 / (aspect * freq)` of its width away: invisible at `period: 0.5`,
+  and at `period: 0.003` the same field is on screen twice, once per octave,
+  as bands running top-left to bottom-right. Sampling is past the lattice by
+  then too — the field measures fully decorrelated within 3px at that period,
+  so the upper octaves alias on top of the tiling. Nothing warns, and the
+  natural read is that the noise is broken.
+
+  Warn once when the resolved `freq` (times aspect) crosses ~289, and point at
+  `.grain()`: a per-pixel hash with no lattice and no period, measured
+  decorrelated at 1px, and what a grain overlay wanted in the first place.
+  Raising the modulus is not the fix — 289 is what keeps `permute`'s
+  arithmetic inside float32's exact integers.
+
 [ ] **An options object in a positional number slot reaches the uniform.**
   `.chroma({ amount: 0.02 })` reads like every other op, but the signature is
   `chroma(amount, o)` ([src/textures.js:3026](../src/textures.js#L3026)), so the
@@ -469,8 +432,8 @@ still all-or-nothing. None of these need a multi-scene rewrite — the shape
 that fits the API is opt-in per-read overrides, defaults unchanged, like
 `scene({ bg })` was.
 
-`load()` (top of this file) needs fog, environment and camera swapped per 3D
-pass for a loaded sketch. That is the same mechanism the fog, camera and
+Sub-sketches (top of this file) need fog, environment and camera swapped per
+3D pass for a block. That is the same mechanism the fog, camera and
 environment items here want per layer, so whichever lands first should build
 it for both.
 
@@ -487,8 +450,8 @@ it for both.
 [ ] **One camera.** Every pass looks through the orbit camera, so there's no
   picture-in-picture, no fixed-frame overlay while the main view orbits, no
   rendering a shape head-on as a map for a material. The big one; probably a
-  second camera as an op a layer pull can name. `load()` is the first thing to
-  demand it (a loaded sketch that calls `camera()` keeps its own), so design
+  second camera as an op a layer pull can name. Sub-sketches are the first thing to
+  demand it (a block that calls `camera()` keeps its own), so design
   the per-pass camera there and expose it to layers afterwards.
 [ ] **Environment lights everything.** `scene.environment` reaches every
   material on every layer; three has no per-layer environment, so a stylized

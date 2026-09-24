@@ -9,7 +9,8 @@ import { loadModelGeometry } from './models.js';
 import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
-import { claimDuring, sweepCarried, resetCarried } from './carry.js';
+import { claimDuring, claimUnder, sweepCarried, resetCarried } from './carry.js';
+import { rewriteBlocks } from './sketch-blocks.js';
 import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
@@ -47,6 +48,46 @@ function stageVideo(el) {
 
 const DEFAULT_BG = 0x0a0a0f;
 
+// Where a saved sketch is cached once sketch('name') has run it. The \0 keeps
+// it clear of the labels a sketch types by hand, so a block called orb and the
+// saved sketch orb.js are two different entries.
+export const SAVED_BLOCK = '\0saved:';
+
+// What one sketch builds: the lists .out() and friends write into, and the
+// settings there is one of. The sketch in the editor is the root scope; a
+// labeled block (sketch-blocks.js) gets one of its own, so nothing it sends
+// out or sets reaches past the texture sketch('name') hands back. A block's
+// backdrop, fog and environment live in `world`, which a 3D pass swaps onto
+// the scene for as long as it draws that block's layers; the root's live on
+// the scene itself.
+function makeScope(name, parent) {
+  return {
+    name,
+    path: parent?.path ? `${parent.path}/${name}` : name,
+    parent,
+    blocks: new Map(),          // name -> { name, fn, home, scope, node, building }
+    stack: [],                  // every naked .out() in code order: { kind: 'tex', node } or { kind: 'geo', bit }
+    textureOutputs: [],         // texture chains marked with .out(), display-stacked in order
+    textureBuffers: new Map(),  // name -> node published with .out(name)
+    geoLayers: new Map(),       // name -> three.js layer bit, geometry .out(name)
+    updaters: [],               // fns called every frame with (t, dt)
+    lights: [],                 // naked-.out() lights: they reach this scope's layers and no other's
+    bits: 0,                    // mask of the three.js layers this scope's geometry is on
+    bg: parent ? null : DEFAULT_BG, // a block with no bg() comes back transparent
+    world: parent ? {
+      background: null, fog: null, environment: null, environmentIntensity: 1,
+      environmentRotation: new THREE.Euler(), backgroundRotation: new THREE.Euler(),
+      backgroundBlurriness: 0, backgroundIntensity: 1,
+    } : null,
+    camera: null,               // a block's own, once it calls camera()
+    saved: parent?.saved ?? false, // built from a saved sketch's source rather than from code in the editor
+    params: null,               // what sketch('name', { ... }) handed a saved sketch, for param()
+    paramsRead: new Set(),
+    born: 0,                    // frame it was built on
+    pulled: -1,                 // last frame anything read it
+  };
+}
+
 export class Engine {
   constructor(canvas) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -62,7 +103,17 @@ export class Engine {
     this.scene.background = new THREE.Color(0x0a0a0f);
     // the same color as a value, for the texture stack to plate under a
     // transparent .out() — scene.background only reaches the 3D pass
-    this.bg = DEFAULT_BG;
+    this.root = this.scope = makeScope('', null);
+    this.scopes = [this.root];
+    // sketch('kirbster v2'): saved sketches by name. Source has to be in hand
+    // while the sketch runs, so it's kept here once fetched; a miss asks
+    // onNeedSketch (main.js) for it, which re-runs when it lands.
+    this.sketchSources = new Map();
+    this.sketchMissing = new Set();
+    this.sketchAsked = new Set();
+    this.savedStack = [];        // names being built, to catch a uses b uses a
+    this.onNeedSketch = null;
+    this.lastCode = null;
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 500);
     this.camera.position.set(0, 2, 8);
@@ -87,7 +138,6 @@ export class Engine {
     this.resOverride = null; // the sidebar's fixed size, which outranks the sketch
     this._resKey = '';      // what resize() last applied, so a re-run is a no-op
     this.patch = [];      // objects added by the current sketch
-    this.updaters = [];   // fns called every frame with (t, dt)
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
     // Called at the end of every frame, while the drawing buffer still holds
     // it — a WebGL canvas can't be read back from a later task. The recorder
@@ -133,16 +183,10 @@ export class Engine {
     // than opening wherever that one parked.
     this.orbitPose = { pos: this.camera.position.clone(), target: this.controls.target.clone() };
     this.textureNodes = [];            // texture graph nodes from the current sketch
-    this.textureOutputs = [];          // texture chains marked with .out(), display-stacked in order
-    // every naked .out() in code order: { kind: 'tex', node } or { kind: 'geo',
-    // bit } — consecutive geometry shares one group (one 3D pass, real depth)
-    this.stack = [];
     this.layerBits = 0;                // three.js layer bits handed out; 0 is the first group's
-    this.textureBuffers = new Map();   // name -> node published with .out(name)
     this.textureMaps = [];             // texture chains bound to a material map slot
     this.textureFields = [];           // .field() readbacks: texture chains sampled by CPU code
     this.textureTiles = [];            // map: [a, b, c] sets, one array texture each
-    this.geoLayers = new Map();        // name -> three.js layer bit, geometry .out(name)
     this._textureState = {};           // persistent RTs/quad (feedback survives re-runs)
 
     window.addEventListener('resize', () => this.resize());
@@ -306,7 +350,7 @@ export class Engine {
       updateTempo(this.audio); // the manager's auto tempo
       for (const ae of this.audios.values()) ae.update();
       for (const m of this.media.values()) m.ae?.update();
-      for (const fn of this.updaters) {
+      for (const fn of this.liveUpdaters()) {
         begin(tagOf(fn));
         // keep rendering even if one updater throws, but say so
         try { fn(this.time, dt); } catch (e) { warn(e.message ?? String(e)); }
@@ -348,6 +392,125 @@ export class Engine {
       else if (m.el?.play) m.el.play().catch(() => {});
     }
     return this.paused;
+  }
+
+  // Per-sketch state is the current scope's: while a block is being built
+  // that's the block's, so everything the API does on its behalf (.out(),
+  // bg(), a new updater) lands there without knowing it's in one. Between
+  // runs it's the root's. Anything that outlives the build (a texture node at
+  // render time) holds the scope it was made in instead of asking here.
+  get stack() { return this.scope.stack; }
+  get textureOutputs() { return this.scope.textureOutputs; }
+  get textureBuffers() { return this.scope.textureBuffers; }
+  get geoLayers() { return this.scope.geoLayers; }
+  get updaters() { return this.scope.updaters; }
+  get bg() { return this.scope.bg; }
+  set bg(v) { this.scope.bg = v; }
+  // where bg() / fog() / hdri() write
+  get world() { return this.scope.world ?? this.scene; }
+
+  // A block nobody read last frame holds still: rendering is pulled, so it
+  // already draws nothing, and this is the same for its callbacks and sims.
+  // It picks up where it left off.
+  scopeLive(sc) {
+    const frame = this._textureState.frame ?? 0;
+    return !sc.parent || sc.pulled >= frame - 1 || frame - sc.born < 2;
+  }
+
+  liveUpdaters() {
+    const out = [];
+    for (const sc of this.scopes) if (this.scopeLive(sc)) out.push(...sc.updaters);
+    return out;
+  }
+
+  // the camera a scope is seen through: its own once it has called camera(),
+  // else the nearest one above it, which for most blocks is the one you orbit
+  cameraOf(sc) {
+    for (let s = sc; s; s = s.parent) if (s.camera) return s.camera;
+    return this.camera;
+  }
+
+  ownCamera() {
+    const sc = this.scope;
+    if (!sc.camera) {
+      sc.camera = this.camera.clone();
+      sc.cameraTarget = new THREE.Vector3();
+    }
+    return sc.camera;
+  }
+
+  // __sketch(name, fn): a labeled block, as the rewrite hands it over. Nothing
+  // runs yet. A block nothing asks for costs nothing.
+  defineBlock(name, fn) {
+    if (this.scope.blocks.has(name)) warn(`${name}: there are two blocks with this name, and sketch('${name}') reads the second`);
+    this.scope.blocks.set(name, { name, fn, home: this.scope, scope: null, node: null, building: false });
+  }
+
+  // a saved sketch was written or deleted: what's cached of it is stale
+  forgetSketch(name) {
+    this.sketchSources.delete(name);
+    this.sketchMissing.delete(name);
+    this.sketchAsked.delete(name);
+  }
+
+  // A written-out block, innermost first, like any name. Saved sketches are
+  // deliberately not here: sketch() has to be the one to run one, since it
+  // knows the params to hand it.
+  findBlock(name) {
+    for (let s = this.scope; s; s = s.parent) {
+      const b = s.blocks.get(name);
+      if (b) return b;
+    }
+    return null;
+  }
+
+  // The same, plus saved sketches this sketch has already asked for — so
+  // input('orb/glow') reads a bus wherever sketch('orb') shows the picture.
+  blockIn(sc, name) {
+    for (let s = sc; s; s = s.parent) {
+      const b = s.blocks.get(name) ?? s.blocks.get(SAVED_BLOCK + name);
+      if (b) return b;
+    }
+    return null;
+  }
+
+  // Run a block's code with a scope of its own current. A block that throws
+  // comes back empty, which renders transparent, and the sketch around it plays on.
+  buildBlock(block) {
+    const sc = block.scope = makeScope(block.name, block.home);
+    sc.born = this._textureState.frame ?? 0;
+    if (block.saved) sc.saved = true;
+    sc.params = block.params ?? null;
+    this.scopes.push(sc);
+    const was = this.scope;
+    this.scope = sc;
+    block.building = true;
+    try {
+      claimUnder(sc.path, block.fn);
+    } catch (e) {
+      warn(`${block.name}: ${e.message ?? e}`);
+      sc.stack.length = 0;
+      sc.textureOutputs.length = 0;
+    } finally {
+      block.building = false;
+      this.scope = was;
+    }
+    for (const k of Object.keys(sc.params ?? {})) {
+      if (!sc.paramsRead.has(k)) warn(`sketch('${block.name}'): it has no param called ${k}`);
+    }
+    return sc;
+  }
+
+  // Naked lights reach every layer of the scope that sent them out, and no
+  // one else's: three culls lights by the camera's layer mask, and each 3D
+  // pass looks at one scope's layers. Once per run, since bits are handed out
+  // as the sketch goes.
+  settleLights() {
+    let taken = 0;
+    for (const sc of this.scopes) if (sc.parent) taken |= sc.bits;
+    for (const sc of this.scopes) {
+      for (const light of sc.lights) light.layers.mask = sc.parent ? sc.bits : ~taken;
+    }
   }
 
   // `at` is the object's row in the profiler, which charges it both its
@@ -925,6 +1088,7 @@ export class Engine {
   // that a picker is wanted; main.js opens it right after the run (it needs
   // the user-gesture context of the ctrl+enter) and fills the call in.
   requestMediaPick(fn, kind, multiple = false) {
+    if (this.scope.saved) return; // a pick is written into the editor, and this code isn't in it
     this.pendingPick ??= { fn, kind, multiple };
   }
 
@@ -934,6 +1098,7 @@ export class Engine {
   // than in a preferences file nobody can see. First empty call wins — the
   // rest are learned one re-run at a time, in the order they're written.
   requestLearn(req) {
+    if (this.scope.saved) return;
     this.pendingLearn ??= req;
   }
 
@@ -941,6 +1106,7 @@ export class Engine {
   // the Poly Haven browser rather than a file picker — there's no local file to
   // point at yet, which is the whole reason the call is empty.
   requestBrowse(fn, type) {
+    if (this.scope.saved) return;
     this.pendingPick ??= { fn, browse: type };
   }
 
@@ -956,6 +1122,7 @@ export class Engine {
         return 0;
       }
       this.geoLayers.set(name, bit);
+      this.scope.bits |= 1 << bit;
     }
     return bit;
   }
@@ -976,7 +1143,8 @@ export class Engine {
     const top = this.stack[this.stack.length - 1];
     if (top?.kind === 'geo' && !top.closed) return top.bit;
     let bit = 0;
-    if (this.stack.some((e) => e.kind === 'geo')) {
+    // layer 0 is the display's, so only the sketch's own first group gets it
+    if (this.scope.parent || this.stack.some((e) => e.kind === 'geo')) {
       bit = this.allocLayer();
       if (!bit) {
         warn("out(): three has 32 layers and they're all taken — this geometry renders with the first group");
@@ -984,6 +1152,7 @@ export class Engine {
       }
     }
     this.stack.push({ kind: 'geo', bit });
+    this.scope.bits |= 1 << bit;
     return bit;
   }
 
@@ -1011,14 +1180,14 @@ export class Engine {
       });
     }
     this.patch = [];
-    this.updaters = [];
+    this.root = this.scope = makeScope('', null);
+    this.scopes = [this.root];
     this.patchGen++;
     resetWarnings();
     this.scene.fog = null;
     this.scene.background = new THREE.Color(0x0a0a0f);
     // the same color as a value, for the texture stack to plate under a
     // transparent .out() — scene.background only reaches the 3D pass
-    this.bg = DEFAULT_BG;
     // the HDRI itself stays cached; only the scene's use of it is patch state,
     // so a sketch that drops its hdri() call goes back to plain lighting
     this.scene.environment = null;
@@ -1030,17 +1199,13 @@ export class Engine {
 
     for (const node of this.textureNodes) node.dispose();
     this.textureNodes = [];
-    this.textureOutputs = [];
-    this.stack = [];
     this.layerBits = 0;
     this._anon = 0;
-    this.textureBuffers.clear();
     this.textureMaps = [];
     for (const f of this.textureFields) f.rt?.dispose();
     this.textureFields = [];
     for (const s of this.textureTiles) s.rt?.dispose();
     this.textureTiles = [];
-    this.geoLayers.clear();
 
     this.cameraProgrammed = false;
     this.cameraTouched = false;
@@ -1081,6 +1246,7 @@ export class Engine {
   // throws restores the last good sketch: mid-edit errors show in the status
   // bar while the visuals keep playing (err.restored says that happened).
   run(code, api) {
+    this.lastCode = code;
     // Only worth saving when the camera is the user's to move: after a run
     // that programmed it, the pose on screen is the sketch's, and the one
     // worth coming back to is still the one saved before it took over.
@@ -1098,7 +1264,17 @@ export class Engine {
     const exec = (src) => {
       // the block lets a sketch's own const/let shadow an API name instead of
       // colliding with it, so a new global can't break a sketch that got there first
-      claimDuring(() => new Function(...names, `"use strict";\n{${src}\n}`)(...values));
+      // labeled blocks become calls (sketch-blocks.js); a source the rewrite
+      // can't make sense of runs as written and says what's wrong itself
+      let js = src;
+      try { js = rewriteBlocks(src); } catch { /* as written */ }
+      this.scope = this.root;
+      try {
+        claimDuring(() => new Function(...names, `"use strict";\n{${js}\n}`)(...values));
+      } finally {
+        this.scope = this.root; // a throw from inside a block mustn't leave it current
+      }
+      this.settleLights();
       if (!this.cameraTouched) {
         this.camera.position.copy(this.orbitPose.pos);
         this.controls.target.copy(this.orbitPose.target);
@@ -1106,7 +1282,7 @@ export class Engine {
       }
       this.syncResolution(); // before the settle below, so the aspect is right
       // settle the new patch at current sketch time (matters when paused)
-      for (const fn of this.updaters) {
+      for (const fn of this.liveUpdaters()) {
         try { fn(this.time, 0); } catch (e) { /* the next frame's tick warns */ }
       }
     };

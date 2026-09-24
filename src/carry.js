@@ -20,6 +20,14 @@
 
 const store = new Map();
 const ordinals = new Map();
+// A named block counts its own claims, under its name: editing one block can't
+// shift what another inherits, and adding a block doesn't renumber the sketch.
+let prefix = '';
+export function claimUnder(path, fn) {
+  const was = prefix;
+  prefix = `${path}/`; // where the block is written, not who asked for it first
+  try { return fn(); } finally { prefix = was; }
+}
 let claiming = false;
 let gen = 0;
 
@@ -27,9 +35,10 @@ let gen = 0;
 // have one — that's what bufferId() names itself after.
 export function carried(kind, make, free) {
   if (!claiming) return make();
-  const n = ordinals.get(kind) ?? 0;
-  ordinals.set(kind, n + 1);
-  const key = `${kind}#${n}`;
+  const slot = prefix + kind;
+  const n = ordinals.get(slot) ?? 0;
+  ordinals.set(slot, n + 1);
+  const key = `${slot}#${n}`;
   let e = store.get(key);
   if (!e) store.set(key, (e = { value: make(key), free }));
   e.gen = gen;

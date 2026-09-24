@@ -142,6 +142,15 @@ the sketch declares the same name differently or already sends out the same
 bus (`.out('a')`), the insert still happens and the status line names what to
 change.
 
+Every sketch is in the browser too, under the snippets: yours newest first,
+then the examples, all tagged `sketch` (so `tag:sketch` narrows to them).
+Putting one in lands the whole sketch untouched, as a labeled block with a
+`sketch('name')` line to show it, so its `bg()`, `camera()` and the rest stay its
+own (see *a sketch inside a sketch*). On an empty line you get the block and
+`sketch('name').out()` under it. Anywhere else the block goes above the
+statement you're in and the cursor gets `sketch('name')`, which is what a
+`.comp(` was waiting for. A sketch is read-only here. Open it to edit it.
+
 Each snippet is a plain file in `sketches/user/snippets/`, with its tags on the
 first line:
 
@@ -2879,6 +2888,96 @@ torus({ radius: 0.6, tube: 0.22, res: 48 })
 
 The screen needs something to show, hence the torus in front of it. A scene
 whose only object *is* the screen stays black forever.
+
+## a sketch inside a sketch
+
+A labeled block is a sketch of its own. `sketch('name')` is everything it sends
+out, as one texture.
+
+```js
+bg('#05060a')
+
+knot: {
+  bg('#2a0a3a')
+  camera(T.mul(0.3).sin().mul(3), 1, 5)
+  ambient({ intensity: 0.3 })
+  point({ color: '#77ddff', intensity: 60 }).position(3, 4, 2).out()
+  torusKnot({ radius: 1, tube: 0.3, res: 96 })
+    .rotation(T.mul(0.4), T.mul(0.3), 0)
+    .material({ color: '#ff7f50', roughness: 0.3, metalness: 0.5 })
+    .out()
+}
+
+sketch('knot').kaleido(6).out()
+```
+
+The block's `bg()`, `camera()`, `fog()`, `hdri()` and lights are its own. So are
+its `const` names and its buses. Nothing in it reaches the sketch around it
+except through `sketch('knot')`.
+
+A block with a `bg()` (or an `hdri()` sky) comes back opaque on it. Leave the
+`bg()` out and it comes back transparent, so it sits over other layers:
+
+```js
+noise({ period: 0.4, speed: 0.2, a: '#101030', b: '#203060' }).out()
+
+rings: {
+  ring({ inner: 0.30, outer: 0.32, color: '#ffe066', bg: null })
+    .comp(ring({ inner: 0.40, outer: 0.41, color: '#4fd1c5', bg: null }), 'over')
+    .scale(T.mul(0.5).sin().range(0.9, 1.1))
+    .out()
+}
+
+sketch('rings').out()
+```
+
+A block with no `camera()` is seen through the sketch's camera, so you can still
+orbit it. A block can read the names declared above it, which is how you drive
+one: declare `speed` outside and use it inside.
+
+**Switching and fading.** Several blocks in one sketch are a set. `select()`
+shows one at a time and only that one renders, while the others hold still and
+pick up where they left off:
+
+```js
+a: { noise({ period: 0.3, speed: 0.4 }).kaleido(6).out() }
+b: { voronoi({ freq: 6, speed: 0.3 }).edge().out() }
+c: { checker({ nx: 8, ny: 8 }).rotate(T.mul(0.2)).out() }
+
+select([sketch('a'), sketch('b'), sketch('c')], B).out()   // one per bar
+```
+
+A cross-fade is two blocks and a fade:
+
+```js
+a: { noise({ period: 0.3, speed: 0.4 }).kaleido(6).out() }
+b: { voronoi({ freq: 6, speed: 0.3 }).edge().out() }
+
+sketch('a').comp(sketch('b'), 'over', T.mul(0.5).sin()).out()
+```
+
+**Buses.** `input('rings/grain')` reads the bus `grain` out of the block
+`rings`. Inside a block, `input()` with no name is the block's own last frame,
+and a named `input()` looks in the block first, then in the sketch around it.
+
+**Saved sketches by name.** With no block of that name, `sketch()` runs a saved
+sketch the same way. The second argument sets the values that sketch asks for
+with `param()`:
+
+```js static
+// a sketch you saved as 'swirl'
+const speed = param('speed', 0.4)   // 0.4 when swirl runs on its own
+noise({ speed }).out()
+
+// any other sketch, using it
+sketch('swirl', { speed: 2 }).edge().out()
+```
+
+In the snippet browser (`ctrl + j`) every sketch goes in this way: as a labeled
+block with its code untouched, and a `sketch('name')` line to show it.
+
+`resolution()` and `tempo()` do nothing inside a block. A block nothing reads
+is never run, so a sketch can hold many and pay for the ones in use.
 
 ## glsl
 

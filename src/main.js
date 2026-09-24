@@ -11,6 +11,7 @@ import { initRecorder } from './record.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import { learnMidi, learnPad } from './control.js';
 import { initSnippets } from './snippets.js';
+import { sketchSource } from './sidebar.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
 
 // the welcome sketch's header comes in a desktop and a touch version
@@ -56,6 +57,19 @@ window.addEventListener('fizzle-notice', (e) => {
   status.className = 'show';
   setTimeout(() => { if (status.textContent === msg) status.className = ''; }, 6000);
 });
+
+// sketch('kirbster v2') named a saved sketch the engine has no source for yet.
+// Fetch it and run again; a name that turns out not to exist runs again too,
+// so the sketch gets told.
+engine.onNeedSketch = async (name) => {
+  if (engine.sketchAsked.has(name)) return;
+  engine.sketchAsked.add(name);
+  let src;
+  try { src = (await sketchSource('user', name)) ?? sketchSource('examples', name); } catch { /* counts as missing */ }
+  if (src == null) engine.sketchMissing.add(name);
+  else engine.sketchSources.set(name, src);
+  if (engine.lastCode != null) run(engine.lastCode);
+};
 
 const snippets = initSnippets({ getView: () => view, flash });
 
