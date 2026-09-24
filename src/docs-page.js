@@ -8,6 +8,7 @@
 // a second block is how you stop the first. Scroll that block off the screen
 // and the picture follows you into a corner (see floatOut).
 
+import './analytics.js';
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';

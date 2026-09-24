@@ -1,3 +1,4 @@
+import './analytics.js';
 import { Transaction } from '@codemirror/state';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
