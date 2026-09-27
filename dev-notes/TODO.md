@@ -304,6 +304,56 @@ New properties should ride that form.
 
 [ ] Hand tracking?
 
+[ ] **`.instance()` should take a shape, not a count.** `.instance(n, fn)`
+    hands the callback one flat `i`, but the copies are very often a grid, so
+    the first thing the callback does is take that number apart again:
+
+    ```js
+    .instance(FIGURES * CORNERS, (x, i, n, t) => {
+      const fig = (i / CORNERS) | 0
+      const e = i % CORNERS
+    ```
+
+    `loop ripple` opens with the same two lines for its `SIDE * SIDE` grid, and
+    before the ghosts moved out of it, mystify opened with four. The proposal
+    is to pass the counts and get the indices:
+
+    ```js
+    .instance([FIGURES, CORNERS], (x, [fig, e], n, t) => …)
+    ```
+
+    Same copies, same mesh, same draw. Nothing new becomes possible; arithmetic
+    the engine can do stops being written by hand. A number keeps working, and
+    `.instance(layout)` is untouched.
+
+    The inconsistency is already inside the codebase, which is the strongest
+    argument for it: a texture `.tile(nx, ny, (src, i, x, y) => …)` hands the
+    cell its `x` and `y` outright. The grid callback on the texture side was
+    designed this way and the one on the geometry side was not.
+
+    It does not subsume `.tile()` in either sense. The texture one is a shader
+    pass that repeats a picture into cells, deduping identical variants, which
+    is a different mechanism and a different cost from drawing instanced
+    copies. The copy-level `.tile(n)` is about which map out of a set a copy
+    wears, which has nothing to do with where it sits.
+
+    Open: whether `n` stays the total or becomes the counts array.
+
+[ ] **Does `.detune()` come back?** A signal method drawing a rate and a phase
+    offset from a seed, so N oscillators never line up: what a sketch
+    hand-rolls as `0.146 + i * 0.021` and `i * 0.37`. It was built and then
+    removed once `.at()` landed, because it is `s.at(t * rate + offset)` with
+    the two numbers drawn from a hash, and shipping a second time-warping
+    mechanism beside the primitive is how they drift.
+
+    Held deliberately rather than dropped. The open question is whether the
+    seeded draw is worth a name of its own, and the way to answer it is to
+    write the decorrelated sketches on `.at()` alone and see whether the
+    spelling hurts. It needs a static hash of a seed, which sketches already
+    have as `rand(0, seed)` — a zero frequency makes it a constant — so the
+    long form is expressible today, just not pretty. If it returns, it returns
+    as one line over `.at()`, not as its own implementation.
+
 ## `.edge()` `spread > 1` is a comb under iteration
 
 The balanced kernel fixed the axis lock, but `spread` still moves the taps to
@@ -1017,6 +1067,18 @@ signal fn.
   two more lines of the same EMA) works on any input. Measure whether
   `.bandpass(30, 160).kicks()` — the spelling the docs recommend — actually
   fires on real percussion before deciding.
+
+[ ] The audio manager can't reach a sub-sketch's pinned bands. A labeled block
+  or a saved sketch can declare a set of its own
+  ([src/bands.js](../src/bands.js)), and `bandSetFor` resolves it correctly, but
+  the manager only ever edits `engine.root.bandSet` — so a block's bands are
+  readable in the code and not draggable on a meter. The shape that fits is tabs
+  along the top of the meters, one per live set, since the manager is already a
+  one-set-at-a-time view and adding a second set to the same list is the noisy
+  version. Two things to settle first: a saved sub-sketch's set belongs to a
+  file this sketch doesn't own, so a drag there either edits that file or is
+  session-only, and neither is obviously right. Fringe — it only comes up for
+  someone tuning a patch built out of other people's sketches.
 
 ## Draw modes
 

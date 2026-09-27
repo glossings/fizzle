@@ -24,7 +24,7 @@ import { javascriptLanguage, localCompletionSource } from '@codemirror/lang-java
 import { MAP_SLOTS, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { mediaList } from './media.js';
 import { midiPortNames } from './control.js';
-import { bandStore } from './bands.js';
+import { bandStore, sketchBandSet } from './bands.js';
 import { blockLabels } from './sketch-blocks.js';
 import { allSketches } from './sidebar.js';
 import {
@@ -452,14 +452,16 @@ function deviceValues(state, node, pos) {
   return names.length ? valueResult(state, pos, node, names) : null;
 }
 
-// Inside band('…'): what the audio manager has right now, 'level' first.
+// Inside band('…'): the bands this sketch actually reads, 'level' first — its
+// own if it has pinned a set with bands({ ... }), else the audio manager's.
 function bandValues(state, node, pos) {
   const parent = node.parent;
   if (parent?.name !== 'ArgList') return null;
   const callee = calleeName(state, parent.parent);
   if (!callee || callee.method || callee.name !== 'band') return null;
   if (argIndex(parent, node) !== 0) return null;
-  return valueResult(state, pos, node, ['level', ...bandStore.bands.map((b) => b.name)]);
+  const from = sketchBandSet() ?? bandStore;
+  return valueResult(state, pos, node, ['level', ...from.bands.map((b) => b.name)]);
 }
 
 // Inside sketch('…'): the labeled blocks written out in this sketch, then

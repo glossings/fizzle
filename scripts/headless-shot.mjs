@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { chromeBin, chromeArgs } from './chrome-lib.mjs';
 
 const [, , sketchFile, prefix, times] = process.argv;
 if (!times) {
@@ -22,12 +23,9 @@ const url = `http://localhost:${port}/#c=${Buffer.from(code, 'utf8').toString('b
 const shots = times.split(',').map(Number);
 
 const profile = mkdtempSync(join(tmpdir(), 'fizzle-shot-'));
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const chrome = spawn(CHROME, [
-  '--headless=new', '--no-sandbox', '--mute-audio', '--hide-scrollbars',
-  '--window-size=960,640', '--remote-debugging-port=9333',
-  `--user-data-dir=${profile}`, 'about:blank',
-], { stdio: 'ignore' });
+const CHROME = chromeBin();
+// FIZZLE_SIZE=1080,1920 to shoot a portrait sketch without letterboxing it
+const chrome = spawn(CHROME, chromeArgs({ bin: CHROME, port: 9333, profile, size: process.env.FIZZLE_SIZE ?? '960,640' }), { stdio: 'ignore' });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -59,7 +57,20 @@ try {
   await cmd('Page.enable');
   await cmd('Page.navigate', { url });
 
+  // The editor and the sidebar sit on top of the render, so a shot meant for
+  // eyeballing the visuals is mostly code. ctrl+m hides one, ctrl+p the other;
+  // FIZZLE_UI=1 keeps them for shots about the interface itself.
   let elapsed = 0;
+  if (!process.env.FIZZLE_UI) {
+    await sleep(600);
+    elapsed = 600;
+    for (const [key, code, vk] of [['m', 'KeyM', 77], ['p', 'KeyP', 80]]) {
+      for (const type of ['keyDown', 'keyUp']) {
+        await cmd('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode: vk, modifiers: 2 });
+      }
+    }
+  }
+
   for (const t of shots) {
     await sleep(t - elapsed);
     elapsed = t;
@@ -69,7 +80,14 @@ try {
   }
   ws.close();
 } finally {
-  const gone = new Promise((r) => chrome.once('exit', r));
+  // a browser that never launched never exits, and one wedged on shutdown
+  // would hold the script open past its last shot — either way, SIGKILL after
+  // a moment and move on
+  const gone = new Promise((r) => {
+    chrome.once('exit', r);
+    chrome.once('error', r);
+    setTimeout(() => { chrome.kill('SIGKILL'); r(); }, 3000).unref();
+  });
   chrome.kill();
   await gone;
   try { rmSync(profile, { recursive: true, force: true }); } catch { /* chrome litter */ }

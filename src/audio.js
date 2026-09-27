@@ -381,33 +381,42 @@ Signal.prototype.select = function (arr) {
   });
 };
 // waveshapes: treat the value as a phase ramp (beat(), or anything);
-// one cycle per whole unit, all outputs 0..1
-Signal.prototype.sin = function () {
+// one cycle per whole unit, all outputs 0..1.
+//
+// rate scales the phase on the way in, so T.sin(0.3) is the 0.3 Hz sine that
+// T.mul(0.3).sin() spells the long way. It's a rate rather than a frequency in
+// the ramp() sense: the incoming value is whatever it is, and this multiplies
+// it. Takes a fn of t like every other knob.
+Signal.prototype.sin = function (rate = 1) {
   const self = this;
-  return mk(self, (t) => 0.5 + 0.5 * Math.sin(self(t) * Math.PI * 2));
+  return mk(self, (t) => 0.5 + 0.5 * Math.sin(self(t) * resolve(rate, t) * Math.PI * 2));
 };
-Signal.prototype.cos = function () {
+Signal.prototype.cos = function (rate = 1) {
   const self = this;
-  return mk(self, (t) => 0.5 + 0.5 * Math.cos(self(t) * Math.PI * 2));
+  return mk(self, (t) => 0.5 + 0.5 * Math.cos(self(t) * resolve(rate, t) * Math.PI * 2));
 };
-Signal.prototype.tri = function () {
+Signal.prototype.tri = function (rate = 1) {
   const self = this;
-  return mk(self, (t) => 1 - Math.abs(2 * frac(self(t)) - 1));
+  return mk(self, (t) => 1 - Math.abs(2 * frac(self(t) * resolve(rate, t)) - 1));
 };
-Signal.prototype.saw = function () {
+Signal.prototype.saw = function (rate = 1) {
   const self = this;
-  return mk(self, (t) => frac(self(t)));
+  return mk(self, (t) => frac(self(t) * resolve(rate, t)));
 };
-Signal.prototype.sqr = function (width = 0.5) {
+// rate first like the rest of them, pulse width in the config beside it —
+// .sqr({ width: 0.2 }) is the width on its own, which is what a gate wants
+Signal.prototype.sqr = function (rate = 1, o = {}) {
+  if (rate !== null && typeof rate === 'object') { o = rate; rate = o.rate ?? 1; }
+  const width = o.width ?? 0.5;
   const self = this;
-  return mk(self, (t) => (frac(self(t)) < resolve(width, t) ? 1 : 0));
+  return mk(self, (t) => (frac(self(t) * resolve(rate, t)) < resolve(width, t) ? 1 : 0));
 };
 // tempo-synced sample-and-hold: freeze a new value of this signal perBar
 // times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar.
 // Shorthand for .hold(beat(perBar)), and the same code path, so the two
 // can't drift; .hold() is there for a trigger that isn't the tempo.
 Signal.prototype.beat = function (perBar = 4) {
-  return this.hold(sig((t) => barPhase(t, resolve(perBar, t))).sqr(0.5));
+  return this.hold(sig((t) => barPhase(t, resolve(perBar, t))).sqr());
 };
 // sample-and-hold driven by another signal: freeze the current value each
 // time the trigger crosses up through threshold (a kicks() hit, a gate)

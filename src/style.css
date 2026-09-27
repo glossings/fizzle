@@ -392,6 +392,15 @@ html.cam-drag, html.cam-drag * { cursor: default !important; }
   box-sizing: border-box;
 }
 #sidebar.hidden { display: none; }
+
+/* ?ui=off — a window opened to be captured rather than typed in. Everything
+   that isn't the render goes, including the toggle that would bring it back:
+   a Browser Source has no keyboard to press ctrl+p with anyway, and the frame
+   has to be nothing but picture. Drop the parameter to get the interface. */
+html.clean #editor,
+html.clean #sidebar,
+html.clean #sb-toggle,
+html.clean #touchbar { display: none !important; }
 #sidebar h1 {
   font-size: 14px;
   margin: 0 34px 12px 0;

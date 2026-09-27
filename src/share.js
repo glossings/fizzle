@@ -58,6 +58,40 @@ export function adoptHash(code) {
   serial++; // and drops any encode still in flight from before the navigation
 }
 
+// How to *show* the sketch, from the query string rather than the hash: the
+// hash is the patch and travels with it, this is about the window it lands in.
+// For pointing a capture source (OBS's Browser Source, and anything like it)
+// at a patch, where the editor, the sidebar and the letterbox bars are all in
+// the shot and there's no convenient way to press ctrl+m inside it.
+//
+//   ?ui=off            boot with the editor and the sidebar already hidden
+//   ?w=1920&h=1080     render at exactly that, so nothing letterboxes
+//
+// ui takes the words someone would guess; anything else, including no ui at
+// all, leaves the interface alone.
+export function viewFromUrl(search = location.search) {
+  const p = new URLSearchParams(search);
+  const size = (k) => {
+    const n = Math.round(Number(p.get(k)));
+    return Number.isFinite(n) && n > 0 && n <= 7680 ? n : null;
+  };
+  const w = size('w');
+  const h = size('h');
+  return {
+    // only ever false or null: a URL can ask for the interface to go away, and
+    // saying nothing is not the same as asking for it back
+    ui: /^(off|0|false|no|hide|none)$/i.test(p.get('ui') ?? '') ? false : null,
+    res: w && h ? [w, h] : null,
+  };
+}
+
+// The link to paste into a Browser Source: this sketch, no interface, pinned
+// to a size. Built from the live URL, so it carries whatever the address bar
+// is already carrying.
+export function obsUrl([w, h]) {
+  return `${location.origin}${location.pathname}?ui=off&w=${w}&h=${h}${location.hash}`;
+}
+
 export async function codeFromHash(hash = location.hash) {
   const m = /^#(z|c)=([\w-]+)$/.exec(hash);
   if (!m) return null;

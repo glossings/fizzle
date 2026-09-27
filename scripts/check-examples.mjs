@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { chromeBin, chromeArgs } from './chrome-lib.mjs';
 import { tmpdir } from 'node:os';
 import { root, GLOBALS, freeNames } from './lint-lib.mjs';
 
@@ -69,12 +70,8 @@ function summary() {
 // headless-shot.mjs does, and ask the page how the run went.
 async function livePass() {
   const profile = fs.mkdtempSync(path.join(tmpdir(), 'fizzle-check-'));
-  const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const chrome = spawn(CHROME, [
-    '--headless=new', '--no-sandbox', '--mute-audio', '--hide-scrollbars',
-    '--window-size=960,640', '--remote-debugging-port=9334',
-    `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: 'ignore' });
+  const CHROME = chromeBin();
+  const chrome = spawn(CHROME, chromeArgs({ bin: CHROME, port: 9334, profile }), { stdio: 'ignore' });
   // resolves on exit or on failure to launch at all, so cleanup can't hang
   const gone = new Promise((r) => { chrome.once('exit', r); chrome.once('error', r); });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

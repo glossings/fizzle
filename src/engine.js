@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { renderTextures, resetTextureBuffers } from './textures.js';
 import { AudioEngine } from './audio.js';
-import { updateBands } from './bands.js';
+import { bandStore, declareBandSet, dropBandSet, resetBandSets, updateBands } from './bands.js';
 import { updateTempo } from './tempo.js';
 import { mediaGet, mediaList, mediaTranscode, isPolyhaven, bareName } from './media.js';
 import { loadModelGeometry } from './models.js';
@@ -10,7 +10,7 @@ import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
 import { claimDuring, claimUnder, sweepCarried, resetCarried } from './carry.js';
-import { rewriteBlocks } from './sketch-blocks.js';
+import { bandsCall, rewriteBlocks } from './sketch-blocks.js';
 import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
@@ -48,6 +48,11 @@ function stageVideo(el) {
 
 const DEFAULT_BG = 0x0a0a0f;
 
+// speed() may be a fn of t like everything else; it's read against the clock
+// it is itself scaling, which is well defined (this frame's rate is decided by
+// where the last one left off) even though it reads strangely written down.
+const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
+
 // Where a saved sketch is cached once sketch('name') has run it. The \0 keeps
 // it clear of the labels a sketch types by hand, so a block called orb and the
 // saved sketch orb.js are two different entries.
@@ -80,6 +85,7 @@ function makeScope(name, parent) {
       backgroundBlurriness: 0, backgroundIntensity: 1,
     } : null,
     camera: null,               // a block's own, once it calls camera()
+    bandSet: null,              // bands({ ... }) declared here; resolved outward by bandSetFor
     saved: parent?.saved ?? false, // built from a saved sketch's source rather than from code in the editor
     params: null,               // what sketch('name', { ... }) handed a saved sketch, for param()
     paramsRead: new Set(),
@@ -136,6 +142,7 @@ export class Engine {
     this.fpsCap = null;   // frames per second to hold to; null = the display's rate
     this.sketchRes = null;  // [w, h] from resolution(); null = fill the window
     this.resOverride = null; // the sidebar's fixed size, which outranks the sketch
+    this.urlRes = null;      // ?w=&h=, which outranks both (setUrlResolution)
     this._resKey = '';      // what resize() last applied, so a re-run is a no-op
     this.patch = [];      // objects added by the current sketch
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
@@ -145,6 +152,7 @@ export class Engine {
     this.onFrame = null;
 
     this.sketchBpm = null;          // tempo() in the sketch; null = the audio manager's
+    this.sketchSpeed = null;        // speed() in the sketch; null = real time
     this.defaultBpm = 120;          // the audio manager's tempo, which tempo() outranks
     // Pointer as a control source, in the render's own space: -1..1 with 0 at
     // the center and y up, clamped so a pointer out over the sidebar or the
@@ -242,10 +250,11 @@ export class Engine {
     this.pointer.y = -unit((clientY - rect.top) / rect.height); // page y is down, ours is up
   }
 
-  // The size everything downstream renders at: the sidebar's fixed resolution
-  // if one is set, otherwise whatever the sketch asked for.
+  // The size everything downstream renders at. Three claims on it, most
+  // specific first: the URL asked for this window in particular (?w=&h=, see
+  // share.js), the sidebar is retargeting every sketch, or the sketch said.
   get resolution() {
-    return this.resOverride ?? this.sketchRes;
+    return this.urlRes ?? this.resOverride ?? this.sketchRes;
   }
 
   // The size a recording is made at.
@@ -278,6 +287,14 @@ export class Engine {
   // sketch. null hands the choice back to resolution().
   setResolutionOverride(res) {
     this.resOverride = res;
+    this.syncResolution();
+  }
+
+  // Set once at boot from ?w=&h=, and outranks the sidebar: this window was
+  // opened to be exactly this size, and a setting saved on some other day
+  // isn't entitled to an opinion about it.
+  setUrlResolution(res) {
+    this.urlRes = res;
     this.syncResolution();
   }
 
@@ -340,11 +357,17 @@ export class Engine {
     const now = performance.now() / 1000;
     const dt = now - (this._lastT ?? now);
     this._lastT = now;
+    // speed() scales the step rather than the clock, so everything downstream
+    // agrees: signals read a slower t *and* the sims integrate by a smaller
+    // dt. That's what makes a rate change safe for stateful nodes in a way
+    // that a jump never is — nothing is being asked for a past it doesn't
+    // have, it's just being advanced less.
+    const rate = this.sketchSpeed == null ? 1 : resolve(this.sketchSpeed, this.time);
     // what the texture graph's integrating ops step by (see fluid.js); frozen
     // with the clock, so a paused sketch's sims hold rather than run on
-    this.dt = this.paused ? 0 : dt;
+    this.dt = this.paused ? 0 : dt * (Number.isFinite(rate) ? rate : 1);
     if (!this.paused) {
-      this.time += dt;
+      this.time += this.dt;
       this.audio?.update();
       updateBands(this.audio); // named bands: smoothing + auto anchors
       updateTempo(this.audio); // the manager's auto tempo
@@ -437,6 +460,58 @@ export class Engine {
       sc.cameraTarget = new THREE.Vector3();
     }
     return sc.camera;
+  }
+
+  // bands({ ... }) in the sketch: the set of bands it reads in place of the
+  // audio manager's.
+  declareBands(spec) {
+    this.scope.bandSet = declareBandSet(this.scope.path, spec);
+  }
+
+  // The sketch's own bands, declared before its body runs. The call sits at the
+  // bottom of the file — it's the sketch's tuning rather than a step in it, and
+  // the manager keeps it folded down there — but plenty of reads sample
+  // themselves once as they're built, above it, and those have to find the set
+  // already standing. The body's own call re-declares it, which reconciles to
+  // the same thing.
+  //
+  // Evaluated on its own rather than hoisted in the source, so nothing moves
+  // and a stack trace still points at the line the sketch has. An argument that
+  // leans on a name declared above it can't be read this early; that one waits
+  // for the body and is a frame late on its first run.
+  declareChip(src) {
+    const at = bandsCall(src);
+    if (!at) return;
+    try {
+      new Function('bands', `"use strict";\nreturn ${src.slice(at.from, at.to)}`)(
+        (spec) => this.declareBands(spec)
+      );
+    } catch { /* not a literal, or not valid — the call in the body says so */ }
+  }
+
+  // The set a band() read resolves to: the nearest one declared at or outside
+  // the scope it was written in, and the manager's when nothing declared one —
+  // so a sub-sketch carrying its own bands hears those, and one that doesn't
+  // falls through to whatever is holding it. Resolved per frame rather than at
+  // build time, which is what lets the chip sit at the bottom of the sketch,
+  // under the band() reads it answers.
+  bandSetFor(sc) {
+    for (let s = sc; s; s = s.parent) if (s.bandSet) return s.bandSet;
+    return bandStore;
+  }
+
+  // The audio manager's pin and unpin. Both take effect on the next frame with
+  // no re-run, since bandSetFor resolves as it reads; the manager writes the
+  // matching bands({ ... }) into the code beside this.
+  pinBands(spec) {
+    this.root.bandSet = declareBandSet(this.root.path, spec);
+    return this.root.bandSet;
+  }
+
+  unpinBands() {
+    if (!this.root.bandSet) return;
+    dropBandSet(this.root.bandSet);
+    this.root.bandSet = null;
   }
 
   // __sketch(name, fn): a labeled block, as the rewrite hands it over. Nothing
@@ -1183,6 +1258,10 @@ export class Engine {
     this.root = this.scope = makeScope('', null);
     this.scopes = [this.root];
     this.patchGen++;
+    // a set is declared by the bands() call in the run that wants it; the
+    // objects themselves outlive the run (see bands.js) so a re-run doesn't
+    // reset an auto fit
+    resetBandSets();
     resetWarnings();
     this.scene.fog = null;
     this.scene.background = new THREE.Color(0x0a0a0f);
@@ -1214,6 +1293,8 @@ export class Engine {
     this.sketchRes = null;
     // and dropping tempo() goes back to the audio manager's
     this.sketchBpm = null;
+    // and dropping speed() goes back to real time
+    this.sketchSpeed = null;
     // a picker request belongs to the run that made it: the code has moved on,
     // and a request left over from a run whose empty call has since been filled
     // in would pop the picker straight back open
@@ -1269,6 +1350,7 @@ export class Engine {
       let js = src;
       try { js = rewriteBlocks(src); } catch { /* as written */ }
       this.scope = this.root;
+      this.declareChip(src);
       try {
         claimDuring(() => new Function(...names, `"use strict";\n{${js}\n}`)(...values));
       } finally {

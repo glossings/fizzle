@@ -1353,7 +1353,13 @@ export function makeApi(engine) {
     let block = params ? null : engine.root.blocks.get(key);
     if (!block) {
       const names = Object.keys(api);
-      const fn = () => new Function(...names, `"use strict";\n{${rewriteBlocks(src)}\n}`)(...names.map((n) => api[n]));
+      // its own bands() first, for the same reason the editor's sketch gets
+      // that (engine.declareChip) — a saved sketch was pinned as a sketch, so
+      // its chip is at the bottom of its file, under the reads it answers
+      const fn = () => {
+        engine.declareChip(src);
+        return new Function(...names, `"use strict";\n{${rewriteBlocks(src)}\n}`)(...names.map((n) => api[n]));
+      };
       block = { name, fn, home: engine.root, scope: null, node: null, building: false, saved: true, params: params ?? null };
       if (!params) engine.root.blocks.set(key, block);
     }
@@ -1610,6 +1616,24 @@ export function makeApi(engine) {
       }
       engine.sketchBpm = n;
     },
+    // How fast the sketch's clock runs, 1 being real time. Everything follows
+    // it: signals read a slower t, and the sims integrate by a smaller dt, so
+    // a fluid at speed(0.25) is genuinely a quarter-speed fluid rather than
+    // the same fluid sampled oddly. speed(0) is a freeze that holds the sims
+    // too, which pause doesn't. Takes a fn of t; dropping the call goes back
+    // to real time.
+    speed(rate) {
+      if (engine.scope.parent) return warn(`speed() inside ${engine.scope.name}: there is one clock, and it's the sketch's, so this does nothing`);
+      if (rate == null) {
+        engine.sketchSpeed = null;
+        return;
+      }
+      if (typeof rate !== 'function' && !(Number.isFinite(Number(rate)) && Number(rate) >= 0)) {
+        warn(`speed: ${rate} isn't a rate — a number 0 or above, or a fn of t. Staying at ${engine.sketchSpeed ?? 1}`);
+        return;
+      }
+      engine.sketchSpeed = typeof rate === 'function' ? rate : Number(rate);
+    },
     // positional fog(color, near, far) predates the config form; a THREE.Color
     // in the first slot is still a color, not a config
     fog(color = 0x0a0a0f, near = 5, far = 30) {
@@ -1820,14 +1844,27 @@ export function makeApi(engine) {
       const ae = audioIn(name);
       return sig((t) => (chan == null ? ae.level : ae.levels[chan] ?? 0), ae);
     },
-    // A named band from the audio manager (ctrl+a), normalized 0..1 by its
-    // meter anchors. band() = the global level, band(1) = the band named "1"
-    // (the default names are numbers). The lookup is live: dragging in the
-    // manager retunes a running sketch.
+    // A named band, normalized 0..1 by its meter anchors. band() = the global
+    // level, band(1) = the band named "1" (the default names are numbers). The
+    // bands come from the sketch's own bands({ ... }) when it has one and from
+    // the audio manager (ctrl+a) when it doesn't; either way the lookup is
+    // live, so dragging in the manager retunes a running sketch.
     band(name) {
       const key = name == null ? 'level' : String(name);
       const ae = audioIn();
-      return sig(() => bandValue(ae, key), ae);
+      const scope = engine.scope; // where it was written; the set is resolved from there
+      return sig(() => bandValue(ae, key, engine.bandSetFor(scope)), ae);
+    },
+    // The bands this sketch reads, in place of the audio manager's:
+    // bands({ kick: { from: 30, to: 160, auto: true } }). Declaring them makes
+    // the sketch self-contained, so a shared link carries the tuning its
+    // visuals were built on instead of landing on whatever the next machine has
+    // in its manager. It's the whole set or none of it — a sketch with this
+    // call stops following the manager, which keeps its own bands for every
+    // other sketch. The manager edits this call while the sketch is running,
+    // and writes it in the first place (pin to sketch).
+    bands(spec) {
+      engine.declareBands(spec);
     },
     // An imported audio file, played out loud and analyzed like audio():
     // returns its level as a signal with the same chainable methods
@@ -1868,7 +1905,7 @@ export function makeApi(engine) {
     // .when(), where it's how long the branch stays up. For a value that moves
     // on the tempo grid rather than a pulse, reach for B.
     beat(perBar = 4, width = 0.5) {
-      return sig((t) => barPhase(t, resolve(perBar, t))).sqr(width);
+      return sig((t) => barPhase(t, resolve(perBar, t))).sqr({ width });
     },
     // pick from a list by index — .select() standing on its own, and the only
     // form that works for texture chains: hand it values and it gives back a

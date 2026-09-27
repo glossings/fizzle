@@ -4,13 +4,14 @@ import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor, foldLists, fillCall } from './editor.js';
 import { initSidebar } from './sidebar.js';
-import { syncHash, adoptHash, codeFromHash } from './share.js';
+import { syncHash, adoptHash, codeFromHash, viewFromUrl } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media.js';
 import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
 import { initRecorder } from './record.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import { learnMidi, learnPad } from './control.js';
+import { writeChip, removeChip } from './band-chip.js';
 import { initSnippets } from './snippets.js';
 import { sketchSource } from './sidebar.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
@@ -317,6 +318,16 @@ window.addEventListener('popstate', async () => {
   runResume(code);
 });
 
+// The audio manager's end of the bands({ ... }) chip. Editing it in place
+// rather than through setCode: swapping the whole document restarts the sketch,
+// and retuning a band is the one edit that has to land without interrupting
+// what's on screen. It's also why there's no re-run here — band() resolves its
+// set as it reads (engine.bandSetFor), so the picture follows a drag directly.
+const bandChip = {
+  write: (spec) => view && writeChip(view, spec),
+  remove: () => view && removeChip(view),
+};
+
 // Drop a snippet on its own line at the cursor and leave the cursor after it.
 // Shared by media drops and the material browser.
 function insertAtCursor(snippet) {
@@ -416,6 +427,7 @@ initDrop();
     getCode: () => view.state.doc.toString(),
     setCode,
     run: runResume,
+    bandChip,
   });
   sketchName = sidebar.sketchName;
   recFormat = () => sidebar.settings.recFormat;
@@ -487,6 +499,25 @@ initDrop();
       onToggleCode: () => { editor.resetZoom(); editor.toggleCode(); syncSurface(); },
     });
   }
+
+  // ?ui=off&w=&h= — a window opened to be captured rather than typed in (see
+  // share.js). Applied after the sidebar has read its settings, so the URL is
+  // the last word on both, which is the point of naming them in a URL.
+  const urlView = viewFromUrl();
+  if (urlView.ui === false) {
+    document.documentElement.classList.add('clean');
+    // A link like this gets shared to someone who then wants to read the code,
+    // and with no interface there's nothing to click. Any of the keys that
+    // would have shown it puts it back, once, before the toggles see the press
+    // — otherwise the first ctrl+p would reveal the sidebar and hide it again.
+    window.addEventListener('keydown', (e) => {
+      if (!e.ctrlKey || !['m', 'p', 'h'].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      document.documentElement.classList.remove('clean');
+    }, { capture: true, once: true });
+  }
+  if (urlView.res) engine.setUrlResolution(urlView.res);
 
   run(initial);
 })();

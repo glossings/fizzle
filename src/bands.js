@@ -5,16 +5,27 @@
 // between them a 0..1 ramp — so a sketch sees the same 0..1 sweep whatever
 // the track's actual loudness.
 //
-// The store is module state read live by every band() signal, so a drag in
-// the manager reaches a running sketch on the next frame.
+// A set of bands lives in one of two places. The manager's own set is this
+// machine's mixer: saved in localStorage, read by every sketch that doesn't say
+// otherwise, and retuned live for whatever is playing. A sketch that calls
+// bands({ ... }) declares a set of its own instead, which travels with its
+// source — so a shared link arrives with the tuning its visuals were built on
+// rather than landing on whatever the next machine happens to have. A sketch
+// reads one set or the other, never a merge of the two.
+//
+// Either way the store is plain module state read live by every band() signal,
+// so a drag in the manager reaches a running sketch on the next frame.
 
 import { warn } from './warn.js';
 
 const LS_BANDS = 'td-audio-bands';
 
+const newBand = (name) => ({ name, from: 200, to: 2000, lo: 0, hi: 1, sm: 0, auto: false });
+const newLevel = () => ({ lo: 0, hi: 1, sm: 0, auto: false });
+
 const DEFAULT = () => ({
-  level: { lo: 0, hi: 1, sm: 0, auto: false },
-  bands: [{ name: '1', from: 30, to: 160, lo: 0, hi: 1, sm: 0, auto: false }],
+  level: newLevel(),
+  bands: [{ ...newBand('1'), from: 30, to: 160 }],
 });
 
 function load() {
@@ -30,24 +41,22 @@ export const bandStore = load();
 export const saveBands = () => localStorage.setItem(LS_BANDS, JSON.stringify(bandStore));
 
 export const BAND_NAME_RULE = 'letters, digits, - and _';
-export const bandNameOk = (name) =>
-  /^[\w-]+$/.test(name) && name !== 'level' && !bandStore.bands.some((b) => b.name === name);
+export const bandNameOk = (set, name) =>
+  /^[\w-]+$/.test(name) && name !== 'level' && !set.bands.some((b) => b.name === name);
 
 // next free number, so deleting 1 doesn't make a second 2
-export function addBand() {
+export function addBand(set) {
   let n = 1;
-  while (bandStore.bands.some((b) => b.name === String(n))) n++;
-  const b = { name: String(n), from: 200, to: 2000, lo: 0, hi: 1, sm: 0, auto: false };
-  bandStore.bands.push(b);
-  saveBands();
+  while (set.bands.some((b) => b.name === String(n))) n++;
+  const b = newBand(String(n));
+  set.bands.push(b);
   return b;
 }
 
-export function removeBand(band) {
-  const i = bandStore.bands.indexOf(band);
-  if (i >= 0) bandStore.bands.splice(i, 1);
+export function removeBand(set, band) {
+  const i = set.bands.indexOf(band);
+  if (i >= 0) set.bands.splice(i, 1);
   run.delete(band);
-  saveBands();
 }
 
 // anchors -> 0..1: clip below lo and above hi, ramp between
@@ -58,9 +67,99 @@ export function normalize(raw, { lo, hi }) {
 
 export const bandRaw = (ae, b) => ae.band(b.from, b.to);
 
-// Per-band runtime: the smoothed value the meters draw and band() normalizes.
-// Keyed 'level' or the band object; stepped once per frame by updateBands so
-// every reader sees the same value and smoothing can't double-step.
+// --- sketch-declared sets --------------------------------------------------
+
+// Sets are kept by the path of the scope that declared them rather than rebuilt
+// per run: the smoothing value and the auto fit below are keyed on these
+// objects, and a livecoder re-runs constantly. Re-declaring reconciles the
+// code's numbers into the live objects band by band, which for an unchanged
+// declaration is a no-op — so ctrl+enter can't drop a fit that took a minute of
+// music to settle.
+const sets = new Map(); // scope path -> { level, bands }
+let live = new Set();   // the sets this run declared; the manager's steps regardless
+
+// Bumped on every declaration, and only there: the audio manager rebuilds its
+// rows off this, and must not be rebuilt by the anchors auto moves under a drag.
+export let bandGen = 0;
+
+export function resetBandSets() { live = new Set(); }
+export const dropBandSet = (set) => live.delete(set);
+
+// the set the sketch in the editor declared, if it did — for the completions,
+// which have no engine to ask
+export const sketchBandSet = () => {
+  const s = sets.get('');
+  return s && live.has(s) ? s : null;
+};
+
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+// An absent lo/hi leaves the live ones alone, which is what lets an auto band
+// declare itself without carrying anchors (see bandSpec): the fit it has made
+// here survives the re-run. sm and auto are read as declared, absent meaning off.
+function applyAnchors(t, o) {
+  const lo = num(o?.lo), hi = num(o?.hi);
+  if (lo != null) t.lo = clamp01(lo);
+  if (hi != null) t.hi = clamp01(hi);
+  if (t.hi < t.lo) [t.lo, t.hi] = [t.hi, t.lo];
+  t.sm = Math.min(5, Math.max(0, num(o?.sm) ?? 0));
+  t.auto = !!o?.auto;
+}
+
+export function declareBandSet(path, spec) {
+  let set = sets.get(path);
+  if (!set) sets.set(path, (set = { level: newLevel(), bands: [] }));
+  if (spec && typeof spec === 'object') {
+    applyAnchors(set.level, spec.level);
+    const kept = [];
+    for (const [name, o] of Object.entries(spec)) {
+      if (name === 'level') continue;
+      if (!/^[\w-]+$/.test(name)) {
+        warn(`bands: "${name}" isn't a usable band name (${BAND_NAME_RULE})`);
+        continue;
+      }
+      const b = set.bands.find((x) => x.name === name) ?? newBand(name);
+      const from = num(o?.from), to = num(o?.to);
+      if (from != null) b.from = Math.min(20000, Math.max(20, from));
+      if (to != null) b.to = Math.min(20000, Math.max(20, to));
+      if (b.to <= b.from) b.to = Math.min(20000, b.from * 1.05);
+      applyAnchors(b, o);
+      kept.push(b);
+    }
+    for (const b of set.bands) if (!kept.includes(b)) run.delete(b);
+    set.bands = kept; // declaration order, which is the order the manager lists
+  } else {
+    warn('bands({ ... }): takes an object of band names — bands({ kick: { from: 30, to: 160 } })');
+  }
+  live.add(set);
+  bandGen++;
+  return set;
+}
+
+// What a set serializes to, and so what a shared sketch carries. Auto anchors
+// are left out on purpose: they're fitted to whatever is playing into this
+// machine, so sending the numbers on would hand the next one a calibration for
+// a mix it isn't hearing. The band arrives with auto still on and fits itself
+// there instead.
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
+export function bandSpec(set) {
+  const tail = (b) => ({
+    ...(b.auto ? { auto: true } : { lo: r3(b.lo), hi: r3(b.hi) }),
+    ...(b.sm ? { sm: r3(b.sm) } : {}),
+  });
+  const spec = { level: tail(set.level) };
+  for (const b of set.bands) spec[b.name] = { from: Math.round(b.from), to: Math.round(b.to), ...tail(b) };
+  return spec;
+}
+
+// --- per-band runtime -----------------------------------------------------
+
+// The smoothed value the meters draw and band() normalizes, keyed on the
+// anchors object it belongs to (a band, or a set's level). Stepped once per
+// frame by updateBands so every reader sees the same value and smoothing can't
+// double-step.
 const run = new Map();
 let stamp = 0;
 let lastSave = 0;
@@ -85,9 +184,9 @@ export function updateBands(ae) {
   // a verse.
   const BUCKET = 3, BUCKETS = 20; // that minute, as 3s min/max buckets
   const LO_BUCKETS = 5; // the bottom anchor's shorter memory: ~15s
-  const step = (key, b, raw) => {
-    const s = run.get(key) ?? { v: 0, win: [] };
-    run.set(key, s);
+  const step = (b, raw, persist) => {
+    const s = run.get(b) ?? { v: 0, win: [] };
+    run.set(b, s);
     s.v += (raw - s.v) * ease(dt, b.sm || 0);
     if (b.auto && ae?.running) {
       if (s.fit == null) { s.fit = 0; s.win = []; s.floor = s.v; s.quiet = 0; s.below = 0; } // auto just came on
@@ -131,30 +230,37 @@ export function updateBands(ae) {
       // dynamics — auto visibly grabs the signal when pressed. After that,
       // the slow song clock. Near-silence advances neither: it carries no
       // information, so the previous fit holds until real signal arrives.
-      const live = M > quiet;
-      if (live) s.fit += dt;
+      const alive = M > quiet;
+      if (alive) s.fit += dt;
       const settling = s.fit < BUCKET * BUCKETS;
       b.hi += s.v > b.hi ? (s.v - b.hi) * ease(dt, 0.05)
-        : live ? (M - b.hi) * ease(dt, settling ? 1 : 30) : 0;
+        : alive ? (M - b.hi) * ease(dt, settling ? 1 : 30) : 0;
       // a dip below lo has to last before it pulls the anchor down: brief
       // troughs between beats clip to 0 instead of ratcheting lo toward the
       // bottom of every dip
       s.below = s.v < b.lo ? s.below + dt : 0;
       b.lo += s.below > 1 ? (s.v - b.lo) * ease(dt, 0.5)
-        : live ? (m - b.lo) * ease(dt, settling ? 1 : 5) : 0;
+        : alive ? (m - b.lo) * ease(dt, settling ? 1 : 5) : 0;
       const gap = 0.05 - (b.hi - b.lo); // never collapse to a point
       if (gap > 0) {
         b.hi = Math.min(1, b.hi + gap / 2);
         b.lo = Math.max(0, b.hi - 0.05);
       }
-      dirty = true;
+      if (persist) dirty = true;
     } else {
       s.fit = null; // re-enabling auto starts with the quick fit again
     }
   };
-  const live = ae?.running;
-  step('level', bandStore.level, live ? ae.level : 0);
-  for (const b of bandStore.bands) step(b, b, live ? bandRaw(ae, b) : 0);
+  const running = ae?.running;
+  // persist: only the manager's set has somewhere to be saved to. A sketch
+  // set's auto anchors are runtime state by design — bandSpec doesn't carry
+  // them, so there's nothing to write and no code to churn.
+  const stepSet = (s, persist) => {
+    step(s.level, running ? ae.level : 0, persist);
+    for (const b of s.bands) step(b, running ? bandRaw(ae, b) : 0, persist);
+  };
+  stepSet(bandStore, true);
+  for (const s of live) if (s !== bandStore) stepSet(s, false);
   // auto moves anchors every frame; persisting that belongs on a slow clock
   if (dirty && now - lastSave > 3) {
     lastSave = now;
@@ -162,13 +268,16 @@ export function updateBands(ae) {
   }
 }
 
-// what band(name) reads each frame; the lookup is live so bands added or
-// dragged in the manager take effect without a re-run
-export function bandValue(ae, name) {
-  if (name === 'level') return normalize(smoothed('level'), bandStore.level);
-  const b = bandStore.bands.find((x) => x.name === name);
+// what band(name) reads each frame, from the set the calling scope resolved to
+// (engine.bandSetFor). The lookup is live so bands added or dragged in the
+// manager take effect without a re-run.
+export function bandValue(ae, name, set = bandStore) {
+  if (name === 'level') return normalize(smoothed(set.level), set.level);
+  const b = set.bands.find((x) => x.name === name);
   if (!b) {
-    warn(`band: no band named "${name}" — add it in the audio manager (ctrl+a)`);
+    warn(set === bandStore
+      ? `band: no band named "${name}" — add it in the audio manager (ctrl+a)`
+      : `band: no band named "${name}" in this sketch's bands({ ... })`);
     return 0;
   }
   return normalize(smoothed(b), b);

@@ -5,12 +5,19 @@
 // it. Meters: drag the anchors; the bar is the raw value, the readout is what
 // band(name) returns right now.
 //
+// It edits one set of bands at a time, and which one depends on the sketch
+// that's running: its own, if it has pinned a set with bands({ ... }), and this
+// machine's otherwise. Pinned, every edit in here is written back into that call
+// (band-chip.js) instead of to localStorage, so the manager is a pair of hands
+// on the sketch's own code and your mixer is left alone. The pin button in the
+// header is what moves between the two.
+//
 // Carries its own styles the way the organize window does.
 
 import './audio-modal.css';
 import {
-  addBand, bandNameOk, BAND_NAME_RULE, bandStore, normalize, removeBand, saveBands,
-  smoothed, updateBands,
+  addBand, bandGen, bandNameOk, BAND_NAME_RULE, bandSpec, bandStore, normalize, removeBand,
+  saveBands, smoothed, updateBands,
 } from './bands.js';
 import { CONF, tempoState, updateTempo } from './tempo.js';
 
@@ -25,12 +32,19 @@ const bandColor = (i, a = 1) => `hsla(${(205 + i * 47) % 360}, 75%, 62%, ${a})`;
 
 const fmtHz = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)}k` : String(Math.round(hz)));
 
-export function initAudioModal({ engine, settings, persist, applyAudio }) {
+export function initAudioModal({ engine, settings, persist, applyAudio, chip }) {
   let el = null;
   let raf = 0;
-  let rows = []; // [{ band: null for level, meter, valEl, hzEl }]
+  let rows = []; // [{ band: null for level, anchors, meter, valEl, hzEl }]
 
   const ae = () => engine.audio; // created by open() / the first audio() call
+
+  // Which bands these controls are on, and where an edit to them goes. The
+  // running sketch's set outranks the manager's whenever it has one — that's
+  // what pinning means — so this is read fresh everywhere rather than captured.
+  const pinned = () => !!engine.root.bandSet;
+  const set = () => engine.root.bandSet ?? bandStore;
+  const commit = () => (pinned() ? chip?.write(bandSpec(set())) : saveBands());
 
   // the tracker runs from the engine's frame loop, manager open or not
   tempoState.auto = !!settings.tempoAuto;
@@ -50,6 +64,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
           <span class="au-title">audio</span>
           <label>in <select id="au-in"></select></label>
           <label>out <select id="au-out"></select></label>
+          <button id="au-pin" class="au-auto"></button>
           <button id="au-close" title="close (esc)">✕</button>
         </header>
         <div id="au-tempo">
@@ -62,7 +77,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
         <canvas id="au-spectrum"></canvas>
         <div class="au-addrow">
           <button id="au-add">+ add band</button>
-          <span class="au-hint">drag a band's edges on the spectrum · drag a meter's anchors to set what reads as 0 and 1</span>
+          <span class="au-hint" id="au-hint"></span>
         </div>
         <div id="au-meters"></div>
       </div>`;
@@ -70,12 +85,43 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
 
     el.addEventListener('click', (e) => { if (e.target === el) close(); });
     el.querySelector('#au-close').addEventListener('click', close);
-    el.querySelector('#au-add').addEventListener('click', () => { addBand(); renderMeters(); });
+    el.querySelector('#au-add').addEventListener('click', () => { addBand(set()); commit(); renderMeters(); });
+    el.querySelector('#au-pin').addEventListener('click', togglePin);
 
     wireDevices();
     wireTempo();
     wireSpectrum(el.querySelector('#au-spectrum'));
     renderMeters();
+  }
+
+  // --- pinning --------------------------------------------------------------
+
+  // Pin copies this machine's whole set into the sketch and hands the controls
+  // over to it; unpin drops it and gives them back. Neither needs a re-run —
+  // band() resolves its set as it reads — so the picture keeps playing through
+  // either one.
+  function togglePin() {
+    if (pinned()) {
+      engine.unpinBands();
+      chip?.remove();
+    } else {
+      engine.pinBands(bandSpec(bandStore));
+      chip?.write(bandSpec(set()));
+    }
+    renderMeters();
+  }
+
+  function drawPin() {
+    const btn = el.querySelector('#au-pin');
+    const on = pinned();
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? 'pinned to sketch' : 'pin to sketch';
+    btn.title = on
+      ? "these bands are the sketch's own, written into its bands({ … }) — click to hand them back to the manager"
+      : 'copy these bands into the sketch, so they travel with it and stop following the manager';
+    el.querySelector('#au-hint').textContent = on
+      ? "editing this sketch's own bands — every change is written into its bands({ … })"
+      : "drag a band's edges on the spectrum · drag a meter's anchors to set what reads as 0 and 1";
   }
 
   // --- tempo: the bpm beat() and B run at when the sketch doesn't tempo() ---
@@ -170,13 +216,14 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
     // hit: which band and which handle ('from' | 'to' | 'move') is under x
     const hit = (x, w) => {
       const px = (hz) => hzToU(hz) * w;
-      for (let i = bandStore.bands.length - 1; i >= 0; i--) {
-        const b = bandStore.bands[i];
+      const bands = set().bands;
+      for (let i = bands.length - 1; i >= 0; i--) {
+        const b = bands[i];
         if (Math.abs(x - px(b.from)) < 6) return { b, part: 'from' };
         if (Math.abs(x - px(b.to)) < 6) return { b, part: 'to' };
       }
-      for (let i = bandStore.bands.length - 1; i >= 0; i--) {
-        const b = bandStore.bands[i];
+      for (let i = bands.length - 1; i >= 0; i--) {
+        const b = bands[i];
         if (x > px(b.from) && x < px(b.to)) return { b, part: 'move' };
       }
       return null;
@@ -211,7 +258,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
         b.to = uToHz(from + width);
       }
     });
-    const done = () => { if (drag) { drag = null; saveBands(); } };
+    const done = () => { if (drag) { drag = null; commit(); } };
     cv.addEventListener('pointerup', done);
     cv.addEventListener('pointercancel', done);
   }
@@ -258,7 +305,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
     }
 
     // band regions over the curve, edges emphasized
-    bandStore.bands.forEach((b, i) => {
+    set().bands.forEach((b, i) => {
       const x0 = hzToU(b.from) * w, x1 = hzToU(b.to) * w;
       g.fillStyle = bandColor(i, 0.16);
       g.fillRect(x0, 0, x1 - x0, h);
@@ -287,25 +334,31 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
       <button class="au-auto" title="keep fitting the anchors to the signal (stays on with the manager closed)">auto</button>
       ${band ? '<button class="au-del" title="remove band">✕</button>' : '<span class="au-del"></span>'}`;
 
+    const owner = set(); // the row is rebuilt whenever this changes (renderMeters)
+
     if (band) {
       const name = row.querySelector('.au-name');
       name.addEventListener('change', () => {
         const v = name.value.trim();
-        if (v !== band.name && bandNameOk(v)) { band.name = v; saveBands(); }
+        if (v !== band.name && bandNameOk(owner, v)) { band.name = v; commit(); }
         else name.value = band.name;
       });
-      row.querySelector('.au-del').addEventListener('click', () => { removeBand(band); renderMeters(); });
+      row.querySelector('.au-del').addEventListener('click', () => {
+        removeBand(owner, band);
+        commit();
+        renderMeters();
+      });
     }
 
     const meter = row.querySelector('.au-meter');
-    const anchors = band ?? bandStore.level;
+    const anchors = band ?? owner.level;
 
     const sm = row.querySelector('.au-sm');
     sm.value = anchors.sm || 0;
     sm.addEventListener('change', () => {
       anchors.sm = Math.min(5, Math.max(0, Number(sm.value) || 0));
       sm.value = anchors.sm;
-      saveBands();
+      commit();
     });
 
     const auto = row.querySelector('.au-auto');
@@ -313,7 +366,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
     auto.addEventListener('click', () => {
       anchors.auto = !anchors.auto;
       auto.classList.toggle('on', anchors.auto);
-      saveBands();
+      commit();
     });
 
     let drag = null; // 'lo' | 'hi'
@@ -334,21 +387,31 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
       else anchors.hi = Math.max(u, anchors.lo + 0.005);
     };
     meter.addEventListener('pointermove', move);
-    const done = () => { if (drag) { drag = null; saveBands(); } };
+    const done = () => { if (drag) { drag = null; commit(); } };
     meter.addEventListener('pointerup', done);
     meter.addEventListener('pointercancel', done);
 
-    return { band, row, meter, color, valEl: row.querySelector('.au-val'), hzEl: row.querySelector('.au-hz') };
+    return { band, anchors, row, meter, color, valEl: row.querySelector('.au-val'), hzEl: row.querySelector('.au-hz') };
   }
+
+  // Rebuilt when the set the manager is on changes — pin, unpin, or a run whose
+  // bands() declared something different. bandGen only moves on a declaration,
+  // never on the anchors auto walks, so a drag can't pull the rows out from
+  // under itself.
+  let shownSet = null;
+  let shownGen = -1;
 
   function renderMeters() {
     const box = el.querySelector('#au-meters');
     box.innerHTML = '';
-    rows = [meterRow(null, 0), ...bandStore.bands.map((b, i) => meterRow(b, i))];
+    shownSet = set();
+    shownGen = bandGen;
+    rows = [meterRow(null, 0), ...shownSet.bands.map((b, i) => meterRow(b, i))];
     for (const r of rows) box.appendChild(r.row);
+    drawPin();
   }
 
-  function drawMeter({ band, meter, color, valEl, hzEl }) {
+  function drawMeter({ band, anchors, meter, color, valEl, hzEl }) {
     const rect = meter.getBoundingClientRect();
     const dpr = devicePixelRatio || 1;
     if (meter.width !== Math.round(rect.width * dpr)) { meter.width = Math.round(rect.width * dpr); meter.height = Math.round(26 * dpr); }
@@ -358,8 +421,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
     g.clearRect(0, 0, w, h);
 
     const a = ae();
-    const anchors = band ?? bandStore.level;
-    const raw = a?.running ? smoothed(band ?? 'level') : 0;
+    const raw = a?.running ? smoothed(anchors) : 0;
     const norm = normalize(raw, anchors);
     const x = (v) => v * w;
 
@@ -404,6 +466,9 @@ export function initAudioModal({ engine, settings, persist, applyAudio }) {
       updateBands(ae());
       updateTempo(ae());
     }
+    // a run in the background may have pinned, unpinned or retuned the set
+    // these rows are drawn from
+    if (shownSet !== set() || shownGen !== bandGen) renderMeters();
     drawTempo();
     drawSpectrum();
     for (const r of rows) drawMeter(r);

@@ -3,7 +3,7 @@
 // be git-versioned; when no server API is available (e.g. a static build)
 // they fall back to localStorage. Examples are bundled read-only.
 
-import { syncHash } from './share.js';
+import { syncHash, obsUrl } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
 import { isTouch, forPlatform, exampleApplies } from './touch.js';
 import { initAudioModal } from './audio-modal.js';
@@ -130,7 +130,7 @@ export async function allSketches() {
 }
 export const sketchSource = (scope, name) => (scope === 'examples' ? EXAMPLES[name] : loadUser(name));
 
-export async function initSidebar({ engine, getCode, setCode, run }) {
+export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
   const settings = Object.assign(
     // A phone opens with the sidebar shut: 264px of it is a third of the
     // screen, and none of what's in there is the reason you opened fizzle.
@@ -210,6 +210,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
         <button id="sb-saveas">save as…</button>
         <button id="sb-new">new</button>
         <button id="sb-share">copy link</button>
+        <button id="sb-obs" title="the same link with the interface off and the size pinned, for an OBS browser source">copy obs url</button>
       </div>
       <div class="sb-tabs">
         <button id="sb-tab-sketches" class="on">sketches</button>
@@ -378,7 +379,7 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
   });
   // the audio manager writes the same two settings; keep these selects true
   window.addEventListener('td-audio-config', fillAudioDevices);
-  const audioModal = initAudioModal({ engine, settings, persist, applyAudio });
+  const audioModal = initAudioModal({ engine, settings, persist, applyAudio, chip: bandChip });
   $('#sb-audio-manage').addEventListener('click', audioModal.open);
   window.addEventListener('td-audio-started', fillAudioDevices);
   navigator.mediaDevices?.addEventListener?.('devicechange', fillAudioDevices);
@@ -748,6 +749,21 @@ export async function initSidebar({ engine, getCode, setCode, run }) {
       if (e?.name !== 'AbortError') btn.textContent = 'link in URL bar';
     }
     setTimeout(() => { btn.textContent = 'copy link'; }, 1200);
+  });
+  // The same sketch, addressed as output rather than as a workspace. Without a
+  // declared size there's nothing to pin but the window, which is nobody's
+  // idea of a capture format, so 1080p stands in — set a resolution() or the
+  // fixed size and it carries that instead.
+  $('#sb-obs').addEventListener('click', async () => {
+    await syncHash(getCode());
+    const btn = $('#sb-obs');
+    try {
+      await navigator.clipboard.writeText(obsUrl(engine.resolution ?? [1920, 1080]));
+      btn.textContent = 'copied!';
+    } catch {
+      btn.textContent = 'clipboard blocked';
+    }
+    setTimeout(() => { btn.textContent = 'copy obs url'; }, 1200);
   });
   $('#sb-new').addEventListener('click', () => {
     setCode(NEW_TEMPLATE);

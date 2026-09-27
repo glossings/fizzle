@@ -32,6 +32,32 @@ export function blockLabels(src) {
   return out;
 }
 
+// The range of a top-level bands({ ... }) call, or null. Nested ones belong to
+// the block they're written in and are none of this: the engine declares this
+// one ahead of the sketch body (a chip written at the bottom of the file still
+// has to reach the band() reads above it), and the audio manager rewrites it.
+export function bandsCall(src) {
+  if (!src.includes('bands')) return null; // nearly every sketch: nothing to find
+  const tree = javascriptLanguage.parser.parse(src);
+  let found = null;
+  tree.iterate({
+    enter(n) {
+      if (found) return false;
+      // only straight down the spine: Script > ExpressionStatement > the call
+      if (n.name === 'Script' || n.name === 'ExpressionStatement') return;
+      if (n.name === 'CallExpression' && n.node.parent?.name === 'ExpressionStatement'
+          && n.node.parent.parent?.name === 'Script') {
+        const callee = n.node.firstChild;
+        if (callee?.name === 'VariableName' && src.slice(callee.from, callee.to) === 'bands') {
+          found = { from: n.from, to: n.to };
+        }
+      }
+      return false;
+    },
+  });
+  return found;
+}
+
 export function rewriteBlocks(src) {
   if (!/[\w$]\s*:\s*\{/.test(src)) return src; // nearly every sketch: nothing to find
   const edits = [];

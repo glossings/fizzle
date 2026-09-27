@@ -29,6 +29,10 @@
   gap: 14px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  /* the devices, the pin and the close don't fit on one line on a phone, and a
+     select that has shrunk to its min-width takes the row past the panel edge
+     rather than wrapping — so the labels carry a real basis to wrap on */
+  flex-wrap: wrap;
 }
 .au-title {
   color: #7ee787;
@@ -44,7 +48,7 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
   min-width: 0;
-  flex: 1;
+  flex: 1 1 130px;
 }
 #au-panel header select {
   flex: 1;

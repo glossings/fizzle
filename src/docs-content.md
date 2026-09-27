@@ -104,6 +104,25 @@ projector.
 Recording is desktop-only for now: a phone's own screen recorder does a better
 job of a phone than this can.
 
+**Into a stream or a call.** The sidebar's **copy obs url** button copies a
+link to the sketch you're on with two parameters on the front of it:
+
+```
+?ui=off&w=1920&h=1080#z=…
+```
+
+`ui=off` boots with the editor and the sidebar already hidden, and `w`/`h`
+pin the render to exactly that size, so a browser source the same size gets
+picture to every edge with no letterbox bars. Paste it into OBS as a Browser
+Source, then OBS's virtual camera is a webcam as far as Zoom, Meet and
+everything else is concerned. The size comes from the sketch's
+`resolution()`, or the sidebar's fixed size, or 1080p when neither has said.
+
+The parameters work typed by hand too, and they're just a window's worth of
+instructions, so the link is still the same shareable sketch. If someone sends
+you one and you want the code, `ctrl + h`, `ctrl + m` or `ctrl + p` brings the
+interface back.
+
 **Playlists.** The sidebar's **sketches** tab searches names and tags. Every
 sketch tags itself with what it uses (`3d`, `2d`, `fx`, `particles`, `audio`,
 `cam`, `media`, `hdri`, plus its size when it pins one), so `tag:audio 3d`
@@ -207,7 +226,39 @@ sphere({ radius: 1, res: 64 })
   .out()
 ```
 
+The four waveshapes take a rate, so `T.sin(0.16)` is the same thing as
+`T.mul(0.16).sin()` with the rate on the oscillator where it reads better.
+
 See **random & custom signals** for the rest of what `T` can do.
+
+### speed
+
+`speed(rate)` runs the sketch's clock faster or slower, 1 being real time.
+Everything follows it, simulations included: at `speed(0.25)` a fluid genuinely
+steps at a quarter speed rather than being sampled oddly, and `speed(0)`
+freezes the sims too, which pausing doesn't.
+
+```js
+speed(0.4)
+
+bg('#05030f')
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.6 }).position(3, 4, 5).out()
+
+box({ width: 1.2, height: 1.2, depth: 1.2 })
+  .rotation(T.mul(0.8), T.mul(0.5), 0)
+  .position(T.sin(0.5).range(-2.5, 2.5), 0, 0)
+  .color('#4fd1c5')
+  .out()
+
+camera(0, 0, 7)
+```
+
+It takes a fn of t, so the rate is itself a signal: `speed(midi().cc(74).range(0, 2))`
+puts the whole piece on a fader. Drop the call to go back to real time.
+
+`.delay(frames)` is counted in frames and `.feedback()` accumulates per frame,
+so neither of those is retimed by it.
 
 ### colors
 
@@ -3470,6 +3521,56 @@ of steady beat, keeps following through tempo changes, and stays on with the
 manager closed. Tapping or typing a tempo turns auto off, and a sketch's own
 `tempo()` call outranks all of it.
 
+### bands that travel with the sketch
+
+The manager's bands belong to the browser, not to the sketch. That's what you
+want while you're mixing, and it's a problem the moment you share a link: the
+person opening it has their own bands under their own names, so a sketch built
+on `band('kick')` can land somewhere that has no `kick` at all.
+
+Press **pin to sketch** in the manager's header and the whole set is written
+into the code as a `bands({ ... })` call, folded to a chip at the bottom:
+
+```js
+ambient({ intensity: 0.2 })
+directional({ intensity: 1.4 }).position(4, 6, 3).out()
+
+sphere({ radius: 1, res: 96 })
+  .scale(band('kick').range(0.8, 1.7))
+  .material({ color: '#8899ff', roughness: 0.3 })
+  .out()
+
+bands({
+  level: { auto: true },
+  kick: { from: 30, to: 160, sm: 0.05, auto: true },
+  hats: { from: 6000, to: 12000, lo: 0.1, hi: 0.7 },
+})
+```
+
+That sketch now carries its own bands, and the link carries them with it.
+
+- It's the whole set or none of it. A sketch with a `bands()` call stops
+  following the manager, which goes on keeping your bands for every other
+  sketch. Nothing about pinning touches your own tuning, and loading someone
+  else's pinned sketch doesn't either.
+- The manager edits whichever set is in play. Open it over a pinned sketch and
+  the meters are that sketch's: dragging an edge or an anchor writes the new
+  numbers straight into its `bands()` call. Its header says which set you have.
+- **auto** is carried but its anchors aren't. A band pinned with `auto: true`
+  arrives with auto still on and fits itself to whatever the next machine is
+  hearing, which is usually what you want, since anchors measured against your
+  mix mean little against someone else's. Anchors you set by hand are carried
+  exactly.
+- Pin and unpin take effect right away, with no re-run. Unpinning deletes the
+  call and hands the sketch back to the manager.
+- A labeled block can pin a set of its own, and reads the surrounding sketch's
+  when it doesn't. So a sub-sketch you drop into a patch keeps the bands it was
+  built with, and one that never pinned any picks up its host's.
+
+Editing the chip by hand works the same as any other code: open the fold, change
+a number, run. The keys of one band are `from` and `to` in Hz, `lo` and `hi` for
+the anchors, `sm` for smoothing in seconds, and `auto`.
+
 ## tempo & sequencing
 
 Two things carry the tempo. **`beat(perBar)`** is a gate: 1 for half of each
@@ -3528,12 +3629,14 @@ videofile('clip.mp4', { restart: beat(1) })          // rewinds every bar
 scene().when(beat(4, 0.25), s => s.invert())         // first quarter of each beat
 ```
 
-- `.sin()` `.cos()` `.tri()` `.saw()` `.sqr(width)` — waveshapes of
-  value-as-phase (one cycle per whole unit, 0..1 out). `B.mul(2).sin()` =
-  two-beat LFO, `T.mul(0.1).sin()` = a slow free-running one, `.saw()` = the
-  ramp itself. `.cos()` is `.sin()` a quarter cycle ahead, for a second
+- `.sin(rate)` `.cos(rate)` `.tri(rate)` `.saw(rate)` `.sqr(rate, { width })` — waveshapes of
+  value-as-phase (one cycle per whole unit, 0..1 out). `rate` scales the phase
+  on the way in, so `B.sin(2)` is a two-beat LFO and `T.sin(0.1)` a slow
+  free-running one; `T.mul(0.1).sin()` is the same thing spelled out. `.saw()`
+  is the ramp itself. `.cos()` is `.sin()` a quarter cycle ahead, for a second
   oscillator in quadrature: `x` on one, `z` on the other, and the motion is a
-  circle. [curves](#curves) say the same thing as one object.
+  circle. `.sqr({ width: 0.2 })` narrows the pulse without touching the rate.
+  [curves](#curves) say the same thing as one object.
 - `.beat(perBar?)` — tempo-synced sample-and-hold. `rand().beat(1)` = a new
   random value per bar. Shorthand for `.hold(beat(perBar))`.
 - `.hold(trigger, threshold?)` — the same thing on any trigger, so it takes

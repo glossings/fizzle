@@ -39,6 +39,7 @@ export const GLOBALS = {
   bg: ['bg(color)', 'Background color, behind the 3D scene and behind the texture stack both — anything a chain leaves transparent lands on it. Hex, CSS name, or [r, g, b] 0..1; a fn of t (or a channel that is one) repaints it every frame. bg(null) leaves the texture stack on black.'],
   resolution: ['resolution(width, height) | resolution({ width, height })', "Pin the render to an exact pixel size instead of the browser window — the main window letterboxes it, and the projector window (F1) takes the same aspect ratio. A single number is a square; drop the call to fill the window again. The sidebar's fixed resolution overrides this."],
   tempo: ['tempo(bpm)', "Tempo for beat() and B, overriding the audio manager's for this sketch. Drop the call to hand it back."],
+  speed: ['speed(rate)', "How fast the sketch's clock runs, 1 being real time. Everything follows it: signals read a slower t and the simulations integrate by a smaller dt, so speed(0.25) is a genuinely quarter-speed fluid rather than the same fluid sampled oddly. speed(0) freezes the sims too, which pause doesn't. Takes a fn of t; drop the call to go back to real time."],
   fog: ['fog({ color, near, far })', 'Scene fog: geometry fades to color between near and far. Positional fog(color, near, far) also works.'],
 
   scene: ['scene({ bg? })', "Texture source: the lit 3D render of the geometry sent to a naked .out() above this call, on the sketch's backdrop (tone-mapped display space). A chain that reads it and goes .out() is drawn in place of that geometry."],
@@ -80,7 +81,8 @@ export const GLOBALS = {
   beat: ['beat(perBar = 4, width = 0.5)', 'Tempo-synced gate: 1 for width of each cycle, 0 the rest. perBar cycles per bar of four beats (tempo in the audio manager), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input loudness (0..1, dB scale) as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
   audiofile: ["audiofile(name?, { volume, speed, loop, restart, chan })", 'An imported audio file, played out loud and returning its level as a signal like audio(). Empty call = picker; drag a file in to import; ctrl+r or restartMedia() rewinds.'],
-  band: ["band(name? | n?)", 'A named band from the audio manager (ctrl+a) as a signal, normalized 0..1 by its meter anchors. band() is the global level; bands are named 1, 2, 3 by default, so band(1) reads the first.'],
+  band: ["band(name? | n?)", 'A named band as a signal, normalized 0..1 by its meter anchors. band() is the global level; bands are named 1, 2, 3 by default, so band(1) reads the first. The names come from the sketch\'s own bands({ ... }) when it has one, and from the audio manager (ctrl+a) when it doesn\'t.'],
+  bands: ['bands({ name: { from, to, lo, hi, sm, auto }, level: { lo, hi, sm, auto } })', "The bands this sketch reads, in place of the audio manager's — so it travels with its own tuning and a shared link sounds the way it was built instead of landing on whatever the next machine has. It's the whole set or none of it: a sketch with this call stops following the manager, which keeps its own bands for every other sketch.\nWritten by the manager rather than by hand (pin to sketch, in its header), which then edits this call instead of the manager's own bands for as long as the sketch is running. A labeled block can declare its own set, and a block without one reads the set of the sketch holding it."],
   restartMedia: ['restartMedia(name?)', "Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute. ctrl+r rewinds media too, and starts a sketch's particles, delays, trails and counters over with it."],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1. Positional rand(freq, seed) also works.'],
   select: ['select([a, b, c], index?)', "Pick from a list by index (floored, wrapped) — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nThe index is any signal, so it carries the timing: B steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second."],
@@ -245,11 +247,11 @@ export const METHODS = {
   lte: ['.lte(v)', 'Signal: 1 while the value is <= v, else 0.'],
   counter: ['.counter(max?, threshold = 0.5)', 'Signal: counts rising edges; wraps at max.'],
   select: ['.select([a, b, c, ...])', 'Signal: index the array by the value (floored, wrapped). Items may be numbers, colors, strings, or fns of t.'],
-  sin: ['.sin()', 'Signal: sine shape of the value-as-phase (0..1 out, one cycle per whole unit).'],
-  cos: ['.cos()', 'Signal: cosine shape of the value-as-phase (0..1 out) — .sin() a quarter cycle ahead, so it starts at 1.'],
-  tri: ['.tri()', 'Signal: triangle shape of the value-as-phase (0..1 out).'],
-  saw: ['.saw()', 'Signal: fractional part of the value — a ramp per cycle.'],
-  sqr: ['.sqr(width = 0.5)', 'Signal: 1 while the phase is below width, else 0 — square LFO / rhythmic gate.'],
+  sin: ['.sin(rate = 1)', 'Signal: sine shape of the value-as-phase (0..1 out, one cycle per whole unit). rate scales the phase on the way in, so T.sin(0.3) is a 0.3 Hz sine — the same thing T.mul(0.3).sin() spells the long way. Takes a fn of t.'],
+  cos: ['.cos(rate = 1)', 'Signal: cosine shape of the value-as-phase (0..1 out) — .sin() a quarter cycle ahead, so it starts at 1. rate scales the phase on the way in, like .sin()\'s.'],
+  tri: ['.tri(rate = 1)', 'Signal: triangle shape of the value-as-phase (0..1 out). rate scales the phase on the way in, like .sin()\'s.'],
+  saw: ['.saw(rate = 1)', 'Signal: fractional part of the value — a ramp per cycle. rate scales the phase on the way in, like .sin()\'s.'],
+  sqr: ['.sqr(rate = 1, { width })', 'Signal: 1 for the first width of each cycle, else 0 — square LFO / rhythmic gate. rate scales the phase on the way in, like .sin()\'s; .sqr({ width: 0.2 }) narrows the pulse without touching the rate.'],
   beat: ['.beat(perBar = 4)', 'Signal: tempo-synced sample-and-hold — freezes a new value of the signal perBar times a bar, on the same grid as beat(). Shorthand for .hold(beat(perBar)).'],
   hold: ['.hold(trigger, threshold = 0.5)', 'Signal: sample-and-hold driven by another signal — freezes the current value each time trigger crosses up through threshold. .hold(audio().kicks()) resamples on the drums; for the tempo grid, .beat(n) is the shorthand.'],
   round: ['.round()', 'Signal: round to the nearest integer.'],
@@ -769,6 +771,16 @@ const GLOBAL_KEY_DOCS = {
     leading: "Distance from one line to the next, in ems: 1 sets lines one size apart, 2 double-spaces. Default is the font's own line height.",
     center: 'Center the text on the origin. Default true.',
   },
+  // The outer keys of bands() are band names, so there's nothing to complete
+  // there; these are the keys of one band's object, one level in.
+  bands: {
+    from: 'Bottom of the band, in Hz. A kick lives around 30–160, a snare 200–400, hats 6k up.',
+    to: 'Top of the band, in Hz. Below from it swaps with it; a band narrower than a twentieth is widened to one.',
+    lo: 'What the band has to read before this band reports anything above 0, 0..1. Anything quieter clips to 0, which is how a band ignores the rest of the mix bleeding into it. Default 0.',
+    hi: 'What the band has to read for this band to report 1, 0..1. Anything louder clips to 1. Default 1 — bring it down to the loudest the band actually gets and the sketch sees the full 0..1 sweep.',
+    sm: 'Seconds of smoothing before the anchors, so the value eases instead of snapping. Default 0. A kick wants 0.05 to stay punchy, a pad 0.3 or more.',
+    auto: "Fit lo and hi to whatever is playing, continuously, instead of holding the numbers above. Default false. The one setting worth carrying between machines, since it calibrates itself to the input it finds — which is also why a band with auto on is written without lo and hi.",
+  },
   audiofile: {
     volume: '0..1 playback level. Only how loud it plays — the signal it returns is unaffected.',
     speed: 'Playback rate: 1 normal, 0.5 half. Takes a fn of t. Rates past 16 clamp; negative freezes.',
@@ -1043,6 +1055,9 @@ const METHOD_KEY_DOCS = {
     speed: 'How fast the field itself drifts, so the weather changes. Default 0.5.',
     seed: 'Different seeds give independent fields. Default 0.',
   },
+  sqr: {
+    width: 'How much of each cycle reads 1, 0..1. Default 0.5, a square wave; 0.1 is a click and 0.9 a gap. Takes a fn of t.',
+  },
   attract: {
     strength: 'Pull in units/s² at distance 1, falling with the square of distance. Negative pushes away. Default 3.',
     radius: 'Softening floor: inside it the pull stops growing, so a close pass slingshots instead of exploding. Default 0.5.',
@@ -1157,7 +1172,7 @@ for (const [kind, list] of Object.entries(methodKinds)) {
 export const KIND_LABEL = {
   geo: 'geometry', particle: 'particles', evolve: 'particle', light: 'light',
   texture: 'texture', signal: 'signal', repeat: 'signal', midi: 'midi', midikey: 'midi',
-  gamepad: 'gamepad', layout: 'layout', cursor: 'cursor', inst: 'copy',
+  gamepad: 'gamepad', hand: 'hand', layout: 'layout', cursor: 'cursor', inst: 'copy',
   curve: 'curve', curvens: 'curve', data: 'data', pairs: 'pairs', segments: 'segments',
 };
 
@@ -1169,7 +1184,7 @@ export const KIND_LABEL = {
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
   ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sketch sky stack text video videofile videoseq voronoi'],
-  ['signals', 'audio audiofile B band beat gamepad midi mouse rand restartMedia select sig T tempo'],
+  ['signals', 'audio audiofile B band bands beat gamepad midi mouse rand restartMedia select sig T tempo'],
   ['structure', 'curve data layout link segments spread'],
   ['lights', 'ambient directional hdri hemi point spot'],
   ['scene', 'bg camera fog hsl hsv param resolution'],
