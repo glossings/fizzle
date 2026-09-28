@@ -3,10 +3,11 @@ import { keymap, tooltips } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { acceptCompletion, completionStatus, closeCompletion } from '@codemirror/autocomplete';
 import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/commands';
-import { codeFolding, foldEffect } from '@codemirror/language';
+import { foldEffect } from '@codemirror/language';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
 import { sketchLanguage, apiHover } from './complete.js';
+import { sketchFolding, foldsChanged } from './fold.js';
 import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 
 // Fold the bracketed lists inside a just-inserted range, so an import of forty
@@ -125,34 +126,11 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
         // is, so this is the same rule applied to the rest of it.)
         ...(isTouch ? { position: 'absolute' } : {}),
       }),
-      // basicSetup already folds; this only names what's hidden, since the
-      // gutter arrows are off and a bare … next to an import says nothing
-      codeFolding({
-        // the lines actually out of sight: a fold starts just inside the
-        // bracket, so its first and last lines are still half on screen
-        preparePlaceholder: (state, range) => {
-          let n = 0;
-          for (let l = state.doc.lineAt(range.from).number; l <= state.doc.lineAt(range.to).number; l++) {
-            const line = state.doc.line(l);
-            const from = Math.max(line.from, range.from);
-            const to = Math.min(line.to, range.to);
-            if (from < to && state.doc.sliceString(from, to).trim()) n++;
-          }
-          return n;
-        },
-        placeholderDOM: (view, onclick, lines) => {
-          const el = document.createElement('span');
-          el.textContent = lines > 0 ? ` … ${lines} lines ` : ' … ';
-          el.className = 'cm-foldPlaceholder';
-          el.title = 'click to expand';
-          el.onclick = onclick;
-          return el;
-        },
-      }),
+      sketchFolding(), // the projected copy folds with the same hands (fold.js)
       colorPicker(onLiveChange),
       // the projector window replays these to stay in step with what's typed
       EditorView.updateListener.of((u) => {
-        if (u.docChanged || u.selectionSet) onChange?.(u);
+        if (u.docChanged || u.selectionSet || foldsChanged(u)) onChange?.(u);
       }),
     ],
   });

@@ -210,6 +210,8 @@ export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
         <button id="sb-saveas">save as…</button>
         <button id="sb-new">new</button>
         <button id="sb-share">copy link</button>
+      </div>
+      <div class="sb-btns">
         <button id="sb-obs" title="the same link with the interface off and the size pinned, for an OBS browser source">copy obs url</button>
       </div>
       <div class="sb-tabs">

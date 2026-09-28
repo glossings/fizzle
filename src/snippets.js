@@ -342,7 +342,7 @@ export function initSnippets({ getView, flash }) {
     if (!carries.length) return;
     const lead = document.createElement('span');
     lead.className = 'sn-carries-lead';
-    lead.textContent = 'brought along:';
+    lead.textContent = 'included:';
     box.append(lead);
     for (const c of carries) {
       const chip = document.createElement('span');
@@ -352,7 +352,7 @@ export function initSnippets({ getView, flash }) {
       const x = document.createElement('button');
       x.type = 'button';
       x.textContent = c.off ? '+' : '✕';
-      x.title = c.off ? 'bring this one after all' : "leave this one behind";
+      x.title = c.off ? 'include this definition' : 'leave this definition out';
       x.addEventListener('click', () => toggleCarry(c));
       chip.append(x);
       box.append(chip);
@@ -509,8 +509,8 @@ export function initSnippets({ getView, flash }) {
     r.dataset.key = s.key;
     r.draggable = true;
     r.title = kept
-      ? 'hover to preview, click to pin it and edit on the right · enter or → puts it in at the cursor, or drag it where you want it'
-      : "a whole sketch: it goes in as a block of its own, with a sketch('name') line to show it · enter or →, or drag it where you want it";
+      ? 'hover to preview, click to edit it on the right · enter or → inserts at the cursor, or drag it into the code'
+      : "a whole sketch: inserts as a labeled block with a sketch('name') line · enter or → inserts at the cursor, or drag it into the code";
 
     const main = document.createElement('div');
     main.className = 'sn-row-main';
@@ -717,7 +717,7 @@ export function initSnippets({ getView, flash }) {
     const plan = planInsert(s.code, doc);
     if (!plan.needs && !plan.body) {
       close();
-      return flash(`${s.name}: this sketch already has all of it`);
+      return flash(`${s.name}: already in this sketch`);
     }
     const buses = busClashes(`${plan.needs}\n${plan.body}`, doc);
     // the body takes on the margin of the line it lands in

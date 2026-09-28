@@ -559,7 +559,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       }
       // nothing here can letterbox a stream it isn't compositing
       if (outW !== canvas.width || outH !== canvas.height) {
-        warn('recording: the render changed size mid-take, which this one can\'t follow — stop and start again');
+        warn('recording: the render changed size mid-take, which a take can\'t follow — stop and start again');
       }
       return;
     }

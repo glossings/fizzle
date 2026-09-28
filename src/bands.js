@@ -142,15 +142,31 @@ export function declareBandSet(path, spec) {
 // machine, so sending the numbers on would hand the next one a calibration for
 // a mix it isn't hearing. The band arrives with auto still on and fits itself
 // there instead.
+//
+// The rounding is for the same reason: whole Hz and three decimals are what a
+// person would have typed, and a band's edge doesn't mean its last decimal.
+//
+// `live` is the one caller that isn't serializing for somewhere else. Pinning
+// copies this machine's set into the sketch a moment later on the same input, so
+// it carries every number exactly as it stands: the fit auto has made, and edges
+// straight off a drag, which fall between whole Hz. Rounded, the copy would sit
+// a hair from the original and the band would jump on the spectrum each time the
+// pin was pressed (widest at the bottom of the axis, where a log scale spends a
+// pixel on a fraction of a Hz). None of this reaches the code, which is written
+// from the plain form (audio-modal.js).
 const r3 = (v) => Math.round(v * 1000) / 1000;
+const same = (v) => v;
 
-export function bandSpec(set) {
+export function bandSpec(set, live = false) {
+  const hz = live ? same : Math.round;
+  const r = live ? same : r3;
   const tail = (b) => ({
-    ...(b.auto ? { auto: true } : { lo: r3(b.lo), hi: r3(b.hi) }),
+    ...(b.auto && !live ? {} : { lo: r(b.lo), hi: r(b.hi) }),
+    ...(b.auto ? { auto: true } : {}),
     ...(b.sm ? { sm: r3(b.sm) } : {}),
   });
   const spec = { level: tail(set.level) };
-  for (const b of set.bands) spec[b.name] = { from: Math.round(b.from), to: Math.round(b.to), ...tail(b) };
+  for (const b of set.bands) spec[b.name] = { from: hz(b.from), to: hz(b.to), ...tail(b) };
   return spec;
 }
 
@@ -165,6 +181,16 @@ let stamp = 0;
 let lastSave = 0;
 
 export const smoothed = (key) => run.get(key)?.v ?? 0;
+
+// Carry one band's live reading and auto fit onto another object. Pinning makes
+// a second set of band objects out of the first (declareBandSet), and all of
+// this is keyed on the objects, so without it the copy starts from zero and runs
+// its opening fit again over music that is already playing. That is the press of
+// a button showing up in the meters.
+export function adoptRun(from, to) {
+  const s = run.get(from);
+  if (s) run.set(to, { ...s, win: s.win.map((w) => w && { ...w }) });
+}
 
 const ease = (dt, tau) => (tau > 0 ? 1 - Math.exp(-dt / tau) : 1);
 

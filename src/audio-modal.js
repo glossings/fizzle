@@ -16,8 +16,8 @@
 
 import './audio-modal.css';
 import {
-  addBand, bandGen, bandNameOk, BAND_NAME_RULE, bandSpec, bandStore, normalize, removeBand,
-  saveBands, smoothed, updateBands,
+  addBand, adoptRun, bandGen, bandNameOk, BAND_NAME_RULE, bandSpec, bandStore, normalize,
+  removeBand, saveBands, smoothed, updateBands,
 } from './bands.js';
 import { CONF, tempoState, updateTempo } from './tempo.js';
 
@@ -64,7 +64,9 @@ export function initAudioModal({ engine, settings, persist, applyAudio, chip }) 
           <span class="au-title">audio</span>
           <label>in <select id="au-in"></select></label>
           <label>out <select id="au-out"></select></label>
-          <button id="au-pin" class="au-auto"></button>
+          <button id="au-pin" class="au-auto au-swap">
+            <span class="au-on">pinned to sketch</span><span class="au-off">pin to sketch</span>
+          </button>
           <button id="au-close" title="close (esc)">✕</button>
         </header>
         <div id="au-tempo">
@@ -74,10 +76,9 @@ export function initAudioModal({ engine, settings, persist, applyAudio, chip }) 
           <button id="au-tempo-auto" class="au-auto" title="follow the beat of the input (stays on with the manager closed)">auto</button>
           <span id="au-tempo-note" class="au-hint"></span>
         </div>
-        <canvas id="au-spectrum"></canvas>
+        <canvas id="au-spectrum" title="drag a band's edges to retune it, or its middle to slide it"></canvas>
         <div class="au-addrow">
           <button id="au-add">+ add band</button>
-          <span class="au-hint" id="au-hint"></span>
         </div>
         <div id="au-meters"></div>
       </div>`;
@@ -100,12 +101,25 @@ export function initAudioModal({ engine, settings, persist, applyAudio, chip }) 
   // over to it; unpin drops it and gives them back. Neither needs a re-run —
   // band() resolves its set as it reads — so the picture keeps playing through
   // either one.
+  //
+  // The pin moves where a band is kept and nothing else. The copy takes every
+  // number as it stands, auto's fitted anchors and unrounded edges included
+  // (bandSpec's live form), along with the reading and the fit behind them
+  // (adoptRun). So pressing it doesn't nudge a band on the spectrum, and doesn't
+  // hand the sketch one that reads 0..1 and has to find the music again. What
+  // goes into the code is the plain spec: whole Hz, and an auto fit left out for
+  // the next machine to make its own.
   function togglePin() {
     if (pinned()) {
       engine.unpinBands();
       chip?.remove();
     } else {
-      engine.pinBands(bandSpec(bandStore));
+      const own = engine.pinBands(bandSpec(bandStore, true));
+      adoptRun(bandStore.level, own.level);
+      for (const b of own.bands) {
+        const mine = bandStore.bands.find((x) => x.name === b.name);
+        if (mine && mine !== b) adoptRun(mine, b);
+      }
       chip?.write(bandSpec(set()));
     }
     renderMeters();
@@ -114,14 +128,10 @@ export function initAudioModal({ engine, settings, persist, applyAudio, chip }) 
   function drawPin() {
     const btn = el.querySelector('#au-pin');
     const on = pinned();
-    btn.classList.toggle('on', on);
-    btn.textContent = on ? 'pinned to sketch' : 'pin to sketch';
+    btn.classList.toggle('on', on); // which of its two labels shows, and the width of both (au-swap)
     btn.title = on
-      ? "these bands are the sketch's own, written into its bands({ … }) — click to hand them back to the manager"
-      : 'copy these bands into the sketch, so they travel with it and stop following the manager';
-    el.querySelector('#au-hint').textContent = on
-      ? "editing this sketch's own bands — every change is written into its bands({ … })"
-      : "drag a band's edges on the spectrum · drag a meter's anchors to set what reads as 0 and 1";
+      ? "edits are stored in the sketch's code — click to go back to the manager's bands"
+      : "store these bands in the sketch's code";
   }
 
   // --- tempo: the bpm beat() and B run at when the sketch doesn't tempo() ---
@@ -328,7 +338,7 @@ export function initAudioModal({ engine, settings, persist, applyAudio, chip }) 
         ? `<input class="au-name" value="${band.name}" title="rename (${BAND_NAME_RULE})" spellcheck="false">`
         : '<span class="au-name au-fixed">level</span>'}
       <span class="au-hz"></span>
-      <canvas class="au-meter" height="26"></canvas>
+      <canvas class="au-meter" height="26" title="drag the anchors to set what reads as 0 and 1"></canvas>
       <span class="au-val">0.00</span>
       <input class="au-sm" type="number" min="0" max="5" step="0.05" title="smoothing (seconds), applied before the anchors">
       <button class="au-auto" title="keep fitting the anchors to the signal (stays on with the manager closed)">auto</button>

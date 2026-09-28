@@ -1,7 +1,9 @@
 // The bands({ ... }) call in a sketch's source, as the audio manager sees it:
 // written, rewritten and removed here rather than typed. It lands at the bottom
-// of the sketch folded to one line, so a pinned set is something you can open
-// and edit by hand without having to look at it the rest of the time.
+// of the sketch folded to a chip — the whole call, not just its braces, because
+// nobody typed it and nobody has to read it. What's on screen says the sketch
+// carries its own bands and leaves the numbers to the manager. Open the chip and
+// they're ordinary code, editable by hand like anything else.
 //
 // The call itself is found by bandsCall (sketch-blocks.js), which parses for it:
 // its argument spans lines and is full of braces, a bands() in a comment or a
@@ -28,11 +30,9 @@ export function chipText(spec) {
   return `bands({\n${lines.join('\n')}\n})`;
 }
 
-// the … chip: everything between the braces, so what's left on screen is
-// `bands({ … })` and the fold placeholder says how many bands are in there
-const fold = (view, from, text) => view.dispatch({
-  effects: foldEffect.of({ from: from + text.indexOf('{') + 1, to: from + text.length - 2 }),
-});
+// the chip stands in for the call itself; fold.js draws it, and knows which fold
+// this is from the text under it
+const fold = (view, from, to) => view.dispatch({ effects: foldEffect.of({ from, to }) });
 
 const foldedWithin = (state, from, to) => {
   let hit = false;
@@ -50,13 +50,28 @@ export function writeChip(view, spec) {
   if (at) {
     const wasFolded = foldedWithin(view.state, at.from, at.to);
     view.dispatch({ changes: { from: at.from, to: at.to, insert: text } });
-    if (wasFolded) fold(view, at.from, text);
+    if (wasFolded) fold(view, at.from, at.from + text.length);
     return;
   }
   const from = view.state.doc.length;
   const lead = /\n[ \t]*$/.test(src) ? '\n' : '\n\n'; // a blank line between it and the sketch
   view.dispatch({ changes: { from, insert: `${lead}${text}\n` } });
-  fold(view, from + lead.length, text);
+  fold(view, from + lead.length, from + lead.length + text.length);
+}
+
+// Close the chip: on the sketch a page opened on, on a swap, and on every
+// execute, so opening it to read or edit the set by hand lasts until the next
+// run rather than for the rest of the session (main.js).
+export function foldChip(view) {
+  const at = bandsCall(view.state.doc.toString());
+  if (!at || foldedWithin(view.state, at.from, at.to)) return;
+  // A caret inside the call would be left under the chip, where the next
+  // keystroke edits a set nobody can see. Park it after the chip instead.
+  const head = view.state.selection.main.head;
+  view.dispatch({
+    effects: foldEffect.of({ from: at.from, to: at.to }),
+    ...(head > at.from && head < at.to ? { selection: { anchor: at.to } } : {}),
+  });
 }
 
 export function removeChip(view) {

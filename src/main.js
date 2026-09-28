@@ -11,7 +11,7 @@ import { initProjector } from './projector.js';
 import { initRecorder } from './record.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import { learnMidi, learnPad } from './control.js';
-import { writeChip, removeChip } from './band-chip.js';
+import { writeChip, removeChip, foldChip } from './band-chip.js';
 import { initSnippets } from './snippets.js';
 import { sketchSource } from './sidebar.js';
 import WELCOME from '../sketches/examples/welcome.js?raw';
@@ -94,6 +94,10 @@ function run(code, push = false) {
     // it was, and that message shouldn't be swept up by this run's timer
     setTimeout(() => { if (status.textContent === '✓') status.className = ''; }, 800);
   }
+  // Opened by hand to read or edit, the bands chip closes again on the next
+  // execute: it's the manager's bookkeeping, and a run is the point where the
+  // sketch goes back to being the picture rather than the plumbing.
+  if (view) foldChip(view);
   // a run resumes playback, and loading a sketch is a run — so the play button
   // has to be told about the ones nobody pressed it for
   touchbar?.refresh();

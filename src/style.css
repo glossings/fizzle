@@ -471,6 +471,9 @@ html.clean #touchbar { display: none !important; }
 #sb-current { color: #7ee787; text-transform: none; letter-spacing: 0; }
 #sb-store { color: rgba(255, 255, 255, 0.35); font-size: 11px; }
 .sb-btns { display: flex; gap: 6px; }
+/* the obs url on a row of its own: it isn't one of the save/share four. A button
+   that stretches its row can't reshuffle it when its label changes, either */
+.sb-btns + .sb-btns { margin-top: 6px; }
 .sb-btns button {
   flex: 1;
   background: rgba(255, 255, 255, 0.08);

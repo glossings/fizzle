@@ -3,6 +3,7 @@ import { EditorView, ViewPlugin, Decoration, WidgetType } from '@codemirror/view
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
+import { sketchFolding, mirrorFolds } from './fold.js';
 
 // A second, chrome-free window holding just the visuals and the code — drag it
 // onto the projector and keep the sidebar, status line and actual typing on the
@@ -312,10 +313,12 @@ export function initProjector(canvas, getResolution, onPointer) {
           EditorView.lineWrapping,
           EditorView.editable.of(false),
           colorPicker(), // swatches only; the window can't be clicked
+          sketchFolding(),
           showCaret,
         ],
       }),
     });
+    mirrorFolds(view, srcState); // the bands chip, and anything else put away
 
     // Keys for when this window has focus: `f` / double-click fullscreens (the
     // only way to be rid of the pop-up's location bar), F1 or escape closes it,
@@ -421,6 +424,7 @@ export function initProjector(canvas, getResolution, onPointer) {
           scrollIntoView: true,
         });
       }
+      mirrorFolds(view, update.state);
     },
   };
 }

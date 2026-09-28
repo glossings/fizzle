@@ -218,6 +218,16 @@ input.au-name:hover, input.au-name:focus {
   color: #7ee787;
   border-color: rgba(126, 231, 135, 0.6);
 }
+
+/* A button whose label changes with its state still has to hold the width of
+   the longest one, or pressing it reflows the row around it. This header wraps,
+   so a word's difference can move the devices onto another line. Both labels sit
+   in the same grid cell and the state only decides which is visible: the button
+   is as wide as its longest label whichever one is showing. */
+.au-swap { display: inline-grid; justify-items: center; }
+.au-swap > span { grid-area: 1 / 1; }
+.au-swap > .au-on, .au-swap.on > .au-off { visibility: hidden; }
+.au-swap.on > .au-on { visibility: visible; }
 .au-del {
   width: 20px;
   flex: none;
