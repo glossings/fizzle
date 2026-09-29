@@ -26,18 +26,21 @@ import { audioTap, audioState } from './audio.js';
 // codec is one some browsers refuse outright when the stream has audio in it.
 // The bare container ends both lists: it means "you choose", which is the
 // right last resort either way.
+// avc1.640033 is High@5.1 — enough level for 4K60. Named because a bare avc1
+// gets Constrained Baseline out of Chrome: no CABAC, no 8x8 transform, visibly
+// mushier on hard edges at the same bitrate.
 const CONTAINERS = {
   mkv: {
-    sound: ['video/x-matroska;codecs=avc1,opus', 'video/x-matroska;codecs=vp9,opus', 'video/x-matroska'],
-    mute: ['video/x-matroska;codecs=avc1', 'video/x-matroska;codecs=vp9', 'video/x-matroska'],
+    sound: ['video/x-matroska;codecs=avc1.640033,opus', 'video/x-matroska;codecs=avc1,opus', 'video/x-matroska;codecs=vp9,opus', 'video/x-matroska'],
+    mute: ['video/x-matroska;codecs=avc1.640033', 'video/x-matroska;codecs=avc1', 'video/x-matroska;codecs=vp9', 'video/x-matroska'],
   },
   webm: {
     sound: ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'],
     mute: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'],
   },
   mp4: {
-    sound: ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4'],
-    mute: ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'],
+    sound: ['video/mp4;codecs=avc1.640033,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4'],
+    mute: ['video/mp4;codecs=avc1.640033', 'video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'],
   },
 };
 
@@ -365,7 +368,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   let shot = null, shotEl = null, dirty = true, busy = false, noOverlay = false;
   let checked = false;     // this take's first snapshot has been proved clean
   let shotScale = 0;       // frame px per CSS px the snapshot was made at
-  let lastFrame = 0, lastSnap = 0;
+  let lastFrame = 0, lastSnap = 0, due = 0;
   let observer = null, watched = null;
 
   const dot = document.createElement('div');
@@ -565,20 +568,26 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     }
     // Frames the file isn't going to get are frames not worth compositing —
     // the early return is the point of the rate limit, not the requestFrame
-    // below it. A couple of ms of tolerance, or a 60Hz loop aliases to 20.
+    // below it. Hopping in exact intervals, not measuring from the frame that
+    // made it through: a gap test quantizes to the display's ticks, and a
+    // 144Hz screen then aliases 60 down to a flat 48.
     const now = performance.now();
-    if (now - lastFrame < 1000 / MAX_FPS - 2) return;
-    lastFrame = now;
+    if (now < due) return;
+    due = Math.max(due + 1000 / MAX_FPS, now);
     frames++;
 
     const W = out.width, H = out.height;
     // contain-fit: the buffer can change shape mid-take (a resize, a new
-    // resolution(), a quality change) and the file's frame size can't
-    const fit = Math.min(W / canvas.width, H / canvas.height);
+    // resolution(), a quality change) and the file's frame size can't.
+    // Within a couple of pixels it isn't a shape change, it's the even()
+    // trim — draw 1:1 and crop the odd line instead: scaling by 1555/1556
+    // sub-pixel-resamples, and so smears, every pixel of the take.
+    const trim = Math.abs(canvas.width - W) <= 2 && Math.abs(canvas.height - H) <= 2;
+    const fit = trim ? 1 : Math.min(W / canvas.width, H / canvas.height);
     const dw = Math.round(canvas.width * fit), dh = Math.round(canvas.height * fit);
     const dx = Math.round((W - dw) / 2), dy = Math.round((H - dh) / 2);
     // only when there are bars to paint — usually the picture covers the frame
-    if (dw !== W || dh !== H) {
+    if (dw < W || dh < H) {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, W, H);
     }
@@ -680,19 +689,21 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
       return null;
     }
     let [ext, mime] = avail[0];
-    saveName = `fizzle-${slug(getName?.())}-${stamp()}.${ext}`;
+    // extensionless: the dialog appends the offered type's own extension and
+    // owns it from there
+    const bare = `fizzle-${slug(getName?.())}-${stamp()}`;
+    saveName = `${bare}.${ext}`;
     handle = null;
     if (!window.showSaveFilePicker) return [ext, mime];
 
-    // The save dialog has a format menu of its own, so that's where the choice
-    // lives rather than in a second dialog of ours: the setting is what's
-    // selected in it, and picking another one there changes this take only.
-    const types = avail.map(([e]) => ({
-      description: LABEL[e],
-      accept: { [PLAIN[e]]: [`.${e}`] },
-    }));
+    // One type only, the sidebar's setting: a menu of formats here would be
+    // a lie — macOS doesn't rename when another one is picked, and the API
+    // never says which type was chosen, so a take from that menu silently
+    // stays in the suggested container. The readback below still honors
+    // whatever name the dialog hands back.
+    const types = [{ description: LABEL[ext], accept: { [PLAIN[ext]]: [`.${ext}`] } }];
     try {
-      handle = await window.showSaveFilePicker({ suggestedName: saveName, types });
+      handle = await window.showSaveFilePicker({ suggestedName: bare, types });
     } catch (e) {
       if (e?.name === 'AbortError') return null; // changed their mind
       // a browser that won't take that accept map still takes a bare ask
@@ -707,7 +718,8 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     const chosen = /\.([a-z0-9]+)$/i.exec(handle?.name ?? '')?.[1]?.toLowerCase();
     const hit = avail.find(([e]) => e === chosen);
     if (hit) [ext, mime] = hit;
-    if (handle?.name) saveName = handle.name;
+    // a browser that appended nothing still gets a usable filename
+    if (handle?.name) saveName = chosen ? handle.name : `${handle.name}.${ext}`;
     return [ext, mime];
   }
 
@@ -828,7 +840,7 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     }
     if (audioTrack) stream.addTrack(audioTrack);
 
-    lastFrame = lastSnap = 0;
+    lastFrame = lastSnap = due = 0;
     frames = snaps = 0;
     lastHeld = lastHeldAt = framesAtHeld = 0;
     stalled = false;

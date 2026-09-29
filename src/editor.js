@@ -54,8 +54,10 @@ export function fillCall(view, fn, args, suffix = '') {
 //   this window's code · ctrl+p sidebar · ctrl+a audio manager · ctrl+r
 //   restart · ctrl+e record · ctrl+j snippets · ctrl+[ / ctrl+] previous /
 //   next in the playlist · F1 projector window
+// The exception is +/-/0, which take Cmd too, because they're taking those
+// keys *back* from the browser's zoom — see the handler below.
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onChange, onScroll }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onFontSize, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
@@ -142,6 +144,16 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       return onToggleProjector?.();
+    }
+    // Zoom the code, not the page. Browser zoom is the wrong tool here: past
+    // 200% the renderer's pixel-ratio clamp stops compensating and the drawing
+    // buffer — and so every recording made from it — silently shrinks. These
+    // are the only bindings that take cmd as well as ctrl, because cmd+/- is
+    // what the zoom is actually on.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && onFontSize
+        && ['=', '+', '-', '_', '0'].includes(e.key)) {
+      e.preventDefault();
+      return onFontSize(e.key === '0' ? 0 : e.key === '-' || e.key === '_' ? -1 : 1);
     }
     if (!e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }

@@ -467,6 +467,8 @@ initDrop();
     onToggleProjectorCode: toggleProjectorCode,
     onRecord: () => recorder.toggle(),
     onSnippets: () => snippets.toggle(),
+    // step of 0 resets to the default; the sidebar clamps the range
+    onFontSize: (dir) => sidebar.setFontSize(dir === 0 ? 15 : sidebar.settings.fontSize + dir),
     // ctrl+[ / ctrl+]: the next sketch in the playlist, or in the list the
     // sidebar is showing. The sidebar knows which and says what it moved to.
     onStep: async (delta) => {

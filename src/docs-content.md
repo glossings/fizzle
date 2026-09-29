@@ -71,11 +71,9 @@ minute take never sits in the tab. If the tab dies mid-set the take doesn't go
 with it: the next load offers what was written back, behind a ⤴ button in the
 corner.
 
-The sidebar's **recording** setting picks the container, and the save dialog's
-own format menu opens on it — so change it there for one take, or in the
-sidebar for every take after. `.mkv` and `.webm` stay playable even if the
-recording is cut off part way; `.mp4` opens in anything, QuickTime and Premiere
-included.
+The sidebar's **recording** setting picks the container. `.mkv` and `.webm`
+stay playable even if the recording is cut off part way; `.mp4` opens in
+anything, QuickTime and Premiere included.
 
 Where there's no save dialog the take comes out as a download instead. The
 counter in the corner shows how much has been written so far.

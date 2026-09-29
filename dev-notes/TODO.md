@@ -354,6 +354,98 @@ New properties should ride that form.
     long form is expressible today, just not pretty. If it returns, it returns
     as one line over `.at()`, not as its own implementation.
 
+## Browser zoom past 200% quietly shrinks the drawing buffer
+
+`resize()` sets the pixel ratio to `Math.min(devicePixelRatio, 2) * quality`.
+Up to 200% zoom the rising dpr cancels the falling `innerWidth` exactly and the
+buffer never moves — 1558x1164 at 1x, 1.5x and 2x. Past 200% the clamp stops
+compensating and it collapses: 1246x932 at 2.5x, 1038x776 at 3x, 780x582 at 4x.
+Everything made from that buffer shrinks with it, recordings included, with
+nothing on screen saying so. (The `text()` double-image this used to cause is
+fixed — a CanvasTexture needed its storage thrown away on a resize.)
+
+cmd +/-/0 now resize the editor font instead of the page, which keeps the
+common case away from the cliff, but the clamp is still reachable through the
+browser's own zoom menu or a trackpad pinch. Worth either raising it or putting
+the buffer size somewhere visible, so a collapse can't pass unnoticed.
+
+## One-pixel colored detail loses half its saturation to the recorder
+
+Everything the recorder can reach through `MediaRecorder` encodes 4:2:0: one
+color sample per 2×2 pixels. The cost falls entirely on detail about a pixel
+wide, and falls off a cliff above that. Saturation kept, colored strokes
+through a *mathematically lossless* 4:2:0 encode, so this is the chroma
+format alone and nothing to do with bitrate:
+
+    1px  50.3%     2px  99.6%     3px  83.2%     4px+  99.6%
+
+Two pixels is already free; odd widths pay a little for straddling the chroma
+grid. So this is not a general limit on saturation in video — a large colored
+field comes through untouched — it is a limit on hairlines, and the code
+overlay at the default font size is made of them. Measured end to end on a
+frozen frame against the page's own pixels, the syntax highlighting keeps
+67.6% of its stroke saturation at 1× and **97% recorded at 2×**, because the
+overlay rasterizes at `k = dw / clip.w` and a 2× frame draws those strokes two
+pixels wide. Downscaling that 2× file back to 1× in post undoes it (~73%):
+the strokes thin out again, so the size has to be *delivered*, not just
+recorded.
+
+That rule holds for hard-edged bars and **does not carry over to antialiased
+text**, which is worth recording because it looked so convincing. A sidebar
+font sweep at fixed resolution took the share of 1px stems from 55.7% (font
+15) to 4.8% (font 30) to 3.0% (font 48) while saturation moved only 78.6% ->
+79.9% -> 81.3%. Removing nearly every hairline bought under three points, so
+for real glyphs something other than stem width dominates, and enlarging the
+font is not the fix it appears to be.
+
+The prime suspect, untested: a recorded code overlay does not come from the
+same renderer as the screen. `snapshot()` in record.js serializes the editor
+into an SVG foreignObject and rasterizes *that*, while the page draws native
+DOM text — different antialiasing, and possibly different gamma. The test that
+separates it from the encoder is to compare the composited `out` canvas before
+it reaches the encoder against a screenshot of the page.
+
+Two things that look like causes and are not, both measured on the same take:
+lifting the bitrate to 150 Mbps (9× the bits, a 163 MB file for ten seconds)
+moved glyph saturation 90.7% → 92.1%, and making the code panel fully opaque
+instead of `rgba(0,0,0,0.65)` moved it 90.8% → 92.0%. Both are inside
+take-to-take noise. The chroma grid is the whole story for text.
+
+Where that isn't enough (a 1× delivery that has to stay 1×), 4:4:4 is the
+other route, and `MediaRecorder` cannot reach it: h.264 High 4:4:4 errors at
+record time, and the VP9/AV1 profile-1 strings are accepted and then silently
+encode 4:2:0. (`isTypeSupported` and `isConfigSupported` both say yes to
+things the encoder won't do — the only trustworthy check is probing the bytes
+that come out.)
+
+`VideoEncoder` (WebCodecs) does what `MediaRecorder` won't. The full VP9
+string `vp09.01.31.08.03.01.01.01.00` — the short form is rejected; the
+fourth field is the chroma mode — yields real Profile 1 yuv444p, full-range,
+keeps 95.5% of stroke saturation, and software-encodes ~290fps at 1556×1164
+in realtime mode, so the headroom over 60fps is wide. `av01.1.04M.08` gives
+AV1 4:4:4 at 90.9%, similar speed. Full-range also removes the studio-swing
+squeeze every current take gets.
+
+What it takes: the recorder already composites every frame onto one canvas,
+which is exactly a `VideoFrame` per frame into a `VideoEncoder`; the chunks
+then need a WebM/Matroska muxer in JS (there is no `MediaRecorder` to do it),
+either a small dependency or hand-rolled EBML, writing through the same
+streaming file handle takes use now. Sound goes through `AudioEncoder` (Opus)
+into the same muxer. Offered as a fidelity choice next to the current
+containers, not a replacement: VP9 4:4:4 plays in Chrome, VLC, mpv and
+ffmpeg-based tools, but not QuickTime, and upload platforms re-encode to
+4:2:0 anyway — its value is local playback, projection and as a master for
+transcodes. It is the smaller half of this entry now that the stroke-width
+rule is known: recording bigger fixes the same problem in a file that plays
+everywhere.
+
+Two related numbers from the same session, for whoever tunes the defaults:
+the per-pixel micro-contrast of dither/feedback content keeps 88.8% of its
+luma stddev at the current 0.15 bits/px/frame and ~95% with the cap lifted
+(~125 Mbps actual, 4–8× the file size), so the bitrate knob trades exactly
+file size against shimmer, and unlike the chroma loss above it is a real
+knob: micro-contrast is the one thing bits buy back.
+
 ## `.edge()` `spread > 1` is a comb under iteration
 
 The balanced kernel fixed the axis lock, but `spread` still moves the taps to

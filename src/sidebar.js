@@ -269,10 +269,10 @@ export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
   const dim = (n, fallback) => Math.min(7680, Math.max(1, Math.round(Number(n) || fallback)));
 
   // Only what this browser can actually record — offering mp4 where the
-  // recorder can't write one is a setting that silently does nothing. On a
-  // desktop this is the *default* the save dialog opens on, since the dialog
-  // has a format menu of its own; where there's no dialog it's the whole
-  // answer. The note is why you'd pick the other one.
+  // recorder can't write one is a setting that silently does nothing. This
+  // is the whole answer: the save dialog offers just this type, since its
+  // own menu can't report a different pick back (see openFile in record.js).
+  // The note is why you'd pick the other one.
   const REC_NOTE = { mkv: 'survives a crash', webm: 'survives a crash', mp4: 'opens anywhere' };
   const formats = recordable();
   // there's no way to start a recording on a touch screen, so there's nothing
@@ -795,5 +795,5 @@ export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
   render();
 
   // sketchName: what's loaded, which is what a recording names its file after
-  return { initialCode, toggle, settings, step, audioModal, sketchName: () => current.name };
+  return { initialCode, toggle, settings, step, audioModal, setFontSize, sketchName: () => current.name };
 }

@@ -3765,6 +3765,13 @@ export class TextureOp {
           this._ctex.premultiplyAlpha = true;
         }
         const c = this._canvas;
+        // A CanvasTexture whose canvas changed size needs its GPU storage
+        // thrown away: the update path re-uploads into the storage it already
+        // has, so a smaller canvas lands in one corner of the old one and the
+        // previous frame stays around it — two copies of the text, the live
+        // one shrunk into a corner. Reachable from browser zoom past 200%,
+        // where the renderer's pixel-ratio clamp starts shrinking the buffer.
+        if (c.width !== ctx.w || c.height !== ctx.h) this._ctex.dispose();
         c.width = ctx.w;
         c.height = ctx.h;
         const g = c.getContext('2d');
