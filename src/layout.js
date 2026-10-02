@@ -273,6 +273,11 @@ class Layout {
     }
   }
 
+  // How many copies .instance() has to draw to show this. The same as .count
+  // here, since a structure is built once and keeps every copy it placed —
+  // it's a tracker, whose blobs come and go, that needs the two to differ.
+  get slots() { return this.count; }
+
   // a view's i, as an index into the arrays the root owns
   _srcIndex(i) { return this._idx ? this._idx[i] : i; }
 

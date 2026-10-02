@@ -4,6 +4,7 @@ import { setColor as writeColor, cssColor } from './color.js';
 import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
 import { Layout } from './layout.js';
+import { Blobs, MAX_SLOTS } from './blobs.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
 import { sig } from './audio.js';
 import { site, begin, end, PASS_3D } from './profile.js';
@@ -330,6 +331,45 @@ const SPECS = {
       u.uThick.value = resolve(par(p.thickness, -1), t);
       setColor4(u.uColA.value, orDflt(p.color, '#ffffff'), t);
       setColor4(u.uColB.value, orDflt(p.bg, '#000000'), t);
+    },
+  },
+
+  // Every box of a tracker in one picture: each pixel's luma is how many boxes
+  // cover it. The count is written raw into the half-float target — past 1.0
+  // where boxes pile up — so .threshold(0.5) is the union, .threshold(1.5) the
+  // overlaps, and the number itself can drive any per-pixel knob. One pass
+  // whatever the tracker's max; boxes are packed into a uniform array by
+  // update() each frame, straight off the slots.
+  blobBoxes: {
+    extras: { uBoxes: new Float32Array(MAX_SLOTS * 4), uN: 0 },
+    pre: `uniform vec4 uBoxes[${MAX_SLOTS}];`,
+    frag: `
+      void main() {
+        float n = 0.0;
+        for (int i = 0; i < ${MAX_SLOTS}; i++) {
+          if (float(i) >= uN) break;
+          vec4 b = uBoxes[i];
+          vec2 d = abs(vUv - b.xy);
+          if (d.x <= b.z && d.y <= b.w) n += 1.0;
+        }
+        gl_FragColor = vec4(vec3(n), 1.0);
+      }`,
+    update(u, p, t) {
+      const b = p.blobs;
+      const arr = u.uBoxes.value;
+      const a = b._aspect;
+      const pad = Math.max(0, Number(resolve(p.pad, 0)) || 0);
+      let k = 0;
+      for (let i = 0; i < b.max; i++) {
+        const s = b._at(i);
+        if (!s) continue;
+        arr[k * 4] = s.x / a + 0.5;
+        arr[k * 4 + 1] = s.y + 0.5;
+        arr[k * 4 + 2] = (s.w / 2 + pad) / a;
+        arr[k * 4 + 3] = s.h / 2 + pad;
+        k++;
+      }
+      u.uN.value = k;
     },
   },
 
@@ -1295,7 +1335,8 @@ const SPECS = {
         else if (m < 13.5) r = 1.0 - min(vec3(1.0), (1.0 - B) / max(L, vec3(0.001)));
         else if (m < 14.5) r = B / max(L, vec3(0.001));
         else if (m < 15.5) r = setLum(B, dot(L, LUMA));   // luminosity: base's color, layer's brightness
-        else               r = setLum(L, dot(B, LUMA));   // color: layer's color, base's brightness
+        else if (m < 16.5) r = setLum(L, dot(B, LUMA));   // color: layer's color, base's brightness
+        else               r = B + L;                     // sum: add, unclamped below
         // The layer's alpha gates the blend per pixel; on opaque inputs la is
         // uOpacity and everything below collapses to the pre-alpha behavior.
         // 'over' is the true premultiplied source-over, so it takes the layer
@@ -1308,7 +1349,9 @@ const SPECS = {
         // in the display stack the base can be empty (nothing drawn there yet):
         // the layer has nothing to blend with and shows as itself
         r = mix(r, mix(Ls, r, clamp(Bt.a, 0.0, 1.0)), uStack);
-        vec3 rgb = m < 0.5 ? over : mix(Bt.rgb, clamp(r, 0.0, 1.0), la);
+        // every blend clamps like an image blend, except sum, whose whole
+        // point is the values past 1.0
+        vec3 rgb = m < 0.5 ? over : mix(Bt.rgb, m > 16.5 ? r : clamp(r, 0.0, 1.0), la);
         gl_FragColor = vec4(rgb, Bt.a + la - Bt.a * la);
       }`,
     update(u, p, t) {
@@ -1350,6 +1393,11 @@ const BLEND_MODES = {
   divide: 14, div: 14,
   luminosity: 15, lum: 15,
   color: 16,
+  // add without the clamp: counts survive past 1.0 in the float target, which
+  // is what mask arithmetic wants — comping white masks with 'sum' makes each
+  // pixel's luma how many masks cover it ('lighten' is their union, 'mult'
+  // their intersection, and this is the count)
+  sum: 17,
 };
 
 // Mode names that are another mode with `swap` already on. 'under' is the one
@@ -1433,7 +1481,13 @@ class CopyHandle {
     this.sx = this.sy = 1;
     this.col = null;
     this.a = 1;
+    this.hidden = false;
   }
+
+  // Drop this copy, like the geometry handle's — checked after the fn has run,
+  // so nothing later in the chain can bring it back. Both the alpha and the
+  // scale go, so it costs no blending either.
+  hide(v = true) { this.hidden = v !== false; return this; }
 
   // a third number is a layout placing in 3D; this is the flat view of it, so
   // depth is dropped rather than refused
@@ -1489,6 +1543,15 @@ class CopyHandle {
   }
 }
 
+// The texture side of a tracker, defined here where TextureOp lives: every box
+// in one picture, each pixel's luma the number of boxes covering it (see the
+// blobBoxes spec). mask(blobs.boxes(), fn) treats inside every box at once —
+// and once, where boxes overlap; .threshold(1.5) keeps only the overlaps.
+Blobs.prototype.boxes = function (o = {}) {
+  return new TextureOp(this.engine, 'blobBoxes', { blobs: this, pad: o.pad ?? 0 });
+};
+
+
 // ---------------------------------------------------------------------------
 // pass plumbing
 
@@ -1511,6 +1574,10 @@ export class Quad {
 
 function inferUniform(v) {
   if (typeof v === 'number') return { value: v };
+  // a uniform array (vec4 uName[n] in the shader), copied so two nodes of the
+  // kind never share one buffer; declared in the spec's `pre`, where its
+  // length lives, rather than inferred here
+  if (v instanceof Float32Array) return { value: new Float32Array(v) };
   if (Array.isArray(v)) {
     return {
       value: v.length === 4 ? new THREE.Vector4(...v)
@@ -1522,6 +1589,7 @@ function inferUniform(v) {
 }
 
 function uniformType(init) {
+  if (init instanceof Float32Array) return null; // declared by hand in `pre`
   return typeof init === 'number' ? 'float'
     : Array.isArray(init) && init.length === 2 ? 'vec2'
     : Array.isArray(init) && init.length === 4 ? 'vec4'
@@ -1597,7 +1665,8 @@ export function makeMaterial(spec, binds = []) {
     // still declared as a uniform in JS (update() writes it either way, three
     // skips what the program doesn't use), but in GLSL the #define stands in
     if (bound.has(name)) continue;
-    decls.push(`uniform ${uniformType(init)} ${name};`);
+    const type = uniformType(init);
+    if (type) decls.push(`uniform ${type} ${name};`);
   }
   for (const b of binds) {
     uniforms[b.tex] = { value: null };
@@ -3196,10 +3265,10 @@ export class TextureOp {
   instance(count, fn, o = {}) {
     if (typeof fn === 'object' && fn !== null) { o = fn; fn = undefined; }
     let n = count;
-    if (count instanceof Layout) {
+    if (count instanceof Layout || count instanceof Blobs) {
       const l = count;
-      if (!l.count) warn('instance: the layout placed no copies — a rule builds them with e.place()');
-      n = l.count;
+      if (!l.slots) warn('instance: the layout placed no copies — a rule builds them with e.place()');
+      n = l.slots;
       // the user's fn is captured before fn is reassigned, or the wrapper
       // closes over itself
       const after = fn;
@@ -3218,6 +3287,33 @@ export class TextureOp {
     node._inst = { count: Math.max(0, Math.floor(Number(n) || 0)), fn };
     return node;
   }
+  // .each(set, fn, { mode }) — a mark per record, comped on in slot order: fn is
+  // handed the record (set.at(i), live getters) and answers a chain, or nothing
+  // to skip the slot. The fn runs once per slot at build, like .instance()'s —
+  // what moves per frame is the fns it baked into its chain's params:
+  //
+  //   feed.each(blobs, (b) => rect({ ...b.box({ pad: 0.02 }), thickness: 0.004,
+  //     bg: null, color: hsl(() => b.id * 0.618, 0.8, 0.6) }))
+  //
+  // Each distinct mark is a layer with a pass of its own, so this costs what the
+  // same comps written out one per slot would — it only owns the loop.
+  each(set, fn, o = {}) {
+    if (!set || typeof set.at !== 'function' || typeof fn !== 'function') {
+      warn('each: takes a set and a mark — pic.each(track(…), (b) => rect({ ...b.box(), thickness: 0.004, bg: null }))');
+      return this;
+    }
+    let node = this;
+    const n = set.slots ?? set.count ?? 0;
+    for (let i = 0; i < n; i++) {
+      const rec = set.at(i);
+      if (!rec) continue;
+      const made = fn(rec, i, n);
+      if (made instanceof TextureOp) node = node.comp(made, { mode: o.mode ?? 'over', opacity: o.opacity });
+      else if (made != null) warn('each: the mark fn answers a texture chain (or nothing, to skip the slot) — it was handed back something else');
+    }
+    return node;
+  }
+
   // .mask(m) — multiply by the mask's luma (cutout). .mask(m, s => ...) —
   // apply fn only where the mask is bright: dry→wet blend by mask luma.
   // Both the mask and the fn's return may be fns of the chain so far.
@@ -3543,12 +3639,12 @@ export class TextureOp {
   // .field({ res }) — end the chain with a sampler instead of a picture: a
   // plain function (u, v) => 0..1, the chain's luma at that point, v = 0 at
   // the bottom like a geometry uv. The chain lands in a small target once a
-  // frame and is read back (see renderTextures), so the value is one frame
-  // behind — and 0 until the first frame arrives, so a layout fn reading it
+  // frame and is read back (see renderTextures), so the value is a frame or
+  // so behind — and 0 until the first frame arrives, so a layout fn reading it
   // on the settle after a re-run gets a number, not a crash.
   field(o = {}) {
     const res = Math.min(256, Math.max(2, Math.round(o.res ?? 64) || 64));
-    const rec = { node: this, res, rt: null, data: null };
+    const rec = { node: this, res, rt: null, data: null, site: site('field') };
     this.engine.textureFields.push(rec);
     return (u, v) => {
       const d = rec.data;
@@ -3970,7 +4066,8 @@ export class TextureOp {
         // x carries the frame's aspect, so a copy keeps the picture's own shape
         // and a copy at scale 1 covers the frame exactly. T·R·S in that order,
         // so the wider-than-tall copy turns rigidly rather than shearing.
-        c.dummy.scale.set(resolve(h.sx, t) * ctx.aspect, resolve(h.sy, t), 1);
+        if (h.hidden) c.dummy.scale.set(0, 0, 1);
+        else c.dummy.scale.set(resolve(h.sx, t) * ctx.aspect, resolve(h.sy, t), 1);
         c.dummy.updateMatrix();
         c.mesh.setMatrixAt(i, c.dummy.matrix);
         if (h.col !== null) setColor(c.col, h.col, t);
@@ -3978,7 +4075,7 @@ export class TextureOp {
         c.colors.array[i * 3] = c.col.r;
         c.colors.array[i * 3 + 1] = c.col.g;
         c.colors.array[i * 3 + 2] = c.col.b;
-        const a = Number(resolve(h.a, t));
+        const a = h.hidden ? 0 : Number(resolve(h.a, t));
         c.alphas.array[i] = Number.isFinite(a) ? Math.min(1, Math.max(0, a)) : 1;
       }
       c.mesh.instanceMatrix.needsUpdate = true;
@@ -4998,12 +5095,45 @@ export function renderTextures(engine) {
     for (const f of engine.textureFields) {
       if (f.rt && !engine.scopeLive(f.node.scope)) continue;
       const tex = f.node.renderNode(ctx);
+      begin(f.site);
       if (!f.rt) {
         f.rt = new THREE.WebGLRenderTarget(f.res, f.res, { depthBuffer: false });
         f.data = new Uint8Array(f.res * f.res * 4);
       }
       runPass(ctx, MAT_COPY, tex, null, f.rt);
-      renderer.readRenderTargetPixels(f.rt, 0, 0, f.res, f.res, f.data);
+      // Read back without draining the pipeline: a synchronous read forces the
+      // GPU to finish everything queued — a stall paid once per field per
+      // frame, which is most of what track() used to cost and what a laptop
+      // pays in fan noise. The async read lands a frame or so later, within
+      // the latency .field() already promises. One read in flight per field,
+      // so a slow GPU thins the readback rate instead of queueing behind it.
+      //
+      // When the pixels arrive, whoever asked gets to read them before the
+      // sketch does: track() finds its blobs there (see blobs.js), which is
+      // why tracking costs the same single readback a .field() does.
+      if (renderer.readRenderTargetPixelsAsync) {
+        if (!f.flight) {
+          f.flight = true;
+          const at = { t: ctx.t, aspect: ctx.aspect };
+          renderer.readRenderTargetPixelsAsync(f.rt, 0, 0, f.res, f.res, f.data).then(
+            () => {
+              f.flight = false;
+              if (f.after) {
+                const t0 = performance.now();
+                f.after(f.data, f.res, at);
+                // charged by hand: this runs between frames, where begin/end
+                // and their GPU timer queries have no frame to nest in
+                f.site.cpu += performance.now() - t0;
+              }
+            },
+            () => { f.flight = false; },
+          );
+        }
+      } else {
+        renderer.readRenderTargetPixels(f.rt, 0, 0, f.res, f.res, f.data);
+        f.after?.(f.data, f.res, ctx);
+      }
+      end();
     }
   }
   renderer.setRenderTarget(null);

@@ -7,8 +7,8 @@ comes up.
 ## The constraint
 
 A browser cannot receive UDP. There is no API for it and there is not going to
-be one. OSC in practice is UDP: Max, SuperCollider, Ableton via
-Max for Live, TouchOSC and Lemur all send it that way.
+be one. OSC in practice is UDP: Max, SuperCollider, Ableton via Max for Live,
+TouchOSC and Lemur all send it that way.
 
 So OSC needs a process outside the browser relaying UDP to something a page
 can hold open, which in practice means a WebSocket. That is the whole of the

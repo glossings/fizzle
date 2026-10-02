@@ -57,5 +57,4 @@ The particle half splits by blend mode: `.blend('solid')` dots already write
 scene depth, so they'd fall out of a depth-only AO for free. Wisp blends
 (`'over'`/`'add'`) would need a separate half-res density render treated as
 soft depth. Until something demands it, the shadow-map route is the answer to
-"creases on particles" — it's also what is happening in the
-reference looks.
+"creases on particles".

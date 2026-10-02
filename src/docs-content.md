@@ -229,6 +229,24 @@ The four waveshapes take a rate, so `T.sin(0.16)` is the same thing as
 
 See **random & custom signals** for the rest of what `T` can do.
 
+### a bundle of parameters
+
+A config object is a plain object, so several ops can share one with a spread —
+and since its values can be fns of t, the shared bundle is live. Every op that
+spread it reads the same moving numbers, not a copy of a moment:
+
+```js
+const spot = { center: [T.sin(0.16).range(0.3, 0.7), T.cos(0.11).range(0.3, 0.7)] }
+
+circle({ radius: 0.07, ...spot, color: '#7ee787' })
+  .comp(ring({ ...spot, inner: 0.11, outer: 0.13, color: '#7ee787', bg: null }), 'over')
+  .out()
+```
+
+A function returning one of these is a reusable rig — and some calls hand one
+out ready-made: a tracker's `blobs.box(i)` is the blob's own box, center and
+size read live, spread into a mask and an outline alike (see **tracking**).
+
 ### speed
 
 `speed(rate)` runs the sketch's clock faster or slower, 1 being real time.
@@ -2523,8 +2541,8 @@ glass at the center melting to wax at the rim.
 `.field()` ends a chain with a sampler instead of a picture: a plain function
 `(u, v) => 0..1` reading the chain's luma at that point (`v = 0` at the
 bottom, like a geometry uv). The chain renders to a small buffer once a frame
-and is read back on the CPU, one frame behind, so any texture can drive plain
-sketch code. `.instance()` layouts are the natural customer. Here a wave rolls
+and is read back on the CPU, a frame or so behind, so any texture can drive
+plain sketch code. `.instance()` layouts are the natural customer. Here a wave rolls
 out from the center and every tile it crosses turns over to its blank back,
 timetable style. Two grids share each cell, one facing away, so a half turn
 swaps which face shows. Spelling is a lookup: the set of cards is a string, so
@@ -2575,6 +2593,207 @@ The sampler is just a function, so it drops into a `.position()`, an
 `onFrame`, anywhere sketch code runs. Any source feeds it: noise, `video()`,
 an audio-reactive chain, a feedback bus. `.field({ res: 128 })` reads finer
 than the default 64 when a grid is dense enough to need it.
+
+## tracking
+
+`track(chain)` follows the bright regions of a chain and keeps track of which
+is which from one frame to the next. It draws nothing — it produces numbers,
+and `.instance(blobs, fn)` is the consumer that puts a shape on each one.
+
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.5 }).position(3, 5, 6).out()
+
+// dark: the features of a face are dark on bright, and tracking reads bright;
+// the size band keeps it off the room and on the features
+const blobs = track(video(), { dark: true, max: 8, size: [0.03, 0.35], scale: 6 })
+
+sphere({ radius: 0.5, res: 24 })
+  .instance(blobs, (x, i) => x.color(hsl(blobs.id(i) * 0.618, 0.65, 0.55)))
+  .material({ roughness: 0.35 })
+  .out()
+```
+
+Point it at yourself and spheres land on your eyes, your brows, the shadows of
+the picture — each keeping its own color as it moves. Nothing was tuned to the
+room: detection sweeps the whole brightness range and keeps whatever shows up
+at more than one cut, so a dim feature and a dark one are found by the same
+call. Passing `threshold` turns the sweep into one exact cut instead, which is
+what a mask that is already black-and-white wants.
+
+What counts as a blob is the chain's business, not tracking's: tracking only
+ever asks which parts are bright. A `person()` mask makes the figure the blob,
+`person({ part: 'skin' })` the face and hands, `.threshold(0.6)` on `video()` a
+bright hand in a dark room, a `.flow()` whatever moves.
+
+### slots and ids
+
+An instance count is fixed up front, so tracking hands out a fixed number of
+**slots** — `{ max: 6 }` above is six, and the ones with no blob in them are
+hidden. A blob holds its slot for as long as it lives, which is what makes `i`
+safe to key per-copy state off: a seeded `.noise()`, a smoothed value, anything
+that would glitch if a blob hopped copies mid-movement.
+
+A slot outlives its occupant, though. When a blob leaves and another arrives
+later, the newcomer takes the free slot — so a color keyed off `i` would be
+inherited, and the new blob would wear the dead one's look. `.id(i)` is the
+number that is never handed out twice: 0 for the first blob tracked, 1 for the
+next, counting on forever. Key anything that mustn't outlive its blob off that.
+
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.4 }).position(2, 5, 4).out()
+
+// a noise field thresholded into drifting islands: no camera, same idea
+const islands = noise({ freq: 2.2, octaves: 2, speed: 0.25 }).threshold(0.6)
+const blobs = track(islands, { max: 12, scale: 6 })
+
+// multiplying the id by the golden ratio spreads successive hues as far apart
+// as they go, and each blob keeps its hue for life
+capsule({ radius: 0.25, height: 0.5 })
+  .instance(blobs, (x, i) => x
+    .rotation(0, 0, blobs.angle(i))
+    .color(hsl(blobs.id(i) * 0.618, 0.6, 0.55))
+    // its first third of a second: a blob arrives rather than pops
+    .scale(blobs.size(i) * Math.min(1, blobs.age(i) * 3)))
+  .material({ roughness: 0.4 })
+  .out()
+
+scene().comp(islands.mul(0.12), 'add').out()
+```
+
+### the readings
+
+Every one takes a slot and answers a resting value for an empty one, so
+arithmetic on a blob that just left gets a number rather than a crash.
+
+- `.pos(i)` — where it is, `[x, y, 0]`. In frame units: `y` runs -0.5..0.5 and
+  `x` carries the aspect, which is the space a texture copy is drawn in.
+  `{ scale: 6 }` on the call sizes that up for a 3D scene.
+- `.size(i)` — how big, as the side of a square of the same area. The scale
+  `.instance()` places the copy at, so a shape one unit across covers the blob:
+  `sphere({ radius: 0.5 })`, `plane({ width: 1, height: 1 })`.
+- `.area(i)` — the fraction of the frame it covers, 0..1, whatever the frame's
+  shape. How close someone is standing, or a gate on a gesture.
+- `.id(i)` — which blob, ever. `-1` for an empty slot.
+- `.has(i)` — whether there is a blob in the slot at all.
+- `.count` · `.max` — how many blobs right now, and how many slots there are.
+  Not the same number.
+- `.vel(i)` — how fast it's moving, in `.pos()` units a second. Measured off
+  the smoothed track, so it answers which way a hand is going rather than how
+  noisy its edge is.
+- `.angle(i)` — the axis it lies along, radians, 0 across the frame. Worth
+  leaning on for an arm or a stick; a round blob's angle is whatever noise it
+  had.
+- `.age(i)` — how long it has been tracked, in seconds.
+- `.width(i)` · `.height(i)` — its bounding box. `.size(i)` is the steadier
+  reading; a box is only as tight as its furthest stray pixel.
+- `.at(i)` — everything about slot i as one object, index first then key:
+  `b.pos`, `b.size`, `b.id`, `b.age`, `b.has`, `b.box()`. Live getters, one
+  reused object per slot. What `.each()` hands its fn.
+- `.box(i, { pad })` — the blob's box, as the bundle `rect()` takes: center in
+  UV, w/h as frame fractions, live fns throughout, collapsed to nothing while
+  the slot is empty. `rect(blobs.box(i))` draws it; spread it for the outline.
+- `.boxes({ pad })` — every box in one picture, each pixel's luma the number of
+  boxes covering it. `.threshold(0.5)` is the union — mask through it to treat
+  inside all boxes at once, and once where they overlap — `.threshold(1.5)`
+  keeps only the overlaps, and the raw count can drive any per-pixel knob.
+- `.largest()` — the slot holding the biggest blob, for when the sketch only
+  wants the subject. `-1` when nothing is being tracked, and every read off
+  `-1` comes back resting, so the arithmetic still works on an empty frame.
+- `.link()` · `.pairs()` — the blobs as points, so a plexus runs between them
+  (see **linking points**). Empty slots are left out.
+
+`.instance()` is not the only consumer. The readings are plain numbers, so they
+drop into a `.position()`, an `.attract()`, a texture parameter, anywhere:
+
+```js
+// person() makes the figure the one blob, so .largest() is you
+const blobs = track(person(), { max: 2, scale: 4 })
+const big = () => blobs.largest()
+
+circle({ radius: 0.12, soft: 0.1, color: '#7ee787' })
+  .translate(() => blobs.pos(big())[0] * 0.25, () => blobs.pos(big())[1] * 0.25)
+  .bloom({ threshold: 0.4 })
+  .out()
+```
+
+### a mark per blob
+
+`.each(blobs, fn)` comps one mark per slot: the fn is handed the record —
+`.at(i)`'s live object — and answers any chain, or nothing to skip. The whole
+classical tracker overlay is four lines:
+
+```js
+const feed = video()
+const blobs = track(feed, { dark: true, max: 6, size: [0.03, 0.35] })
+
+feed
+  .each(blobs, (b) => rect({ ...b.box({ pad: 0.01 }), thickness: 0.004, bg: null, color: hsl(() => b.id * 0.618, 0.7, 0.65) }))
+  .out()
+```
+
+The fn runs once per slot when the sketch runs, like `.instance()`'s — what
+moves per frame is the fns it bakes into the mark, so read `b` inside them
+(`color: hsl(() => b.id * 0.618, …)`) rather than destructuring it outside.
+
+### a background to subtract
+
+The classical way to track people in a room: hold a still of the scene, and
+everything that has changed since is a blob. The still here is the frame at the
+moment the sketch last ran, because `reset: true` blanks the loop once per run
+and a blanked loop captures what arrives next — so the gesture is: step out of
+the shot, hit ctrl+enter, step back in.
+
+```js
+ambient({ intensity: 0.4 })
+directional({ intensity: 1.5 }).position(3, 5, 6).out()
+
+const feed = video()
+const still = feed.feedback(1, { mode: 'over', reset: true })
+const blobs = track(feed.comp(still, 'difference'), { max: 6, threshold: 0.25, scale: 6 })
+
+sphere({ radius: 0.5, res: 24 })
+  .instance(blobs, (x, i) => x.color(hsl(blobs.id(i) * 0.618, 0.65, 0.55)))
+  .material({ roughness: 0.35 })
+  .out()
+
+scene({ bg: feed }).out()
+```
+
+The difference is already nearly binary, so one exact `threshold` beats the
+sweep here. A still goes stale when the light drifts; `feed.feedback(0.995,
+'over')` in its place is a running average that follows the drift, at the cost
+of slowly absorbing whoever holds still.
+
+### steadying it
+
+Measurement at this resolution is noisy, and the defaults smooth it. The knobs
+that matter when they don't:
+
+- `size` — how small and how big a blob may be and still count,
+  `[smallest, biggest]` in the units `.size(i)` answers. The floor is the
+  speckle filter; the ceiling is what keeps a bright wall from taking the slots
+  when the subject is its features.
+- `levels` — how many cuts the sweep makes across its range. More finds
+  features whose brightness sits between cuts, at CPU cost per frame.
+- `smooth` — the lag on position, size and axis, in seconds, like `.smooth()`
+  on a signal. Raise it for a steadier read that trails the movement; `0` is
+  the raw measurement, which visibly jitters.
+- `hold` — how long a slot coasts on its last known pose after its blob stops
+  being detected. A dropout for a frame or two is usually the threshold
+  flickering on an edge, and this is what keeps the copy from blinking out and
+  back.
+- `gate` — how far a blob may move between frames and still be recognized as
+  the same one. Measured from where it was heading rather than where it was, so
+  a fast hand doesn't need a wide gate; too wide and two blobs passing each
+  other swap.
+- `res` — the readback size. Finer finds smaller blobs and costs a bigger read
+  every frame.
+
+Tracking rides the same readback `.field()` does, so it is one small buffer a
+frame read on the CPU, a frame or so behind the picture — read without
+stalling the GPU, so it costs what the buffer costs.
 
 ## buses, layers & feedback
 

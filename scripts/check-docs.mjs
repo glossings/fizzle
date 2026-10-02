@@ -10,7 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { root, MESH, UNLIT, LIGHT, TEXTURE, calls, freeNames } from './lint-lib.mjs';
+import { root, MESH, UNLIT, LIGHT, TEXTURE, calls, methodCalls, freeNames } from './lint-lib.mjs';
 
 const file = process.argv[2] ?? path.join(root, 'src/docs-content.md');
 const src = fs.readFileSync(file, 'utf8');
@@ -43,7 +43,11 @@ const live = all.filter((b) => b.lang === 'js' && !b.flags.includes('static'));
 for (const b of live) {
   const at = (level, why) => findings.push({ level, line: b.fence, why, code: b.code });
   const c = calls(b.code);
+  const mc = methodCalls(b.code);
   const has = (names) => names.some((n) => c.has(n));
+  // a source can be spelled as a method — .particles(), person().lines() — but
+  // geometry can't: box() the shape and b.box() a tracker's box are different
+  const hasM = (names) => names.some((n) => c.has(n) || mc.has(n));
 
   try {
     new Function(b.code);
@@ -54,12 +58,12 @@ for (const b of live) {
   const free = freeNames(b.code);
   if (free.length) at('ERROR', `uses ${free.join(', ')}, defined in some other block`);
 
-  const source = has(MESH) || has(TEXTURE) || has(UNLIT);
+  const source = has(MESH) || hasM(TEXTURE) || hasM(UNLIT);
   if (!source) at('ERROR', 'no geometry and no texture source — nothing to show');
   else if (!/\.out\s*\(/.test(b.code)) at('ERROR', 'nothing is sent to .out()');
-  else if (c.has('scene') && !has(MESH) && !has(UNLIT)) {
+  else if (c.has('scene') && !has(MESH) && !hasM(UNLIT)) {
     at('ERROR', 'scene() post-processes a 3D scene this block never puts anything in');
-  } else if (has(MESH) && !has(UNLIT) && !has(LIGHT)) {
+  } else if (has(MESH) && !hasM(UNLIT) && !has(LIGHT)) {
     at('ERROR', 'lit geometry with no light — renders black');
   }
 

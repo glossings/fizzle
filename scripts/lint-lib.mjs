@@ -33,7 +33,10 @@ export const JS_GLOBALS = `Math JSON Date Array Object String Number Boolean con
 export const bare = (code) =>
   code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '').replace(/'[^']*'|"[^"]*"|`[^`]*`/g, "''");
 
-export const calls = (code) => new Set([...bare(code).matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
+// a method call is not a global: b.box() builds no geometry, curve.circle()
+// is a curve's own verb — only free-standing names count
+export const calls = (code) => new Set([...bare(code).matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
+export const methodCalls = (code) => new Set([...bare(code).matchAll(/\.\s*([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
 
 // identifiers the code reads but never defines — free-standing, so they had
 // better be API or JS globals

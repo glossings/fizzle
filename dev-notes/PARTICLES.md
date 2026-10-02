@@ -166,7 +166,7 @@ three's own chunks (`lights_pars_begin`, `shadowmap_pars_vertex/fragment`):
 per-fragment accumulation of ambient + hemi (sky/ground averaged) +
 directional/point/spot with falloff, cone and shadow-map taps — but **no N·L
 anywhere**, because a dot has no facing; what shows is each light's color,
-distance and shadow, which is the usual read of lit particles.
+distance and shadow.
 `RECIPROCAL_PI` scales the irradiance the way a mesh's lambert term would, so
 a lit swarm sits tonally with lit geometry under the same rig. The light loops
 are copied from `lights_fragment_begin` (same structs, same unroll pragmas,
@@ -218,16 +218,14 @@ because a sparse demo fooled us once into "shadows don't work":
   of the dots, and it gets painted over. No amount of light fixes a display
   problem: `'solid'` writes depth so the z-buffer picks the visible skin, and
   standing at the light, visibility and illumination then select the *same*
-  dots. This is also what the standard dense-sprite looks do (opaque
-  depth-tested sprites). Side effects, both wanted: solid dots occlude
+  dots. Side effects, both wanted: solid dots occlude
   wisp-blend swarms and appear in `depth()`. Cost: they pop at the discard
   threshold instead of fading.
 
 ## Stage 2 — the video coupling (the differentiator)
 
-This is the differentiator:
-every texture the engine already has can drive the sim, because the update
-pass can sample anything.
+Every texture the engine already has can drive
+the sim, because the update pass can sample anything.
 
 **Shipped: `Texture.prototype.particles`** — the geometry verb on an image:
 `person().particles({...})`, births on the texture's bright pixels. How it

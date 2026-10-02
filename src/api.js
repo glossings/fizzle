@@ -12,6 +12,7 @@ import { ParticleOp } from './particles.js';
 import { lineGeometry } from './lines.js';
 import { makePointSet } from './sample.js';
 import { makeLayout, Layout } from './layout.js';
+import { makeBlobs, Blobs } from './blobs.js';
 import { Data, ChannelData, ScatterData, SegmentsOp, asData } from './link.js';
 import { Curve, makeCurve, curveCircle, curveLine, curveHelix, spread } from './curve.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
@@ -384,7 +385,15 @@ class InstanceHandle {
     this.col = null;
     this.dir = null;
     this.tileIdx = null;
+    this.hidden = false;
   }
+
+  // Drop this copy from the frame. Scaled to nothing rather than skipped, since
+  // the batch is one draw of a fixed count — and checked after the fn has run,
+  // so a .scale() later in the chain can't bring back a copy that asked to go.
+  // What a count sized for the most copies the sketch might need does with the
+  // ones it isn't using: .instance(blobs) hides the slots with no blob in them.
+  hide(v = true) { this.hidden = v !== false; return this; }
 
   position(x = 0, y = 0, z = 0) {
     const v = asVec(x);
@@ -758,12 +767,14 @@ class GeoOp {
   // instance(layout) instead takes the copies from a layout() (or one of its
   // .filter() views), which brings its own count; a fn alongside it runs after the
   // structure has placed the copy, for the tint or wobble on top of it.
+  // instance(track(…)) is the same deal for tracked blobs: a copy per slot,
+  // placed on the blob holding it, and hidden where no blob does.
   instance(count, fn) {
-    if (count instanceof Layout) {
+    if (count instanceof Layout || count instanceof Blobs) {
       const l = count;
-      if (!l.count) warn('instance: the layout placed no copies — a rule builds them with e.place()');
+      if (!l.slots) warn('instance: the layout placed no copies — a rule builds them with e.place()');
       this._instance = {
-        count: l.count,
+        count: l.slots,
         fn: fn
           ? (x, i, n, t) => fn(l.apply(x, i, t), i, n, t)
           : (x, i, n, t) => l.apply(x, i, t),
@@ -1094,7 +1105,8 @@ class GeoOp {
           dummy.position.set(resolve(handle.px, t), resolve(handle.py, t), resolve(handle.pz, t));
           dummy.rotation.set(resolve(handle.rx, t), resolve(handle.ry, t), resolve(handle.rz, t));
           if (handle.dir) aim(dummy, handle.dir, t);
-          dummy.scale.set(resolve(handle.sx, t), resolve(handle.sy, t), resolve(handle.sz, t));
+          if (handle.hidden) dummy.scale.set(0, 0, 0);
+          else dummy.scale.set(resolve(handle.sx, t), resolve(handle.sy, t), resolve(handle.sz, t));
           dummy.updateMatrix();
           mesh.setMatrixAt(i, dummy.matrix);
           // setColorAt allocates instanceColor (all white) on first use, so
@@ -1384,6 +1396,13 @@ export function makeApi(engine) {
     // few lines make a tree; loops in the rule make spirals and scatters.
     // .instance() draws the result: box().instance(l).out().
     layout: (depth, rule) => makeLayout(engine, depth, rule),
+
+    // Blob tracking: the bright regions of a chain, followed frame to frame
+    // (see blobs.js). It produces data rather than drawing anything — .pos(i),
+    // .size(i), .id(i) per slot — and .instance(blobs, fn) is the consumer that
+    // puts a copy on each one. Any chain is a source: what counts as a blob is
+    // the threshold the sketch chose, not something tracking decides.
+    track: (src, o) => makeBlobs(engine, src, o),
 
     // A path through space as a callable value — c(u) is the point a fraction
     // u of the way along, so c(T.mul(0.2)) rides it, c(i / n) is the i-th of
@@ -2018,6 +2037,7 @@ export function makeApi(engine) {
     Geometry: GeoOp,
     Signal,
     Layout,
+    Blobs,
     Data,
     Curve,
 

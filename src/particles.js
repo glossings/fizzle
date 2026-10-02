@@ -264,8 +264,7 @@ void main() {
 // With .lit(), the material compiles with lights: true and three's own light
 // and shadow chunks: each dot multiplies its color by the light arriving at
 // its position. A dot has no facing, so there's no N·L — what shows is each
-// light's color, falloff, cone and shadow, which is the usual read of
-// lit particles. RECIPROCAL_PI matches how a mesh's diffuse term scales the
+// light's color, falloff, cone and shadow. RECIPROCAL_PI matches how a mesh's diffuse term scales the
 // same irradiance, so a lit swarm sits tonally with lit geometry.
 
 // .noise() on the swarm: a draw-time offset by a simplex field, read at the

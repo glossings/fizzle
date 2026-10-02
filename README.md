@@ -97,13 +97,14 @@ Redistributed components and their licenses are listed in
 
 ## License
 
-fizzle is licensed under the **GNU Affero General Public License v3.0**
-(AGPL-3.0-only). See [LICENSE](LICENSE).
+fizzle is copyright 2026 Glossing and licensed under the **GNU Affero General
+Public License v3.0** (AGPL-3.0-only). See [LICENSE](LICENSE).
 
 In plain terms: you can use it, study it, share it, and modify it freely. Make
 whatever visuals you like with it and sell them. Your work is yours. The
-license doesn't touch it. The one condition is on the *code*: if you distribute
-a modified version, or run one as a network service, you have to make your
-source available under the same license. This helps keep fizzle open for
-artists and hobbyists while stopping anyone from quietly rolling it into a
-closed, proprietary product.
+license doesn't touch it. The conditions are on the *code*: if you distribute a
+modified version, or run one as a network service, you have to make your source
+available under the same license, keep the copyright notice and credit where
+they are, and not pass the result off as the original. That's deliberate. It
+keeps fizzle open for artists and hobbyists, stops anyone from quietly rolling
+it into a closed, proprietary product, and keeps its origin visible.
