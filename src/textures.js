@@ -3,7 +3,7 @@ import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
 import { warn, note } from './warn.js';
 import { carried, isClaiming } from './carry.js';
-import { Layout } from './layout.js';
+import { Bundle, EMPTY_BUNDLE } from './link.js';
 import { Blobs, MAX_SLOTS } from './blobs.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
 import { sig } from './audio.js';
@@ -361,7 +361,7 @@ const SPECS = {
       const pad = Math.max(0, Number(resolve(p.pad, 0)) || 0);
       let k = 0;
       for (let i = 0; i < b.max; i++) {
-        const s = b._at(i);
+        const s = b._slot(i);
         if (!s) continue;
         arr[k * 4] = s.x / a + 0.5;
         arr[k * 4 + 1] = s.y + 0.5;
@@ -1273,7 +1273,7 @@ const SPECS = {
   // in display space throughout (that's what the scene texture's tonemap pass
   // establishes), while three shades in linear and normally gets the decode
   // for free from the texture's internal format — which a half-float render
-  // target can't have. So it happens here instead. Data maps (normal,
+  // target can't have. So it happens here instead. Bundle maps (normal,
   // roughness, displacement) are raw numbers either way and skip this.
   toLinear: {
     frag: `
@@ -3254,20 +3254,22 @@ export class TextureOp {
   // placing each copy through the flat verbs (x.position/.rotation/.scale/
   // .color/.alpha). It runs every frame, so copies animate.
   //
-  // instance(layout) instead takes the copies from a layout() (or one of its
-  // .filter() views), which brings its own count; a fn alongside it runs once
-  // the structure has placed the copy. Same call as on geometry, and a layout
-  // reads the same either way — this one draws it flat, in the frame's own
-  // units (1 = the frame's height, origin at the center).
+  // instance(bundle) instead takes the copies from a bundle — a layout(), a
+  // track(), any bundle of points — which brings its own count and places each
+  // copy on its record; a fn alongside it runs once the bundle has placed the
+  // copy. Same call as on geometry, and a bundle reads the same either way —
+  // this one draws it
+  // flat, in the frame's own units (1 = the frame's height, origin at the
+  // center).
   //
   // Copies are drawn small, so the stamp is read through a mip pyramid or a
   // shrunken copy would sample one pixel in fifty and sparkle.
   instance(count, fn, o = {}) {
     if (typeof fn === 'object' && fn !== null) { o = fn; fn = undefined; }
     let n = count;
-    if (count instanceof Layout || count instanceof Blobs) {
+    if (count instanceof Bundle) {
       const l = count;
-      if (!l.slots) warn('instance: the layout placed no copies — a rule builds them with e.place()');
+      if (!l.slots) warn(EMPTY_BUNDLE);
       n = l.slots;
       // the user's fn is captured before fn is reassigned, or the wrapper
       // closes over itself
@@ -3287,9 +3289,9 @@ export class TextureOp {
     node._inst = { count: Math.max(0, Math.floor(Number(n) || 0)), fn };
     return node;
   }
-  // .each(set, fn, { mode }) — a mark per record, comped on in slot order: fn is
-  // handed the record (set.at(i), live getters) and answers a chain, or nothing
-  // to skip the slot. The fn runs once per slot at build, like .instance()'s —
+  // .each(bundle, fn, { mode }) — a mark per record, comped on in index order:
+  // fn is handed the record (bundle.at(i), live getters) and answers a chain, or
+  // nothing to skip it. The fn runs once per record at build, like .instance()'s —
   // what moves per frame is the fns it baked into its chain's params:
   //
   //   feed.each(blobs, (b) => rect({ ...b.box({ pad: 0.02 }), thickness: 0.004,
@@ -3297,15 +3299,15 @@ export class TextureOp {
   //
   // Each distinct mark is a layer with a pass of its own, so this costs what the
   // same comps written out one per slot would — it only owns the loop.
-  each(set, fn, o = {}) {
-    if (!set || typeof set.at !== 'function' || typeof fn !== 'function') {
-      warn('each: takes a set and a mark — pic.each(track(…), (b) => rect({ ...b.box(), thickness: 0.004, bg: null }))');
+  each(bundle, fn, o = {}) {
+    if (!bundle || typeof bundle.at !== 'function' || typeof fn !== 'function') {
+      warn('each: takes a bundle and a mark — pic.each(track(…), (b) => rect({ ...b.box(), thickness: 0.004, bg: null }))');
       return this;
     }
     let node = this;
-    const n = set.slots ?? set.count ?? 0;
+    const n = bundle.slots ?? bundle.count ?? 0;
     for (let i = 0; i < n; i++) {
-      const rec = set.at(i);
+      const rec = bundle.at(i);
       if (!rec) continue;
       const made = fn(rec, i, n);
       if (made instanceof TextureOp) node = node.comp(made, { mode: o.mode ?? 'over', opacity: o.opacity });

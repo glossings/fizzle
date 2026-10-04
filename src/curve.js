@@ -1,6 +1,7 @@
 import { warn } from './warn.js';
 import { sig } from './audio.js';
 import { Layout } from './layout.js';
+import { Bundle } from './link.js';
 
 // A path through space as a callable value: c(u) is the point a fraction u of
 // the way along, so c(T.mul(0.2)) rides it and c(i / n) is the i-th of n
@@ -14,7 +15,7 @@ import { Layout } from './layout.js';
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const isFn = (v) => typeof v === 'function';
 
-// in scope for sketches as `Curve` — same guard as Data and Layout
+// in scope for sketches as `Curve` — same guard as Bundle and Layout
 export function Curve() {
   throw new Error('new Curve() is not how a path starts — curve(u => …), curve.circle(r) or curve(layout) make one');
 }
@@ -178,8 +179,9 @@ const LUT_N = 256;
 
 export function makeCurve(src, o = {}) {
   if (src instanceof Layout) return layoutCurve(src, o);
+  if (src instanceof Bundle) return bundleCurve(src, o);
   if (!isFn(src)) {
-    warn('curve: takes a u => [x, y, z], or a layout — curve.circle(r), curve.line(a, b) and curve.helix({ … }) are the built-ins');
+    warn('curve: takes a u => [x, y, z], or a bundle to read as a path — curve.circle(r), curve.line(a, b) and curve.helix({ … }) are the built-ins');
     return mk(() => [0, 0, 0]);
   }
   const closed = !!o.closed;
@@ -203,9 +205,30 @@ export function makeCurve(src, o = {}) {
   return mk((u, t) => raw(lutSeg(lut(t), u) / LUT_N, t), { closed, dynamic });
 }
 
-// The trail an unbranched layout walked, as a curve: a polyline through its
-// places, parameterized by distance along it so a rule that shrinks its steps
-// doesn't bunch the phase. Filtered views follow their own copies.
+// A polyline through a bundle's points as a curve, parameterized by distance along
+// it so points that bunch up don't bunch the phase. The two adapters below
+// differ only in where the points come from and when they change.
+function polyline({ closed, dynamic, count, point, refresh }) {
+  const segs = (n) => Math.max(n - 1 + (closed ? 1 : 0), 1);
+  const lut = lutCache((t) => { refresh(t); return buildLut(point, segs(count())); }, dynamic);
+  const f = (u, t) => {
+    refresh(t);
+    const n = count();
+    if (!n) return [0, 0, 0];
+    if (n === 1) return point(0);
+    const m = segs(n);
+    const s = lutSeg(lut(t), u);
+    const i = Math.min(Math.floor(s), m - 1);
+    const fr = s - i;
+    const a = point(i), c = point(i + 1);
+    return [a[0] + (c[0] - a[0]) * fr, a[1] + (c[1] - a[1]) * fr, a[2] + (c[2] - a[2]) * fr];
+  };
+  return mk(f, { closed, dynamic });
+}
+
+// The trail an unbranched layout walked: its places in placement order.
+// Filtered views follow their own copies, and a structure that never moves
+// keeps one table for the whole run.
 function layoutCurve(l, o = {}) {
   const root = l._root ?? l;
   const b = root._b;
@@ -215,27 +238,44 @@ function layoutCurve(l, o = {}) {
   if (l.count < 2) {
     warn(`curve: the layout placed ${l.count === 1 ? 'one copy' : 'no copies'} — a rule builds the path with e.place() each step`);
   }
-  const closed = !!o.closed;
-  const dynamic = !!b.dynamic;
   const n = l.count;
   const point = (i) => {
     const j = l._srcIndex(i % n) * 3;
     const p = root._pos;
     return [p[j], p[j + 1], p[j + 2]];
   };
-  const m = Math.max(n - 1 + (closed ? 1 : 0), 1);
-  const lut = lutCache((t) => { root._replay(t); return buildLut(point, m); }, dynamic);
-  const f = (u, t) => {
-    if (!n) return [0, 0, 0];
-    root._replay(t);
-    if (n === 1) return point(0);
-    const s = lutSeg(lut(t), u);
-    const i = Math.min(Math.floor(s), m - 1);
-    const fr = s - i;
-    const a = point(i), c = point(i + 1);
-    return [a[0] + (c[0] - a[0]) * fr, a[1] + (c[1] - a[1]) * fr, a[2] + (c[2] - a[2]) * fr];
+  return polyline({
+    closed: !!o.closed,
+    dynamic: !!b.dynamic,
+    count: () => n,
+    point,
+    refresh: (t) => root._replay(t),
+  });
+}
+
+// Any other bundle's records as a path, in index order — for one whose order means
+// travel (points streamed in sequence, a scatter walked as given), not one
+// ordered by size. Refilled every frame, so the path follows the records.
+function bundleCurve(d, o = {}) {
+  // the records that are there: a bundle with gaps (a tracker's empty slot, a
+  // particle between lives) has no point to visit, so the path skips it
+  const live = [];
+  const refresh = () => {
+    d._sync();
+    live.length = 0;
+    for (let i = 0; i < d._n; i++) if (!d._alp || d._alp[i] > 0) live.push(i);
   };
-  return mk(f, { closed, dynamic });
+  const point = (i) => {
+    const j = live[i % live.length] * 3;
+    return [d._pts[j], d._pts[j + 1], d._pts[j + 2]];
+  };
+  return polyline({
+    closed: !!o.closed,
+    dynamic: true,
+    count: () => live.length,
+    point,
+    refresh,
+  });
 }
 
 // --- spread ----------------------------------------------------------------

@@ -79,7 +79,7 @@ const methodOptions = Object.entries(METHODS).map((e) => methodOption(e, soleKin
 // one filtered method list per chain kind, built once — and inside one, the
 // kind is known, so every entry can say so
 const methodsByKind = {};
-for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'data', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'blobs', 'bundle', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
   methodsByKind[kind] = Object.entries(METHODS)
     .filter(([label]) => METHOD_KINDS[label]?.has(kind))
     .map((e) => methodOption(e, kind));
@@ -99,8 +99,8 @@ const MEMBER_KIND = {
   particles: 'particle',
   // an image drawn as dots or scanlines is a geometry chain from there on
   points: 'geo', lines: 'geo', wire: 'geo',
-  // data sets and back out of them: .link() draws segments wherever it's called
-  scatter: 'data', read: 'data', pairs: 'pairs', link: 'segments',
+  // bundles and back out of them: .link() draws segments wherever it's called
+  scatter: 'bundle', read: 'bundle', pairs: 'pairs', link: 'segments',
   // .apply(x, i) hands the copy handle back, so the chain past it is the
   // handle's — the layout is where it came from, not what it is now
   apply: 'inst',
@@ -194,7 +194,7 @@ function kindOfName(state, node) {
   if (!init) return null;
   if (/\.link\s*\(/.test(init)) return 'segments';
   if (/\.pairs\s*\(/.test(init)) return 'pairs';
-  if (/\.(read|scatter)\s*\(/.test(init)) return 'data';
+  if (/\.(read|scatter)\s*\(/.test(init)) return 'bundle';
   if (/\.particles\s*\(/.test(init)) return 'particle';
   if (/\bcurve\s*[.(]/.test(init)) return 'curve';
   const first = init.match(/[A-Za-z_$][\w$]*/);

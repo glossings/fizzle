@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { warn } from './warn.js';
+import { Bundle } from './link.js';
 
 // Generative structure: a rule steering a cursor, collected into placed copies.
 // See dev-notes/LAYOUT.md for why there is no grammar here.
@@ -209,26 +210,48 @@ function runBuild(rule, maxDepth, explicitDepth) {
 }
 
 // A built structure, and any label-narrowed view of one: same arrays, same
-// replay, different index map.
-class Layout {
+// replay, different index map. A bundle (see link.js) whose records are the placed
+// copies, so a structure pairs, links and curves like any other.
+class Layout extends Bundle {
+  static channels = ['pos', 'alpha', 'size', 'along', 'depth', 'data'];
+
   constructor(engine, build, root, idx) {
     // in scope for sketches as `Layout` — see the same guard on TextureOp
     if (engine == null) {
       throw new Error('new Layout() is not how a structure starts — layout(e => …) builds one');
     }
-    this.engine = engine;
+    super(engine);
     this._b = build;
     this._root = root ?? this;
     this._idx = idx ?? null;
-    this.count = idx ? idx.length : build.places.length;
-    this._grow = null;
+    this._growAmt = null;
     if (!root) {
       const n = build.places.length;
       this._pos = new Float32Array(n * 3);
       this._rot = new Float32Array(n * 3);
       this._scl = new Float32Array(n);
-      this._at = null;
+      this._replayAt = null;
       this._views = new Map();
+    }
+  }
+
+  // How many copies the rule placed — fixed at build, so .count and .slots
+  // agree here.
+  get count() { return this._idx ? this._idx.length : this._b.places.length; }
+
+  // the bundle contract's channels, off the same replay .apply() reads: the placed
+  // positions, in this view's own order
+  _fill(t) {
+    const r = this._root;
+    r._replay(t);
+    const n = this.count;
+    this._room(n);
+    this._n = n;
+    for (let i = 0; i < n; i++) {
+      const j = this._srcIndex(i) * 3;
+      this._pts[i * 3] = r._pos[j];
+      this._pts[i * 3 + 1] = r._pos[j + 1];
+      this._pts[i * 3 + 2] = r._pos[j + 2];
     }
   }
 
@@ -236,8 +259,8 @@ class Layout {
   // times and every ask wants the same answer
   _replay(t) {
     const b = this._b;
-    if (this._at === t || (this._at !== null && !b.dynamic)) return;
-    this._at = t;
+    if (this._replayAt === t || (this._replayAt !== null && !b.dynamic)) return;
+    this._replayAt = t;
     const pos = this._pos;
     const rot = this._rot;
     const scl = this._scl;
@@ -273,11 +296,6 @@ class Layout {
     }
   }
 
-  // How many copies .instance() has to draw to show this. The same as .count
-  // here, since a structure is built once and keeps every copy it placed —
-  // it's a tracker, whose blobs come and go, that needs the two to differ.
-  get slots() { return this.count; }
-
   // a view's i, as an index into the arrays the root owns
   _srcIndex(i) { return this._idx ? this._idx[i] : i; }
 
@@ -305,8 +323,8 @@ class Layout {
     r._replay(now);
     const j = this._srcIndex(Math.floor(i));
     if (!(j >= 0) || j >= r._scl.length) return 1;
-    const g = this._grow ?? r._grow;
-    return g == null ? r._scl[j] : r._scl[j] * growFactor(g, this.ageAt(j), now);
+    const g = this._growAmt ?? r._growAmt;
+    return g == null ? r._scl[j] : r._scl[j] * growFactor(g, this.alongAt(j), now);
   }
 
   // Some of the copies as a layout of their own — its own count and order, so
@@ -353,9 +371,11 @@ class Layout {
     return view;
   }
 
-  // 0..1 by place order, which runs outward a generation at a time
-  age(i) { return this.ageAt(this._srcIndex(Math.floor(i))); }
-  ageAt(j) {
+  // How far along the structure copy i sits, 0..1 by place order, which runs
+  // outward a generation at a time. Not a time: a record's .age is seconds
+  // everywhere else in the family, so place order gets its own word.
+  along(i) { return this.alongAt(this._srcIndex(Math.floor(i))); }
+  alongAt(j) {
     const n = this._root._b.places.length;
     return n > 1 ? j / (n - 1) : 0;
   }
@@ -367,7 +387,7 @@ class Layout {
   // 0..1 across the whole structure, in place order: copies past the front are
   // scaled away, so a signal here opens it out over time
   grow(amount) {
-    this._grow = amount ?? null;
+    this._growAmt = amount ?? null;
     return this;
   }
 }

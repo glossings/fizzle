@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SNOISE_GLSL, noiseParamsGlsl, noiseFieldGlsl } from './noise.js';
 import { Quad, reciprocal } from './textures.js';
 import { carried } from './carry.js';
-import { ParticleData, SegmentsOp, asData } from './link.js';
+import { ParticleBundle, SegmentsOp, asBundle } from './link.js';
 import { warn } from './warn.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { site } from './profile.js';
@@ -810,7 +810,7 @@ export class ParticleOp {
   // read once per frame. Filled by the system's updater, so the set stays
   // empty until .out() puts it in the scene.
   read() {
-    return (this._readView ??= new ParticleData(this.engine));
+    return (this._readView ??= new ParticleBundle(this.engine));
   }
 
   // link({ within, max, sample, fill, fade, color, opacity, blend }) —

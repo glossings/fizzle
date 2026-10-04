@@ -2,20 +2,30 @@ import * as THREE from 'three';
 import { warn } from './warn.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 
-// Data: points (and whatever rides with them) as parallel arrays, refreshed
-// once per frame. geo.scatter(n) is one with .pos and .normal, particles
-// .read() one with .pos/.alpha/.vel/.age/.life, data() adopts the sketch's
-// own; a plain array of [x, y, z] is accepted anywhere a Data goes. .pairs()
-// finds which points sit near each other, segments() draws lines between
-// them, .link() is the one-liner over both.
+// Bundle: indexed records, refreshed once per frame — the family every producer
+// of a bundle hands back. geo.scatter(n) is one with .pos and .normal, particles
+// .read() one with .pos/.alpha/.vel/.age/.life, layout() a built one, track()
+// a tracked one, data() adopts the sketch's own; a plain array of [x, y, z] is
+// accepted anywhere a Bundle goes. Whoever made it, a bundle answers .count,
+// its channels by name, and .at(i) for one record — and feeds the same
+// consumers: .instance(bundle) places a copy per record, pic.each(bundle, fn) draws
+// a mark per record, .pairs() finds which records sit near each other,
+// segments() draws lines between them, .link() is the one-liner over both,
+// curve(bundle) reads them as a path.
+//
+// What a producer puts in a record is its own vocabulary (a layout's .depth,
+// a tracker's .id, particles' .life), documented where the producer is. Two
+// keys mean one thing everywhere, because the machinery above reads them: pos
+// is where a record is, alpha whether it is there at all.
 //
 // Channels are lazy: internally everything is flat typed arrays (what the
 // spatial hash and the line buffers read), and the array a sketch touches is
-// materialized on first access each frame. Readback sources follow .field()'s
-// contract — on the CPU one frame behind, read once per frame.
+// materialized on first access each frame. A bundle nobody reads from fills
+// nothing. Readback sources follow .field()'s contract — on the CPU one frame
+// behind, read once per frame.
 //
-// Data is in sketch scope for custom methods, like Texture and Geometry:
-// Data.prototype.centroid = function () { … }
+// Bundle is in sketch scope for custom methods, like Texture and Geometry:
+// Bundle.prototype.centroid = function () { … }
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
@@ -38,10 +48,15 @@ const readPoint = (v, out, base, t) => {
   }
 };
 
-export class Data {
+export class Bundle {
+  // The channels this producer answers, in the order the docs teach them.
+  // .at(i) is built from this list, so a new channel is one getter (or one
+  // reading per record) and one name here.
+  static channels = ['pos', 'alpha'];
+
   constructor(engine) {
     if (engine == null) {
-      throw new Error('new Data() is not how a set starts — data(), geo.scatter(n) or particles().read() make one');
+      throw new Error('new Bundle() is not how records start — data(), geo.scatter(n) or particles().read() make one');
     }
     this.engine = engine;
     this._pts = new Float32Array(0);   // xyz, world space
@@ -57,7 +72,7 @@ export class Data {
     this._at = t;
     this._fill(t);
   }
-  _grow(n) {
+  _room(n) {
     if (this._pts.length < n * 3) this._pts = new Float32Array(n * 3);
   }
   // one JS array per channel per frame, built the first time it's touched
@@ -72,6 +87,12 @@ export class Data {
   }
 
   get count() { this._sync(); return this._n; }
+  // How many indices there are, which is how many copies .instance() draws.
+  // The same as .count for a bundle that holds only what it has; more for one
+  // with empty slots — a tracker keeps a blob in the slot it arrived in, so
+  // the two differ there and per-copy state stays with its blob.
+  get slots() { return this.count; }
+
   get pos() {
     return this._chan('pos', () => {
       const out = new Array(this._n);
@@ -87,35 +108,75 @@ export class Data {
     });
   }
 
-  // pairs({ within, max }) — pairs within this set; pairs(other, { … }) —
-  // each point here to nearby points of the other set
+  // One record as an object of live getters, index first and the key under it:
+  // at(i).pos reads the record at access time, so one handed to a fn of t
+  // follows its point. Made once per index and reused, so reading records
+  // allocates nothing — the trap is destructuring outside a fn of t, which
+  // snapshots the moment instead.
+  //
+  // A producer spells a channel either way: `pos` is the frame's array, and
+  // `pos(i)` a reading per record. The record follows whichever it has, which
+  // is what lets a tracker keep .pos(i) and still answer at(i).pos.
+  at(i) {
+    const k = Math.floor(i);
+    if (!(k >= 0) || k >= this.slots) return null;
+    const recs = (this._recs ??= []);
+    if (!recs[k]) {
+      const rec = {};
+      for (const name of this.constructor.channels) {
+        Object.defineProperty(rec, name, {
+          enumerable: true,
+          get: () => { const v = this[name]; return typeof v === 'function' ? v.call(this, k) : v?.[k]; },
+        });
+      }
+      // whatever else the producer puts in a record — a tracker's .box()
+      this._record?.(rec, k);
+      recs[k] = rec;
+    }
+    return recs[k];
+  }
+
+  // Places a copy on record i and hands the handle back — what .instance(bundle)
+  // calls per copy, and the long form for putting something on top of it. A
+  // record that isn't there (a tracker's empty slot, a particle between lives)
+  // hides its copy. A producer with more to say about a record overrides this:
+  // a layout sets rotation and scale too.
+  apply(handle, i) {
+    this._sync();
+    const k = Math.floor(i);
+    if (!(k >= 0) || k >= this._n || (this._alp && this._alp[k] <= 0)) return handle.hide();
+    return handle.position(this._pts[k * 3], this._pts[k * 3 + 1], this._pts[k * 3 + 2]);
+  }
+
+  // pairs({ within, max }) — pairs within this bundle; pairs(other, { … }) —
+  // each point here to nearby points of the other bundle
   pairs(other, opts) {
     if (typeof other === 'number') {
-      warn("pairs: the other set is the points themselves — sample: n reads n emitter-surface points, in .link() on a particle system");
+      warn("pairs: the other bundle is the points themselves — sample: n reads n emitter-surface points, in .link() on a particle system");
       other = null;
-    } else if (other != null && !(other instanceof Data) && !Array.isArray(other)) { opts = other; other = null; }
-    if (Array.isArray(other)) other = new ArrayData(this.engine, other);
+    } else if (other != null && !(other instanceof Bundle) && !Array.isArray(other)) { opts = other; other = null; }
+    if (Array.isArray(other)) other = new ArrayBundle(this.engine, other);
     return new Pairs(this.engine, this, other ?? null, opts ?? {});
   }
   // the one-liner: segments between every pair closer than within — within
-  // this set, or across to another (.link(other, { … }))
+  // this bundle, or across to another (.link(other, { … }))
   link(other, o) {
     // a number falls through to pairs(), which says where sample: belongs
-    if (typeof other !== 'number' && other != null && !(other instanceof Data) && !Array.isArray(other)) { o = other; other = null; }
+    if (typeof other !== 'number' && other != null && !(other instanceof Bundle) && !Array.isArray(other)) { o = other; other = null; }
     o ??= {};
     return new SegmentsOp(this.engine, this.pairs(other, { within: o.within, max: o.max }), o);
   }
 }
 
 // a plain [x, y, z][] the sketch owns, viewed live
-export class ArrayData extends Data {
+export class ArrayBundle extends Bundle {
   constructor(engine, arr) {
     super(engine);
     this.arr = arr;
   }
   _fill(t) {
     const n = Math.min(this.arr.length, MAX_POINTS);
-    this._grow(n);
+    this._room(n);
     this._n = n;
     for (let i = 0; i < n; i++) readPoint(this.arr[i], this._pts, i * 3, t);
   }
@@ -125,8 +186,8 @@ export class ArrayData extends Data {
 
 // data({ pos, alpha? }) — each channel an array, or a fn of t returning one.
 // The whole extension surface: points from a sensor, a model, a feed plug in
-// here and come out a first-class set.
-export class ChannelData extends Data {
+// here and come out a first-class bundle.
+export class ChannelBundle extends Bundle {
   constructor(engine, spec) {
     super(engine);
     if (Array.isArray(spec)) spec = { pos: spec };
@@ -145,7 +206,7 @@ export class ChannelData extends Data {
     } catch (e) { warn(e.message ?? String(e)); pos = []; }
     if (!Array.isArray(pos)) { warn('data: the pos channel is an array of [x, y, z]'); pos = []; }
     const n = Math.min(pos.length, MAX_POINTS);
-    this._grow(n);
+    this._room(n);
     this._n = n;
     this._posArr = pos;
     for (let i = 0; i < n; i++) readPoint(pos[i], this._pts, i * 3, t);
@@ -160,7 +221,9 @@ export class ChannelData extends Data {
 // geo.scatter(n) — the first n of the shape's surface scatter, the same
 // deterministic points .sample(i) reads, .noise() and transform applied;
 // .normal rides along
-export class ScatterData extends Data {
+export class ScatterBundle extends Bundle {
+  static channels = ['pos', 'alpha', 'normal'];
+
   constructor(engine, geo, n) {
     super(engine);
     this.geo = geo;
@@ -169,7 +232,7 @@ export class ScatterData extends Data {
     if (this.len > MAX_POINTS) { warn(`scatter: capped at ${MAX_POINTS} points`); this.len = MAX_POINTS; }
   }
   _fill() {
-    this._grow(this.len);
+    this._room(this.len);
     this._n = this.len;
     for (let i = 0; i < this.len; i++) {
       const p = this.geo.sample(i);
@@ -199,10 +262,12 @@ const IDENTITY = new THREE.Matrix4();
 // particles.read() — filled by the system's updater, not on demand: the state
 // lives on the GPU, and the read lands here one frame behind. A slot between
 // lives keeps its index with alpha 0, so indices are stable across frames.
-export class ParticleData extends Data {
+export class ParticleBundle extends Bundle {
+  static channels = ['pos', 'alpha', 'vel', 'age', 'life'];
+
   _sync() {}   // pushed by _ingest, never pulled
   _ingest(pos, vel, n, p3, r3, s3, fade) {
-    this._grow(n);
+    this._room(n);
     if (!this._alp || this._alp.length < n) this._alp = new Float32Array(n);
     this._n = n;
     this._at = this.engine.time;
@@ -259,9 +324,13 @@ export class ParticleData extends Data {
   }
 }
 
-// anything point-shaped, upgraded: a Data as itself, a plain array wrapped
-export const asData = (engine, v) =>
-  v instanceof Data ? v : Array.isArray(v) ? new ArrayData(engine, v) : null;
+// An instance count is fixed at build, so a bundle with nothing in it then draws
+// nothing ever — said the same way by both .instance() calls.
+export const EMPTY_BUNDLE = 'instance: the bundle has no records, so there is nothing to copy — a layout places its copies with e.place(). A set that only fills later needs a count of its own: .instance(64, (x, i) => set.apply(x, i)), which hides the copies with no record in them.';
+
+// anything point-shaped, upgraded: a Bundle as itself, a plain array wrapped
+export const asBundle = (engine, v) =>
+  v instanceof Bundle ? v : Array.isArray(v) ? new ArrayBundle(engine, v) : null;
 
 // Which points sit near each other, as data: every pair closer than within,
 // at most max per point — .list is [a, b] index pairs, rebuilt each frame.
@@ -302,7 +371,7 @@ export class Pairs {
     if (!within || !na || !nb) return;
     const w2 = within * within;
     const inv = 1 / within;
-    const src = b ?? a;   // the set that goes into the grid
+    const src = b ?? a;   // the bundle that goes into the grid
 
     const grid = this._grid;
     grid.clear();
@@ -355,7 +424,7 @@ export class Pairs {
   }
 
   get count() { this._ensure(); return this._live; }
-  // this frame's pairs as [a, b] index pairs — b indexes the other set when
+  // this frame's pairs as [a, b] index pairs — b indexes the other bundle when
   // the pairing crossed two
   get list() {
     this._ensure();
@@ -437,15 +506,15 @@ const SEG_KEYS = ['fade', 'color', 'opacity', 'blend', 'within', 'max', 'count',
 export class SegmentsOp {
   constructor(engine, pairs, opts = {}) {
     if (engine == null) {
-      throw new Error('new Segments() is not how a chain starts — call segments(pairs), or .link() on a data set');
+      throw new Error('new Segments() is not how a chain starts — call segments(pairs), or .link() on a bundle');
     }
     this.engine = engine;
-    if (Array.isArray(pairs)) pairs = new ArrayData(engine, pairs);
-    if (pairs instanceof Data) {
-      // a set instead of its pairs: pair it with the given (or default) rules
+    if (Array.isArray(pairs)) pairs = new ArrayBundle(engine, pairs);
+    if (pairs instanceof Bundle) {
+      // a bundle instead of its pairs: pair it with the given (or default) rules
       pairs = pairs.pairs({ within: opts.within, max: opts.max });
     } else if (pairs != null && !(pairs instanceof Pairs)) {
-      warn('segments: the first argument is a .pairs() of a data set, the set itself, or a plain array of [x, y, z]');
+      warn('segments: the first argument is a .pairs() of a bundle, the bundle itself, or a plain array of [x, y, z]');
       pairs = null;
     }
     this.pairs = pairs;

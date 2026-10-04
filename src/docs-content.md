@@ -229,10 +229,10 @@ The four waveshapes take a rate, so `T.sin(0.16)` is the same thing as
 
 See **random & custom signals** for the rest of what `T` can do.
 
-### a bundle of parameters
+### a config several ops share
 
 A config object is a plain object, so several ops can share one with a spread —
-and since its values can be fns of t, the shared bundle is live. Every op that
+and since its values can be fns of t, the shared config is live. Every op that
 spread it reads the same moving numbers, not a copy of a moment:
 
 ```js
@@ -825,7 +825,9 @@ Prefiltering is cached per file, so only the first run after importing hitches.
 `layout(depth, rule)` runs your rule with a cursor. `.span()` moves the cursor
 forward and leaves a copy spanning the step, `.branch()` grows children that run
 the same rule again, and it keeps going until `depth` generations are up.
-`.instance()` draws the result.
+`.instance()` draws the result, and the copies it placed are a
+[bundle](#bundles) like any other — `link()` webs them, `curve()` follows an
+unbranched trail.
 
 ```js
 ambient({ intensity: 0.35 })
@@ -951,7 +953,7 @@ camera(0, 2, 6.5, [0, 1.9, 0])
 ```
 
 Copies are numbered in the order they were placed, which runs outward a
-generation at a time. `.age(i)` is that order as 0..1, and `.grow(amount)` uses
+generation at a time. `.along(i)` is that order as 0..1, and `.grow(amount)` uses
 it to open the structure out from the root. `tree.grow(t => t * 0.3)` fills it
 in over about three seconds; any signal works, so `.grow(audio().smooth())`
 grows it on the music.
@@ -1014,7 +1016,7 @@ circle({ radius: 0.4, soft: 0.08, color: '#ffd75f', bg: null })
 ```
 
 Everything a layout knows still applies: `.filter()` slices it, `.grow()` opens
-it out, `.size()`/`.age()`/`.depth()`/`.data()` answer per copy, and a `.turn()`
+it out, `.size()`/`.along()`/`.depth()`/`.data()` answer per copy, and a `.turn()`
 that is a fn of t still sways it.
 
 - The copy verbs are the flat ones: `.position(x, y)`, `.rotation(angle)`,
@@ -1375,7 +1377,7 @@ onFrame(t => {
 link(pts, { within: 1.2 }).out()
 ```
 
-Two calls hand back richer sets, as parallel arrays refreshed once per frame:
+Two calls hand back richer bundles, as parallel arrays refreshed once per frame:
 
 - `shape.scatter(n)`: `.pos` is the shape's surface scatter, the same
   deterministic points `.sample(i)` reads with `.noise()` and transform
@@ -1392,7 +1394,7 @@ so the cost is the pairs found rather than every point against every other,
 and `.tris` the trios that are all in reach of one another. `segments(pairs)` draws them,
 which is all `.link()` does inside.
 
-Sets connect across as well as within: `a.link(b, { within })` runs each of
+Bundles connect across as well as within: `a.link(b, { within })` runs each of
 a's points to b's nearby ones; both calls take a plain array in either
 slot. A particle system tethers to its own emitter surface with `sample`,
 read at that many points. Here each particle links back to the shape it was
@@ -1413,9 +1415,11 @@ scene().bloom({ threshold: 0.3, strength: 0.8 }).out()
 
 For data of your own with more than positions, `data({ pos, alpha })` adopts
 named channels, each an array or a fn of `t` returning one. Points streamed
-from a sensor or a model plug in there. `Data` is in
-scope for [custom methods](#custom-methods) like `Texture` and `Geometry`
-are, so helpers can grow on every set at once.
+from a sensor or a model plug in there.
+
+All of these are [bundles](#bundles): one contract and one set of consumers
+however the records were made, so a structure, a tracker and a swarm all pair,
+link, instance and draw the same way.
 
 ### .between — a copy spanning two points
 
@@ -1450,6 +1454,83 @@ cylinder({ radius: 1, height: 1, res: 6 })
 
 An instance count is fixed up front, so give it the most pairs the sketch
 expects and let the rest collapse to nothing.
+
+## bundles
+
+`data()`, `shape.scatter(n)`, `particles().read()`, `layout()` and `track()` all
+hand back the same kind of thing — a **bundle**: data over a set of points,
+indexed and refreshed every frame. Learn the shape once and every producer reads
+the same way. The class is `Bundle`, which is what you extend to grow a method on
+all of them.
+
+Every bundle answers these:
+
+- `.count` — how many records there are right now. `.slots` is how many indices
+  it has, the same number unless a tracker is holding empty slots.
+- `.at(i)` — record i as one object: `.at(i).pos` is where that record is, and
+  the rest is whatever the producer carries there. The one surface that reads the
+  same on every producer.
+- the keys by name — `b.pos`, `b.alpha`, a `.scatter()`'s `.normal`. These are
+  this frame's arrays, one entry per record, where the producer keeps arrays; a
+  tracker spells its readings as calls per slot instead (`blobs.pos(i)`), since
+  there a slot can be empty and a call can answer a resting value.
+
+And feeds these, whichever producer made it:
+
+```js
+bg('#06070d')
+ambient({ intensity: 0.35 })
+
+const tree = layout(5, (e) => {
+  e.span(0.9)
+  e.branch((x) => x.turn(0.5).scale(0.72))
+  e.branch((x) => x.turn(-0.55).scale(0.72))
+})
+
+// a copy per record, and a line between records that are close
+sphere({ radius: 0.07, res: 12 })
+  .instance(tree, (x, i) => x.color(hsl(0.3 + tree.along(i) * 0.3, 0.8, 0.6)))
+  .material({ emissive: '#9fe', color: '#000' })
+  .out()
+
+link(tree, { within: 1.1, color: '#4a7', opacity: 0.6 }).out()
+
+camera(0, 2, 6, [0, 2, 0])
+```
+
+- `shape.instance(bundle, fn)` — a copy per record, hidden where a record isn't
+  there. What gets placed is the producer's call: a layout sets pose and scale,
+  a tracker position and size, bare points position alone.
+- `pic.each(bundle, fn)` — a mark per record, comped onto the picture
+- `link(bundle)` and `.pairs()` — which records sit near which
+- `curve(bundle)` — the records as a path, where their order means travel
+
+What is *in* a record is the producer's own vocabulary: a layout's carry
+`.size`, `.along`, `.depth` and `.data`, a tracker's `.id`, `.age` and `.box()`,
+a particle's `.vel` and `.life`. `pos` and `alpha` are the exceptions — the
+machinery above reads them, so every bundle has both and they mean one thing
+everywhere: where a record is, and whether it is there at all. A record at alpha 0
+drops out of pairings and paths, and `.instance()` hides its copy.
+
+`Bundle` is in scope for [custom methods](#custom-methods) like `Texture` and
+`Geometry` are, so a helper written once grows on every bundle:
+
+```js static
+Bundle.prototype.centroid = function () {
+  const c = [0, 0, 0]
+  let n = 0
+  for (let i = 0; i < this.slots; i++) {
+    const r = this.at(i)
+    if (!r.alpha) continue          // skip the records that aren't there
+    for (const k of [0, 1, 2]) c[k] += r.pos[k]
+    n++
+  }
+  return n ? c.map((v) => v / n) : c
+}
+```
+
+Written through `.at(i)` it works on every producer — a tracker included, where
+the bare names are calls.
 
 ## curves
 
@@ -2691,7 +2772,7 @@ arithmetic on a blob that just left gets a number rather than a crash.
 - `.at(i)` — everything about slot i as one object, index first then key:
   `b.pos`, `b.size`, `b.id`, `b.age`, `b.has`, `b.box()`. Live getters, one
   reused object per slot. What `.each()` hands its fn.
-- `.box(i, { pad })` — the blob's box, as the bundle `rect()` takes: center in
+- `.box(i, { pad })` — the blob's box, as the config `rect()` takes: center in
   UV, w/h as frame fractions, live fns throughout, collapsed to nothing while
   the slot is empty. `rect(blobs.box(i))` draws it; spread it for the outline.
 - `.boxes({ pad })` — every box in one picture, each pixel's luma the number of
@@ -2703,6 +2784,11 @@ arithmetic on a blob that just left gets a number rather than a crash.
   `-1` comes back resting, so the arithmetic still works on an empty frame.
 - `.link()` · `.pairs()` — the blobs as points, so a plexus runs between them
   (see **linking points**). Empty slots are left out.
+
+A tracker is a [bundle](#bundles), so that family's verbs are here too:
+`.count`, `.slots`, `.at(i)` and `.alpha(i)` read as they do on a layout or a
+swarm, and `.instance()`, `.each()`, `link()` and `.pairs()` take it as they take
+any of them.
 
 `.instance()` is not the only consumer. The readings are plain numbers, so they
 drop into a `.position()`, an `.attract()`, a texture parameter, anywhere:

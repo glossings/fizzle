@@ -69,15 +69,15 @@ export const GLOBALS = {
   text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right', tracking, leading })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', tracking, leading, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
-  layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result. Any cursor step takes a fn of t, so the structure can move."],
-  track: ['track(chain, { max, threshold, levels, size, dark, res, hold, smooth, gate, scale })', "Follows the bright regions of a chain — a hand against a dark room, a person() mask, whatever the threshold leaves standing — and keeps track of which is which from frame to frame. Produces data, draws nothing: .pos(i), .size(i), .id(i) per slot, and .instance(blobs, fn) is what puts a shape on each one.\nEvery blob holds its slot for as long as it lives, so i is steady enough for per-copy state; .id(i) is the number that is never handed out twice, for a look that mustn't outlive its blob. Read back on the CPU a frame or so behind, like .field()."],
-  curve: ["curve(u => [x, y, z], { closed, even }) | curve(layout)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along. curve(fn) lifts your own function; curve(layout) follows an unbranched layout's trail."],
+  layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result, and the placed copies are a bundle like any other — .link() webs them, curve() follows an unbranched trail. Any cursor step takes a fn of t, so the structure can move."],
+  track: ['track(chain, { max, threshold, levels, size, dark, res, hold, smooth, gate, scale })', "Follows the bright regions of a chain — a hand against a dark room, a person() mask, whatever the threshold leaves standing — and keeps track of which is which from frame to frame. Produces a bundle, draws nothing: .pos(i), .size(i), .id(i) per slot, .at(i) for a whole blob, and .instance(blobs, fn) is what puts a shape on each one.\nEvery blob holds its slot for as long as it lives, so i is steady enough for per-copy state; .id(i) is the number that is never handed out twice, for a look that mustn't outlive its blob. Read back on the CPU a frame or so behind, like .field()."],
+  curve: ["curve(u => [x, y, z], { closed, even }) | curve(bundle)", "Builds a path as a callable value: c(u) is the point a fraction u of the way along. curve(fn) lifts your own function; curve(bundle) runs a polyline through a bundle's records in index order — an unbranched layout's trail, or points of your own in sequence — parameterized by distance along it, so records that bunch up don't bunch the phase."],
   spread: ['spread(n, { jitter, random, seed, end })', "n phases 0..1, evenly spaced — the values a curve takes: spread(12).map(c) is twelve points along it. The values hold still across frames and re-runs."],
 
   particles: ['particles({ max, rate, life, speed, spread, dir, pos })', "A GPU particle system emitting from a point — .particles() on a shape emits from its surface, on a texture from its bright pixels. Chain forces (.force .turbulence .attract .drag), looks (.size .color .opacity .fade .blend .evolve), then .out().\nThe pool sizes itself from rate × life, and the swarm survives re-runs — tweak a force and the particles keep flying."],
-  data: ['data(array) | data({ pos, alpha })', "Your own points as a data set: a live array of [x, y, z], or named channels, each an array or a fn of t. Renders nothing; .pairs() and .link() connect it, .instance() places onto it."],
-  segments: ['segments(pairs | points, { within, max, fill, lit, fade, color, opacity, blend })', "Line segments between paired points, redrawn every frame. Takes a .pairs(), a data set, or a plain array of [x, y, z]. Flat 1px lines unless lit; .material({ color, opacity }), then .out()."],
-  link: ['link(points, { within, max, fill, lit, fade, color, opacity, blend })', "segments() over any array or data set: a line between every pair of points closer than within. Ends in .out()."],
+  data: ['data(array) | data({ pos, alpha })', "Your own points as a bundle of points: a live array of [x, y, z], or named channels, each an array or a fn of t. Renders nothing, and takes everything a bundle takes — .count, .at(i), .pairs() and .link() to connect it, .instance() and .each() to draw on it, curve() to read it as a path."],
+  segments: ['segments(pairs | points, { within, max, fill, lit, fade, color, opacity, blend })', "Line segments between paired points, redrawn every frame. Takes a .pairs(), a bundle, or a plain array of [x, y, z]. Flat 1px lines unless lit; .material({ color, opacity }), then .out()."],
+  link: ['link(points, { within, max, fill, lit, fade, color, opacity, blend })', "segments() over any array or bundle: a line between every pair of points closer than within. Ends in .out()."],
 
   beat: ['beat(perBar = 4, width = 0.5)', 'Tempo-synced gate: 1 for width of each cycle, 0 the rest. perBar cycles per bar of four beats (tempo in the audio manager), so the number is the note value — beat(4) is quarter notes, beat(16) sixteenths, beat(1) the downbeat.'],
   audio: ['audio(chan? | name?, chan?)', "Audio input loudness (0..1, dB scale) as a signal, usable in any parameter; the first use starts capture. audio() is the mono mix, audio(2) a channel by index, audio('scarlett') a device by name (substring), audio('scarlett', 2) a channel of it."],
@@ -128,10 +128,10 @@ export const METHODS = {
     texture: 'The image as scanlines — a plane mapped with it and lifted by its brightness. Hands back the geometry chain.',
   }],
   wire: ['.wire()  ·  texture: .wire({ res, depth, size })', "Draw every triangle edge as a 1px line, on any shape. .lines() is the version that follows the vertex grid. On a texture, the image as a mesh of edges."],
-  instance: ['.instance(count | layout | tracker, (x, i, n, t) => x.position(...), { blend })', {
+  instance: ['.instance(count | bundle, (x, i, n, t) => x.position(...), { blend })', {
     geo: 'Render as one InstancedMesh.',
     texture: 'Stamp the picture so far once per copy, in one draw.',
-    note: "The fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count. A layout() stands in for the count and brings its own; a track() brings a slot per blob it can follow and hides the ones with no blob in them.",
+    note: "The fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count.\nA bundle stands in for the count and places each copy on its record: a layout() its pose and scale, a track() a slot per blob with the empty ones hidden, a data() or .scatter() or particles().read() the point alone. A fn alongside it runs after that, for what goes on top.",
   }],
   place: ['.place(label?, data?)', "Layout cursor: record a copy centered where the cursor stands, at its heading and scale, for a tip or a scatter rather than a segment (.span() is the one that runs between joints). The label names what goes there, picked out later by .filter(); data rides along per copy, for .data(i) to read."],
   branch: ['.branch(x => x.turn(0.5), rule?)', "Layout cursor: grow a child. The step shapes it, then the rule runs again from there, one generation deeper. The parent's cursor stays put. A second argument hands the child a different rule."],
@@ -144,19 +144,23 @@ export const METHODS = {
   apply: ['.apply(x, i)', {
     layout: 'Place copy i on an instance handle and hand the handle back. .instance(l) is this call already made; the long form is for putting more on top of it.',
     blobs: "Put a copy on blob i — its position and its size — and hand the handle back. .instance(blobs) is this call already made. An empty slot hides its copy, and hiding wins over anything the sketch's own fn sets afterward.",
+    bundle: "Put a copy on point i and hand the handle back. .instance(bundle) is this call already made; the long form is for a count of your own, which is what a bundle that grows after the sketch runs needs: .instance(64, (x, i) => bundle.apply(x, i)). A point that isn't there (alpha 0) hides its copy.",
   }],
   age: ['.age(i)  ·  particle data: .age', {
-    layout: 'Where copy i falls in place order, 0..1, which runs outward a generation at a time. What .grow() measures against.',
     blobs: 'How long blob i has been tracked, in seconds — what a copy fades itself in over so a new blob arrives rather than pops.',
-    data: 'Seconds into the current life, per slot — negative while the slot waits to be born.',
+    bundle: 'Seconds into the current life, per slot — negative while the slot waits to be born.',
   }],
+  along: ['.along(i)', 'Layout: how far along the structure copy i sits, 0..1 in place order, which runs outward a generation at a time. What .grow() measures against.'],
   data: ['.data(i)', 'Layout: whatever .place() was handed alongside its label, for copy i.'],
   count: ['.count', {
     layout: 'How many copies the rule placed.',
     blobs: 'How many blobs are being tracked right now — the slots with something in them, which is not .max.',
-    data: 'How many points the set holds.',
+    bundle: 'How many points the bundle holds.',
     pairs: 'How many pairs there are this frame.',
   }],
+  slots: ['.slots', "Bundle: how many indices it has, which is how many copies .instance() draws. The same as .count for a bundle that holds only what it has (a layout, a data()); on a tracker it is .max, since a blob keeps the slot it arrived in and an empty one still has an index."],
+  at: ['.at(i)', "Bundle: record i as one object — index first, then the key, so .at(i).pos is where it is and the rest is whatever the producer carries: a layout's .size .along .depth .data, a tracker's .id .age .box(), a particle's .vel .life.\nThe properties are live getters reading the record at access time, so one handed to a fn of t follows its point (color: hsl(() => b.id * 0.618, 0.8, 0.6)); destructuring it outside one snapshots the moment instead. One object per index, reused, so reading allocates nothing."],
+  read: ['.read()', "Particles: the swarm as a bundle — .pos, .alpha (the fade envelope; 0 in an empty slot), .vel, .age, .life. Read back one frame behind; filled once the system's .out() runs."],
 
   align: ['.align(v)', "Aim the shape's +Y axis along a direction vector. .rotation() still applies, in the shape's own frame before the aim; components take fns of t."],
   sample: ['.sample(i)', "The i-th point of a fixed scatter over this shape's surface, as {x, y, z}. Points are stable across re-runs; the shape's whole chain applies, and it needn't be in the scene."],
@@ -164,26 +168,25 @@ export const METHODS = {
   circle: ['curve.circle(r, { center, axis })', "A closed circle of radius r — flat on the ground plane by default, starting on +X and heading toward +Z. r takes a fn of t."],
   line: ['curve.line(a, b)', "A straight path from a to b, each an [x, y, z]; components take fns of t. Open, so u turns back at the ends."],
   helix: ['curve.helix({ radius, height, turns })', "A helix rising along Y through the origin — u = 0 at the bottom, 1 at the top. Every option takes a fn of t."],
-  normal: ['.normal(i)  ·  scatter data: .normal', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. A .scatter() set carries them all as .normal.'],
-  scatter: ['.scatter(n)', "Geometry: the first n surface scatter points as a data set — the same points .sample(i) reads, with .noise() and the transform applied. Renders nothing."],
-  read: ['.read()', "Particles: the swarm as a data set — .pos, .alpha (the fade envelope; 0 in an empty slot), .vel, .age, .life. Read back one frame behind; filled once the system's .out() runs."],
-  pairs: ['.pairs({ within, max })  ·  .pairs(other, { within, max })', "Data set: every pair of points closer than within, at most max per point. Handed another set (or plain array) it pairs across the two instead. .list holds the [a, b] index pairs, .tris the trios that are all in reach of one another.\nOn a tracker it pairs the blobs being tracked, empty slots left out."],
-  link: ['.link({ within, max, fill, lit, fade, color, opacity, blend })  ·  .link(other, { … })  ·  particles: { sample }  ·  geometry: { count }', "Draw a line between every pair of points closer than within. On a geometry it connects its scatter; on particles, the swarm, drawn by the system's own .out(); on a data set it ends in its own .out(), and .link(other) pairs across to the other's points.\nOn a tracker it joins the blobs being tracked, empty slots left out."],
+  normal: ['.normal(i)  ·  scatter data: .normal', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. A .scatter() bundle carries them all as .normal.'],
+  scatter: ['.scatter(n)', "Geometry: the first n surface scatter points as a bundle — the same points .sample(i) reads, with .noise() and the transform applied. Renders nothing."],
+  pairs: ['.pairs({ within, max })  ·  .pairs(other, { within, max })', "Bundle: every pair of points closer than within, at most max per point. Handed another bundle (or plain array) it pairs across the two instead. .list holds the [a, b] index pairs, .tris the trios that are all in reach of one another.\nAny bundle pairs: a tracker's blobs, a layout's placed copies, a swarm read back. Records that aren't there — an empty slot, a particle between lives — are left out."],
+  link: ['.link({ within, max, fill, lit, fade, color, opacity, blend })  ·  .link(other, { … })  ·  particles: { sample }  ·  geometry: { count }', "Draw a line between every pair of points closer than within. On a geometry it connects its scatter; on particles, the swarm, drawn by the system's own .out(); on a bundle it ends in its own .out(), and .link(other) pairs across to the other's points.\nAny bundle links: a tracker's blobs, a layout's placed copies, points of your own. Records that aren't there are left out."],
   hide: ['.hide(v = true)', "Instance copy: leave this copy out of the frame. Checked after the fn has run, so nothing later can bring back a copy that asked to go — which is how .instance(track(…)) drops the slots with no blob in them. What a count sized for the most copies a sketch might need does with the rest."],
   between: ['.between(a, b)', "Instance copy: span this copy between two points — midpoint, aimed along the gap, y scaled to the distance. Build the shape unit-height (cylinder({ height: 1 })) so it spans exactly; .scale() before it sets the thickness."],
   pos: ['.pos  ·  tracker: .pos(i)', {
-    data: 'The points, a live array of [x, y, z], rebuilt each frame.\nElsewhere .pos() is short for .position().',
+    'bundle layout': 'The points, a live array of [x, y, z], rebuilt each frame — a layout\'s are the copies it placed.\nElsewhere .pos() is short for .position().',
     blobs: "Where blob i is, as [x, y, 0] in frame units — y runs -0.5..0.5 and x carries the aspect, which is the space a texture copy is drawn in. { scale } on the call sizes it up for a 3D scene. [0, 0, 0] for an empty slot.",
   }],
   vel: ['.vel  ·  tracker: .vel(i)', {
-    data: 'Velocity per slot, as [x, y, z] in world units per second.',
+    bundle: 'Velocity per slot, as [x, y, z] in world units per second.',
     blobs: 'How fast blob i is moving, in .pos() units per second, as [x, y, 0]. Measured off the smoothed track, so it answers which way a hand is going rather than how noisy the edge is.',
     'midi midikey': 'How hard the last key was struck, 0..1. Latched, so it holds between notes; after .key(38) it follows that pad alone.',
   }],
   id: ['.id(i)', "Tracker: which blob, ever, is in slot i — a count starting at 0 that is never handed out twice. A slot outlives its occupant, so a look keyed off i would be inherited by the next blob through it; keyed off .id(i) it can't be. -1 when the slot is empty.\nhsl(blobs.id(i) * 0.618, 0.7, 0.5) spreads successive blobs around the wheel and holds each one's hue for life."],
   has: ['.has(i)', 'Tracker: whether slot i has a blob in it right now. .instance() hides an empty slot for you — this is for sketch code that wants to know.'],
   max: ['.max', "Tracker: how many slots there are, which is how many copies .instance() draws. Fixed, because an instance count is: set it on the call to the most blobs the sketch should follow at once ({ max: 4 }), and the ones with nothing in them are hidden."],
-  box: ['.box(i, { pad })', "Tracker: the blob's box as the bundle rect() takes — center in UV, w/h as frame fractions, every value a live fn, the whole thing collapsed to nothing while the slot is empty. rect(blobs.box(i)) draws it; { ...blobs.box(i), thickness: 0.004, bg: null } is its outline. Frame units whatever { scale } says, since this is for texture space. pad grows it on every side."],
+  box: ['.box(i, { pad })', "Tracker: the blob's box as the config rect() takes — center in UV, w/h as frame fractions, every value a live fn, the whole thing collapsed to nothing while the slot is empty. rect(blobs.box(i)) draws it; { ...blobs.box(i), thickness: 0.004, bg: null } is its outline. Frame units whatever { scale } says, since this is for texture space. pad grows it on every side."],
   boxes: ['.boxes({ pad })', "Tracker: every box in one picture — each pixel's luma is how many boxes cover it, written raw past 1.0 where they pile up. So .threshold(0.5) is the union (mask through it to treat inside every box at once, and once where boxes overlap), .threshold(1.5) keeps only the overlaps, and the raw count can drive any per-pixel knob. One pass whatever max is."],
   largest: ['.largest()', 'Tracker: the slot holding the biggest blob — the subject, when the sketch only wants one. -1 when nothing is being tracked, and every read off -1 comes back resting, so the arithmetic still works on an empty frame.'],
   area: ['.area(i)', 'Tracker: the fraction of the frame blob i covers, 0..1 — the reading that ignores the frame shape. Good for how close someone is, or as a gate on a gesture.'],
@@ -299,8 +302,7 @@ export const METHODS = {
   crop: ['.crop(w, h?, { center })', "Texture: keep the middle w×h of the frame and drop the rest to transparent black — nothing is resampled, the frame closes in, and in a comp the surround is a cutout. Sizes above 1 are pixels of the frame's grid, 0..1 a fraction of the frame; h defaults to w. Sizes and center take fns of t."],
   warp: [".warp({ barrel, twist, zoom, center, wrap })", "Texture: radial UV warp — the CRT/fisheye lens. Radius is 1 at the frame corner, so barrel: 0.3 pulls the corners in by 30%. All params take fns of t, or textures to vary across the frame."],
   chroma: ['.chroma(amount, { radial, angle, center })', "Texture: chromatic aberration — samples R and B at opposite UV offsets, G at center. amount is the split at the frame edge: 0.002-0.01 is subtle, more is glitch. amount, angle and center take fns of t, or textures."],
-  each: ['.each(set, (b, i, n) => chain, { mode, opacity })', "Texture: a mark per record of a set — a tracker, for now. The fn is handed the record (live getters: b.pos, b.id, b.box()…) and answers a chain to comp on, or nothing to skip the slot; marks land in slot order, 'over' unless mode says otherwise.\nIt runs once per slot at build, like .instance()'s fn — liveness comes from the fns baked into the mark's params, so read b inside them (color: hsl(() => b.id * 0.618, 0.8, 0.6)) rather than destructuring it outside. Each distinct mark costs a pass, exactly like the comps it stands for."],
-  at: ['.at(i)', "Tracker: everything about slot i as one object — index first, then the key: b.pos, b.size, b.id, b.age, b.has, b.box(). The properties are live getters reading the slot at access time, so b.pos inside any fn of t follows the blob; destructuring outside one snapshots the moment instead. One object per slot, reused, so reading allocates nothing."],
+  each: ['.each(bundle, (b, i, n) => chain, { mode, opacity })', "Texture: a mark per record of a bundle — a tracker's blobs, a layout's copies, points of your own. The fn is handed the record (live getters: b.pos, b.id, b.box()…) and answers a chain to comp on, or nothing to skip that one; marks land in index order, 'over' unless mode says otherwise.\nIt runs once per slot at build, like .instance()'s fn — liveness comes from the fns baked into the mark's params, so read b inside them (color: hsl(() => b.id * 0.618, 0.8, 0.6)) rather than destructuring it outside. Each distinct mark costs a pass, exactly like the comps it stands for."],
   mask: ['.mask(mask, fn?)', 'Texture: without fn, multiply by the mask\'s luma (cutout). With fn, apply it only where the mask is bright. Mask and fn both accept fn-of-chain.'],
   threshold: ['.threshold(level, { soft })', 'Texture: luma threshold to a black/white mask. Both keys take a texture: a per-pixel level cuts the image against another image rather than against one number.'],
   chromaKey: ['.chromaKey(color, { tolerance, soft, spill })', "Texture: make pixels near color transparent, leaving the rest as a cutout. The match radius adapts to the key color, so a green screen's lit and shadowed parts key together; tolerance scales it. All args take fns of t."],
@@ -315,10 +317,10 @@ export const METHODS = {
     note: 'The map is an imported image by name or a texture chain; positional .displace(map, amount) works on either.',
   }],
   comp: [".comp(layer, { mode, opacity, swap })", "Texture: composite layer over this chain. layer may be a fn of the chain so far. Positional .comp(layer, mode, opacity) also works.\nModes: over under add sub mult screen overlay hardLight softLight darken lighten difference exclusion dodge burn divide luminosity color sum — sum is add without the clamp, so comped white masks count their overlaps."],
-  alpha: ['.alpha(v)  ·  .alpha(v) on a copy', {
+  alpha: ['.alpha(v)  ·  bundle: .alpha  ·  tracker: .alpha(i)', {
     texture: "Scale the image's alpha — 1 leaves it, 0 is fully transparent, the color dimming with it (premultiplied). A texture in place of v fades per pixel by its luma. Transparency shows wherever the chain is comped or stacked; the display itself sits on black.",
     inst: "Fade this copy alone, 0..1. On a geometry copy it isn't per-copy — opacity is one material for the whole batch.",
-    data: "How visible each point is, 0..1, as an array — a particle's fade envelope; 1 unless the source sets it.",
+    'bundle layout blobs': "Bundle: how present each record is, 0..1 — a particle's fade envelope, 1 or 0 on a tracker's slot by whether a blob is in it, 1 throughout where the producer never says otherwise. An array, except on a tracker, which spells it per slot like its other readings: .alpha(i), or .has(i) for the same answer as a boolean.\nThe one key besides .pos that the machinery reads: a record at 0 is left out of .pairs(), .link() and curve(), and .instance() hides its copy.",
   }],
   blur: ['.blur(radius)', 'Texture: separable gaussian blur, radius in texels. An [x, y] radius blurs per axis — .blur([8, 0]) smears horizontally only; an axis at 0 skips its pass.'],
   bloom: ['.bloom({ threshold, strength, radius, color })', 'Texture: brightpass + half-res gaussian glow.'],
@@ -864,6 +866,16 @@ const METHOD_KEY_DOCS = {
     opacity: 'Line opacity, 0..1, on top of the fade. Default 1.',
     blend: "'over' or 'add'. Particle links follow the system's blend.",
   },
+  each: {
+    mode: "How each mark lands on the picture — any .comp() mode. Default 'over'. 'add' lets overlapping marks build up, 'sum' counts them.",
+    opacity: 'Opacity for every mark, 0..1, on top of whatever the mark sets itself. Default 1.',
+  },
+  box: {
+    pad: "Grow the box on every side, in frame-height units — room for an outline to sit clear of the blob, or slack so a wobbling edge stays inside. Default 0.",
+  },
+  boxes: {
+    pad: 'Grow every box on every side, in frame-height units. Default 0.',
+  },
   push: {
     amount: 'How hard the map pushes, in frame-heights per second. Default 1. Takes a fn of t; it scales an [x, y] direction too.',
     mid: 'The value in the map that means no push. Default 0.5, so an unsigned map pushes both ways around its midpoint; 0 for a map that is already signed. Nothing to do with an [x, y] direction.',
@@ -1154,7 +1166,7 @@ const globalKinds = {
   layout: 'layout',
   blobs: 'track',
   curvens: 'curve',
-  data: 'data',
+  bundle: 'data',
   segments: 'segments link',
   texture: 'scene depth input sketch constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid glsl',
   signal: 'beat audio audiofile band rand select sig T B mouse',
@@ -1171,15 +1183,18 @@ const methodKinds = {
   evolve: 'size color opacity force',
   light: 'position target out',
   inst: 'position rotation scale align between color alpha tile hide material',
-  // data sets (data(), .scatter(), particles .read()) and their pairings
-  data: 'pos alpha normal vel age life count pairs link',
+  // The bundle family: what every producer answers (count slots at pairs link
+  // apply), plus the channels a data(), a .scatter() or a particles
+  // .read() carries. A layout and a tracker are bundles too, with their own
+  // vocabulary on top — see their kinds below.
+  bundle: 'pos alpha normal vel age life count slots at apply pairs link',
   pairs: 'list tris count',
   segments: 'material blend position rotation scale render out',
   // the cursor a layout rule steers, and the structure it hands back
   cursor: 'span forward turn scale place branch rand depth size distance position',
-  layout: 'filter grow apply age depth data size count',
+  layout: 'filter grow along depth data size pos alpha count slots at apply pairs link',
   // what track() hands back: a slot's blob, read per slot
-  blobs: 'pos vel size area width height angle id age has count max largest at box boxes apply pairs link',
+  blobs: 'pos vel size area width height angle id age has alpha max largest box boxes count slots at apply pairs link',
   // (.noise/.displace/.shadow/.out belong to the chain, not a copy — the handle
   // has them only to say so; offering them here would invite the mistake)
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue each
@@ -1212,7 +1227,7 @@ export const KIND_LABEL = {
   geo: 'geometry', particle: 'particles', evolve: 'particle', light: 'light',
   texture: 'texture', signal: 'signal', repeat: 'signal', midi: 'midi', midikey: 'midi',
   gamepad: 'gamepad', hand: 'hand', layout: 'layout', blobs: 'tracker', cursor: 'cursor', inst: 'copy',
-  curve: 'curve', curvens: 'curve', data: 'data', pairs: 'pairs', segments: 'segments',
+  curve: 'curve', curvens: 'curve', bundle: 'bundle', pairs: 'pairs', segments: 'segments',
 };
 
 // The globals as a catalog, for a completion popup opened with nothing typed:

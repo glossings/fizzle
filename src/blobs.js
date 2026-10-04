@@ -1,4 +1,4 @@
-import { ChannelData } from './link.js';
+import { Bundle } from './link.js';
 import { carried, isClaiming } from './carry.js';
 import { site } from './profile.js';
 import { warn } from './warn.js';
@@ -366,16 +366,22 @@ function update(st, regions, max, t, aspect, o) {
 // What a sketch holds. Reads are per slot and answer a resting value when the
 // slot is empty, rather than null — a sketch doing arithmetic on a blob that
 // just left gets a number, which is the same bargain .field() makes.
-export class Blobs {
+//
+// A bundle (see link.js), so the family's consumers all take a tracker: the bare
+// names are the readings per slot (.pos(i)), .at(i) is a whole slot as one
+// record, .read() the same readings as this frame's arrays, and .pairs()/
+// .link()/curve() find the points through the base's own fill.
+export class Blobs extends Bundle {
+  static channels = ['pos', 'alpha', 'vel', 'size', 'area', 'width', 'height', 'angle', 'id', 'age', 'has'];
+
   constructor(engine, node, o = {}) {
     if (engine == null) {
       throw new Error('new Blobs() is not how tracking starts — track(video()) follows the bright regions of a chain');
     }
-    this.engine = engine;
+    super(engine);
     this._max = clampInt(o.max, 8, 1, MAX_SLOTS);
     this._scale = num(o.scale, 1);
     this._aspect = 1;
-    this._set = null;
     this._st = carried('blobs', newState);
     const res = clampInt(o.res, 128, RES_MIN, RES_MAX);
     const opts = {
@@ -446,81 +452,82 @@ export class Blobs {
   // because a blob holding its slot is what keeps per-copy state honest
   get max() { return this._max; }
   get slots() { return this._max; }
-  // how many of them have a blob in them right now
+  // how many of them have a blob in them right now — the one place a bundle's
+  // .count and .slots come apart
   get count() { return this._st.live; }
 
-  _at(i) {
+  // The slots as points, for the machinery that works off a bundle's own arrays
+  // (.pairs(), .link(), curve()): slot order kept, so an index means the same
+  // thing here as it does in .at(i), and an empty slot carries alpha 0, which
+  // is how those consumers leave it out.
+  _fill() {
+    this._room(this._max);
+    this._n = this._max;
+    this._alp ??= new Float32Array(this._max);
+    for (let i = 0; i < this._max; i++) {
+      const b = this._st.slots[i];
+      this._alp[i] = b ? 1 : 0;
+      this._pts[i * 3] = b ? b.x * this._scale : 0;
+      this._pts[i * 3 + 1] = b ? b.y * this._scale : 0;
+      this._pts[i * 3 + 2] = 0;
+    }
+  }
+
+  _slot(i) {
     const k = Math.floor(i);
     return k >= 0 && k < this._max ? this._st.slots[k] ?? null : null;
   }
 
-  has(i) { return this._at(i) != null; }
+  has(i) { return this._slot(i) != null; }
+  // The contract's presence key in this tracker's own spelling, so every
+  // reading here is a call: 1 where a blob is, 0 where the slot is empty, which
+  // is what leaves the empties out of .pairs(), .link() and curve(). .has(i) is
+  // the same answer as a boolean, for sketch code that reads better that way.
+  alpha(i) { return this._slot(i) ? 1 : 0; }
   // Which blob, ever: a count that starts at 0 and never comes round again, so
   // a look keyed off it can't be inherited by the next blob through the slot.
   // -1 for an empty slot, which no blob has, so it reads as absent in arithmetic.
-  id(i) { const b = this._at(i); return b ? b.id : -1; }
+  id(i) { const b = this._slot(i); return b ? b.id : -1; }
   pos(i) {
-    const b = this._at(i);
+    const b = this._slot(i);
     return b ? [b.x * this._scale, b.y * this._scale, 0] : [0, 0, 0];
   }
   // per second, in the same units as .pos()
   vel(i) {
-    const b = this._at(i);
+    const b = this._slot(i);
     return b ? [b.vx * this._scale, b.vy * this._scale, 0] : [0, 0, 0];
   }
   // the fraction of the frame it covers, 0..1 — the reading that doesn't care
   // about the frame's shape
-  area(i) { const b = this._at(i); return b ? b.area : 0; }
+  area(i) { const b = this._slot(i); return b ? b.area : 0; }
   // its extent, as the side of a square of the same area: steadier than the
   // bounding box, which one stray pixel can stretch
   size(i) {
-    const b = this._at(i);
+    const b = this._slot(i);
     return b ? Math.sqrt(Math.max(0, b.area * this._aspect)) * this._scale : 0;
   }
-  width(i) { const b = this._at(i); return b ? b.w * this._scale : 0; }
-  height(i) { const b = this._at(i); return b ? b.h * this._scale : 0; }
+  width(i) { const b = this._slot(i); return b ? b.w * this._scale : 0; }
+  height(i) { const b = this._slot(i); return b ? b.h * this._scale : 0; }
   // The axis it lies along, radians, 0 = across the frame. An axis repeats
   // every half turn, so this stays within ±π/2 and a round blob's is whatever
   // noise it had — worth leaning on for an arm, not for a face.
   angle(i) {
-    const b = this._at(i);
+    const b = this._slot(i);
     return b ? 0.5 * Math.atan2(b.s2, b.c2) : 0;
   }
   // seconds since it arrived — a blob can fade itself in over its first moments
   age(i) {
-    const b = this._at(i);
+    const b = this._slot(i);
     return b ? Math.max(0, this.engine.time - b.born) : 0;
   }
 
-  // Everything about slot i as one object — index first, then the key, the way
-  // a JS reader expects. The properties are live getters reading the slot at
-  // access time, so `b.pos` inside any fn of t follows the blob; the one trap
-  // is destructuring outside one, which snapshots the moment instead. Views
-  // are made once per slot and reused, so reading one allocates nothing.
-  at(i) {
-    const k = Math.floor(i);
-    if (!(k >= 0) || k >= this._max) return null;
-    this._atViews ??= [];
-    if (!this._atViews[k]) {
-      const s = this;
-      this._atViews[k] = {
-        get has() { return s.has(k); },
-        get id() { return s.id(k); },
-        get pos() { return s.pos(k); },
-        get vel() { return s.vel(k); },
-        get size() { return s.size(k); },
-        get area() { return s.area(k); },
-        get width() { return s.width(k); },
-        get height() { return s.height(k); },
-        get angle() { return s.angle(k); },
-        get age() { return s.age(k); },
-        box(o) { return s.box(k, o); },
-      };
-    }
-    return this._atViews[k];
+  // .at(i) is the base's — every reading above under its own name — plus the
+  // one thing a blob has that isn't a reading: its box.
+  _record(rec, k) {
+    rec.box = (o) => this.box(k, o);
   }
 
-  // The blob's box, as the bundle rect() takes — center in UV, w and h as
+  // The blob's box, as the config rect() takes — center in UV, w and h as
   // fractions of the frame — every value a live fn, and the whole thing
   // collapsed to nothing while the slot is empty. rect(blobs.box(i)) draws it;
   // { ...blobs.box(i), thickness: 0.004, bg: null } is its outline. Answered
@@ -531,11 +538,11 @@ export class Blobs {
     const pad = Math.max(0, num(o.pad, 0));
     return {
       center: [
-        () => { const b = this._at(i); return b ? b.x / this._aspect + 0.5 : 0.5; },
-        () => { const b = this._at(i); return b ? b.y + 0.5 : 0.5; },
+        () => { const b = this._slot(i); return b ? b.x / this._aspect + 0.5 : 0.5; },
+        () => { const b = this._slot(i); return b ? b.y + 0.5 : 0.5; },
       ],
-      w: () => { const b = this._at(i); return b ? (b.w + pad * 2) / this._aspect : 0; },
-      h: () => { const b = this._at(i); return b ? b.h + pad * 2 : 0; },
+      w: () => { const b = this._slot(i); return b ? (b.w + pad * 2) / this._aspect : 0; },
+      h: () => { const b = this._slot(i); return b ? b.h + pad * 2 : 0; },
     };
   }
 
@@ -554,28 +561,13 @@ export class Blobs {
   // — .instance(blobs) is this call already made. An empty slot hides its copy,
   // and hiding wins over whatever the sketch's own fn does afterward: a copy
   // with no blob in it has no position worth drawing at.
-  apply(handle, i, t) {
-    const b = this._at(i);
+  apply(handle, i) {
+    const b = this._slot(i);
     if (!b) return handle.hide();
     handle.position(b.x * this._scale, b.y * this._scale, 0);
     handle.scale(this.size(i));
     return handle;
   }
-
-  // The blobs as a data set — the slots with something in them, in slot order,
-  // so a plexus between them doesn't run lines to the empties. One set per
-  // tracker, since the channel it reads is rebuilt per frame anyway.
-  _data() {
-    this._set ??= new ChannelData(this.engine, { pos: () => {
-      const out = [];
-      for (let i = 0; i < this._max; i++) if (this._st.slots[i]) out.push(this.pos(i));
-      return out;
-    } });
-    return this._set;
-  }
-
-  pairs(other, o) { return this._data().pairs(other, o); }
-  link(other, o) { return this._data().link(other, o); }
 }
 
 const num = (v, dflt) => (Number.isFinite(Number(v)) ? Number(v) : dflt);

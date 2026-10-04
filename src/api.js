@@ -13,7 +13,7 @@ import { lineGeometry } from './lines.js';
 import { makePointSet } from './sample.js';
 import { makeLayout, Layout } from './layout.js';
 import { makeBlobs, Blobs } from './blobs.js';
-import { Data, ChannelData, ScatterData, SegmentsOp, asData } from './link.js';
+import { Bundle, ChannelBundle, ScatterBundle, SegmentsOp, asBundle, EMPTY_BUNDLE } from './link.js';
 import { Curve, makeCurve, curveCircle, curveLine, curveHelix, spread } from './curve.js';
 import { setColor, makeColor, isDynamicColor, hsl, hsv } from './color.js';
 import { cameraPad } from './camera-pad.js';
@@ -578,11 +578,11 @@ class GeoOp {
     return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
   }
 
-  // scatter(n) — the first n scatter points as a data set: .pos is .sample(i)
+  // scatter(n) — the first n scatter points as a bundle: .pos is .sample(i)
   // said all at once, .normal rides along, .pairs()/.link() connect it. Like
   // a layout source, the shape needn't be in the scene.
   scatter(n = 200) {
-    return new ScatterData(this.engine, this, n);
+    return new ScatterBundle(this.engine, this, n);
   }
 
   // link({ count, within, max, fill, fade, color, opacity, blend }) —
@@ -764,15 +764,16 @@ class GeoOp {
   // same verbs as the chain (x.position/.rotation/.scale/.color). It runs every
   // frame, so instances animate.
   //
-  // instance(layout) instead takes the copies from a layout() (or one of its
-  // .filter() views), which brings its own count; a fn alongside it runs after the
-  // structure has placed the copy, for the tint or wobble on top of it.
-  // instance(track(…)) is the same deal for tracked blobs: a copy per slot,
-  // placed on the blob holding it, and hidden where no blob does.
+  // instance(bundle) instead takes the copies from a bundle — a layout() (or one of
+  // its .filter() views), a track(), a data() — which brings its own count and
+  // places each copy on its record; a fn alongside it runs after that, for the
+  // tint or wobble on top. A layout places pose and scale, a tracker position
+  // and size and hides the slots with no blob in them, a bare set of points
+  // places position alone: what a record carries is the producer's to say.
   instance(count, fn) {
-    if (count instanceof Layout || count instanceof Blobs) {
+    if (count instanceof Bundle) {
       const l = count;
-      if (!l.slots) warn('instance: the layout placed no copies — a rule builds them with e.place()');
+      if (!l.slots) warn(EMPTY_BUNDLE);
       this._instance = {
         count: l.slots,
         fn: fn
@@ -1417,23 +1418,23 @@ export function makeApi(engine) {
     // n phases 0..1, evenly spaced — what a curve (or anything phase-shaped) eats
     spread,
 
-    // The sketch's own points as a data set: data(array) views a live
+    // The sketch's own points as a bundle: data(array) views a live
     // [x, y, z][] the sketch moves in onFrame(), data({ pos, alpha }) adopts
     // any source — each channel an array or a fn of t returning one. Renders
     // nothing; .pairs()/.link() connect it, geo .instance() places onto it.
-    data: (spec) => new ChannelData(engine, spec),
+    data: (spec) => new ChannelBundle(engine, spec),
 
     // Line segments between paired points, rebuilt every frame — see link.js.
-    // Takes a .pairs(), a data set, or a plain array of [x, y, z] (paired
+    // Takes a .pairs(), a bundle, or a plain array of [x, y, z] (paired
     // with the given within/max); link() is the same call said quicker.
     segments: (pairs, o) => new SegmentsOp(engine, pairs, o),
 
     // link(points, { within, max, fill, … }) — the plexus one-liner over any
-    // array or data set; .link() on shapes, particles and sets is the same.
+    // array or bundle; .link() on shapes, particles and bundles is the same.
     link(pts, o = {}) {
-      const d = asData(engine, pts);
+      const d = asBundle(engine, pts);
       if (!d) {
-        warn('link: points first — a plain array of [x, y, z], a data set, or .link() on a shape or particle system');
+        warn('link: points first — a plain array of [x, y, z], a bundle, or .link() on a shape or particle system');
         return new SegmentsOp(engine, null, o);
       }
       return d.link(o);
@@ -2038,7 +2039,7 @@ export function makeApi(engine) {
     Signal,
     Layout,
     Blobs,
-    Data,
+    Bundle,
     Curve,
 
     // A bus name nothing else will take, one per call site — what a helper
