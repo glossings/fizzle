@@ -23,6 +23,7 @@ import { SAVED_BLOCK } from './engine.js';
 import { site, tag } from './profile.js';
 import { sig, Signal, valueNoise, barPhase, setBpmSource } from './audio.js';
 import { bandValue } from './bands.js';
+import { makeFeed } from './feed.js';
 import { midiHandle, gamepadHandle } from './control.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
@@ -1800,7 +1801,25 @@ export function makeApi(engine) {
     // chain.glsl() is the same call with the picture so far in tex0.
     glsl: (source, uniforms) => glslNode(engine, source, uniforms),
     voronoi: (o) => new TextureOp(engine, 'voronoi', o ?? {}),
-    text: (text, o) => new TextureOp(engine, 'textGen', { ...o, text }),
+    // Canvas-rendered text. Options may ride the first argument, which is how
+    // a text with no string of its own is written: text({ url }).
+    text(text, o = {}) {
+      if (text !== null && typeof text === 'object' && !Array.isArray(text)) { o = text; text = o.text; }
+      const p = { ...o, text };
+      // url is sugar: the feed's text and ranges as the two params they are,
+      // so anything feed() can do to a frame can be handed to text() instead.
+      // Claimed here, where the call is written, so a text in a dormant
+      // .when() branch still holds its connection (see reapCaptures).
+      if (p.url != null) {
+        const f = makeFeed(engine, p.url, p);
+        if (p.text == null) p.text = f.text;
+        if (p.ranges == null) p.ranges = f.ranges;
+      }
+      return new TextureOp(engine, 'textGen', p);
+    },
+    // Live text from a url, as a callable frame: feed(url)(t) is whatever
+    // arrived last. One connection per url however many calls read it.
+    feed: (url, o) => makeFeed(engine, url, o),
     // camera capture as a texture; name matches a camera label (substring,
     // case-insensitive), no name = default camera. Permission prompt on
     // first use; the stream survives re-runs.

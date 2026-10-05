@@ -29,9 +29,27 @@ export const JS_GLOBALS = `Math JSON Date Array Object String Number Boolean con
   Promise Set Map performance parseInt parseFloat isNaN structuredClone requestAnimationFrame
   innerWidth innerHeight devicePixelRatio`.split(/\s+/);
 
-// code with comments and string bodies blanked, so words inside them don't count
-export const bare = (code) =>
-  code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '').replace(/'[^']*'|"[^"]*"|`[^`]*`/g, "''");
+// code with comments and string bodies blanked, so words inside them don't
+// count. One scan rather than three passes, because a string can hold what
+// looks like a comment — the // in a url left the quote open and every quote
+// after it paired up with the wrong one.
+export const bare = (code) => {
+  let out = '';
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (c === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++;
+      out += '\n';
+    } else if (c === '/' && code[i + 1] === '*') {
+      const end = code.indexOf('*/', i + 2);
+      i = end < 0 ? code.length : end + 1;
+    } else if (c === "'" || c === '"' || c === '`') {
+      for (i++; i < code.length && code[i] !== c; i++) if (code[i] === '\\') i++;
+      out += "''";
+    } else out += c;
+  }
+  return out;
+};
 
 // a method call is not a global: b.box() builds no geometry, curve.circle()
 // is a curve's own verb — only free-standing names count

@@ -66,7 +66,8 @@ export const GLOBALS = {
   fluid: ["fluid({ res, speed, fade, damping, vorticity, iterations, wrap })", "Texture generator: an incompressible fluid sim. .push(map) drives the field, .ink(chain) pours dye into it, .obstacle(mask) puts solids in its way; the chain itself is the dye, and .velocity()/.curl() read the fields behind it. Contents survive a re-run."],
   glsl: ["glsl(source, uniforms)", "Texture generator: a fragment shader you write. vUv is the pixel (0..1), uTime the clock, uFrame the frame count since the last restart, uDelta the frame's own length, uTexel one pixel across and down, uAspect the frame's width over its height; tex0 is black, nothing having come before it. uniforms is an object of names you choose, each holding a number, a 2/3/4 array, a color, a fn of t, or a texture chain, which arrives as a sampler2D of that name.\nA bare expression is a whole body, or write void main() yourself, or paste a Shadertoy mainImage(), whose globals are all mapped. A shader that doesn't compile warns with the line number and draws nothing."],
   voronoi: ["voronoi({ period, freq, speed, blend, seed, mode: 'cells'|'distance'|'edges', a, b })", "Texture generator: drifting scattered points, every pixel colored by the nearest one. mode picks flat cells, distance shading, or the seams; all three shade from a to b."],
-  text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right', tracking, leading })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline."],
+  text: ["text('hi', { size, color, bg, pos, font, weight, align: 'center'|'left'|'right', tracking, leading, wrap, fit, ranges, mark: { mode: 'box'|'fill'|'underline'|'circle'|'dim'|'none', color, on, weight, pad, dim }, url, pick, poll })", "Texture generator: canvas-rendered text — on a solid background, or on nothing with bg: null, ready to comp over anything. Content can be a fn of t; \\n for multiline.\nranges marks parts of the string, fit sizes the type to fill a box, and url reads both from a live feed. .marked() is how much of it is marked, as a signal."],
+  feed: ["feed('http://127.0.0.1:4000/api/events', { pick, poll })", "Live text from a url, as a callable frame: f(t) is whatever arrived last — { text, ranges } if the producer sends them, plus anything else it sends. An event stream pushes, anything else is fetched once (poll to keep asking).\n.text and .ranges are the fns of t text() wants, .marked a signal of how much is marked, and .slice()/.invert() hand back the same shape with the offsets moved to match. One connection per url, held across re-runs; a feed that goes down holds its last frame."],
   text3d: ["text3d('hi', { size, depth, bevel, res, font, weight, align: 'left'|'center'|'right', tracking, leading, center })", "Geometry op: 3D extruded text. Renders in helvetiker until the font you named arrives."],
 
   layout: ['layout(depth?, e => …)', "Generative structure: the rule steers a cursor, placing copies as it goes. .place() records one, .branch() grows a child that runs the rule again one generation deeper, and depth caps the generations; a rule can also stop itself by returning without branching.\n.instance() draws the result, and the placed copies are a bundle like any other — .link() webs them, curve() follows an unbranched trail. Any cursor step takes a fn of t, so the structure can move."],
@@ -332,6 +333,9 @@ export const METHODS = {
   curl: ['.curl({ scale })', 'Fluid: how sharply the field is spinning at each point, centered on mid-grey.'],
   pressure: ['.pressure({ scale })', 'Fluid: the pressure the solve landed on, centered on mid-grey. Mostly worth looking at when a sim is misbehaving.'],
   delay: ['.delay(frames, { scale, max })', "Texture: the chain as it was n frames ago. frames takes a fn of t; history survives a re-run and costs memory per frame — { scale } trades resolution for it.\nA texture in place of frames delays per pixel: its luma picks how far back each pixel looks, black now, white the whole { max } frames — slit-scan from a ramp, melt from noise."],
+  marked: ['.marked()', "Text: how much of the string its ranges cover, 0..1 by character — a signal, so it drops into any numeric parameter. Reads the parameters rather than the picture, so it reports whether or not the chain is on screen."],
+  slice: ['.slice(start, end?)', "Feed: the frame with its text cut and its ranges moved to match — negative indices count from the end, like a string's own slice(). Cutting the text by hand instead leaves every range past the cut pointing at the wrong characters."],
+  invert: ['.invert()', 'Feed: the frame with its ranges complemented — everything *not* marked becomes the marks. The text is untouched.'],
   field: ['.field({ res })', "Texture: end the chain with a sampler instead of a picture — a plain function (u, v) => 0..1 reading the chain's luma at that point, v = 0 at the bottom. Read on the CPU a frame or so behind, so any source can drive an .instance() layout or other sketch code."],
   feedback: ['.feedback(amount, prev => chain, { mode, swap, reset })', "Texture: comp this point's own last frame back over the chain — trails, echoes, video feedback. amount is how much of it returns (a fn of t works); the fn treats last frame on its way round, like p => p.rotate(0.02). A bare mode name stands in for the options in either slot — .feedback(0.9, 'under'). Contents survive a re-run; reset cuts them (see the key)."],
   tile: ['.tile(nx, ny, (src, i, x, y) => variant)  ·  .tile(n) on an instance copy', {
@@ -796,6 +800,17 @@ const GLOBAL_KEY_DOCS = {
     align: "Which end of the line pos anchors. Default 'center'.",
     tracking: 'Extra space after every letter, in ems: 0.1 adds a tenth of the font size. Negative tightens, and far enough negative piles the letters on top of each other. Default 0.',
     leading: 'Distance from one line to the next, in ems: 1 sets lines a font size apart, 2 double-spaces. Default 1.2.',
+    wrap: 'Break long lines at this width — above 1 screen pixels, 0..1 a fraction of frame width. Default: no wrapping, so only \\n breaks a line. A word with no room to fit breaks inside itself.',
+    fit: "[w, h] — the box the type is sized to fill, so two words come out huge and a whole file comes out small. Same units as size; wraps at w. A size, not a position: pos and align still place it. With no size to cap it the type may grow until h stops it.",
+    ranges: 'Which parts of the string to mark: [[start, end], ...] character offsets, end exclusive. A fn of t for marks that move — a feed is exactly this. Out-of-range pairs are clipped and overlaps merged, so a mark never doubles up.',
+    mark: "How the ranges look, one style for all of them: { mode, color, on, weight, pad, dim }. Shape and color are separate, so on: '#ff0' recolors the marked glyphs under any mode.",
+    url: "Read the text — and its ranges, if it sends them — from a live feed instead of the sketch. Sugar for text({ text: f.text, ranges: f.ranges }) over feed(url), which is what to write when you want to cut the text or invert the marks first. Shares one connection with every other call on the same url.",
+    pick: "Which field of a JSON frame holds the text, when the producer doesn't call it text. Passed through to feed().",
+    poll: 'Seconds between fetches, for a url that only answers once. Default: fetched once and left alone. An event stream ignores it — it pushes.',
+  },
+  feed: {
+    pick: "Which field holds the text, when the producer doesn't call it text: pick: 'lyrics'. Without it a JSON frame needs a text key to draw, and says so if it hasn't got one.",
+    poll: 'Seconds between fetches, for a url that only answers once. Default: fetched once and left alone. An event stream pushes instead, and ignores this.',
   },
   text3d: {
     size: 'Cap height in world units. Default 1.',
@@ -1124,7 +1139,28 @@ for (const [docs, config] of [[GLOBAL_KEY_DOCS, GLOBAL_CONFIG], [METHOD_KEY_DOCS
 
 // Config values that are themselves configs — `directional({ shadow: { ... } })`
 // wants the light-option half of .shadow()'s signature.
-export const NESTED_CONFIG = { shadow: METHOD_CONFIG.shadow };
+export const NESTED_CONFIG = { shadow: METHOD_CONFIG.shadow, mark: markKeys() };
+
+// text({ mark: { ... } }) — its own little config, documented on the keys
+// rather than in the one line text()'s signature can spare for it.
+function markKeys() {
+  const keys = parseConfig(GLOBALS.text[0]).get('mark').hint;
+  const map = parseConfig(keys);
+  const docs = {
+    mode: "The shape of a mark: 'box' (default) outlines it, 'fill' lays a block behind it, 'underline' rules under it, 'circle' rings it, 'dim' drops everything *not* marked to dim instead, 'none' draws no shape at all. An array stacks them: ['fill', 'underline'].",
+    color: "The mark's own color — the box, the fill, the rule, the ring. Default: the text color.",
+    on: "What the marked glyphs themselves are drawn in. Default: the text color, except under 'fill', where it's the background so the block reads as a highlighter. This is the knob for 'the lit atoms are yellow' with no shape at all: mode: 'none', on: '#ff0'.",
+    weight: 'Stroke width for box, underline and circle, in ems. Default 0.06.',
+    pad: 'How far a mark sits outside its characters, in ems. Default 0.08.',
+    dim: "Under mode: 'dim', the alpha everything unmarked drops to. Default 0.25.",
+  };
+  for (const [k, doc] of Object.entries(docs)) {
+    const spec = map.get(k);
+    if (spec) spec.doc = doc;
+    else if (import.meta.env?.DEV) console.warn(`docs: text({ mark }) has no key "${k}" to document`);
+  }
+  return map;
+}
 
 // A config key rendered like any other entry: `.material({ pbr })` over its
 // line. `label` carries the leading dot for methods, so the two noise() calls
@@ -1170,6 +1206,7 @@ const globalKinds = {
   segments: 'segments link',
   texture: 'scene depth input sketch constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid glsl',
   signal: 'beat audio audiofile band rand select sig T B mouse',
+  feed: 'feed',
   midi: 'midi',
   gamepad: 'gamepad',
 };
@@ -1200,12 +1237,15 @@ const methodKinds = {
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue each
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
         remap lookup lut grain tint alpha displace comp blend mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
-        fluid ink push obstacle velocity curl pressure field`,
+        fluid ink push obstacle velocity curl pressure field marked`,
   signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
            sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that
   // take a number. midikey is what .key(38) narrows to: the same key signals,
   // minus the device-wide ones.
+  // what feed() hands back: the frame's two drawable parts, how much of it
+  // is marked, and the two transforms that move the offsets with the text
+  feed: 'text ranges marked slice invert',
   midi: 'cc key note vel gate touch bend',
   midikey: 'note vel gate touch',
   gamepad: 'lx ly rx ry lt rt btn',
@@ -1227,7 +1267,7 @@ export const KIND_LABEL = {
   geo: 'geometry', particle: 'particles', evolve: 'particle', light: 'light',
   texture: 'texture', signal: 'signal', repeat: 'signal', midi: 'midi', midikey: 'midi',
   gamepad: 'gamepad', hand: 'hand', layout: 'layout', blobs: 'tracker', cursor: 'cursor', inst: 'copy',
-  curve: 'curve', curvens: 'curve', bundle: 'bundle', pairs: 'pairs', segments: 'segments',
+  curve: 'curve', curvens: 'curve', bundle: 'bundle', pairs: 'pairs', segments: 'segments', feed: 'feed',
 };
 
 // The globals as a catalog, for a completion popup opened with nothing typed:
@@ -1238,7 +1278,7 @@ export const KIND_LABEL = {
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
   ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sketch sky stack text video videofile videoseq voronoi'],
-  ['signals', 'audio audiofile B band bands beat gamepad midi mouse rand restartMedia select sig T tempo'],
+  ['signals', 'audio audiofile B band bands beat feed gamepad midi mouse rand restartMedia select sig T tempo'],
   ['structure', 'curve data layout link segments spread track'],
   ['lights', 'ambient directional hdri hemi point spot'],
   ['scene', 'bg camera fog hsl hsv param resolution'],

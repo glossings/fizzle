@@ -1871,7 +1871,8 @@ stack().kaleido(6).bloom({ threshold: 0.5, strength: 1.5 }).out()
   canvas-rendered text. `size` is a font size in screen px (values ≤ 1 =
   fraction of screen height); any CSS font, `\n` for multiline, content may be
   a function of `t`. `bg: null` puts the letters on nothing. `tracking` spaces
-  the letters and `leading` the lines, both in ems of `size`.
+  the letters and `leading` the lines, both in ems of `size`. `wrap`, `fit`,
+  `ranges` and `url` are in **live text**.
 - `video(name?)` — live camera (see **video input**).
 - `person(name?)` — a live person mask cut from that same camera (see **video
   input**).
@@ -3590,6 +3591,133 @@ edge on fast movement.
 `'body'`, `'skin'` (face + body), `'clothes'` and `'other'` — via a larger
 model (~16 MB more, fetched on first use). Every part of one camera comes out
 of a single pass, so tinting hair over recolored clothes costs one inference.
+
+## live text
+
+`ranges` marks parts of a `text()`: character offsets, `[[start, end], ...]`,
+end exclusive. `mark` says how they look.
+
+```js
+const line = 'kick: bd*4   hat: hh*8   bass: saw'
+const atoms = [[0, 10], [13, 22], [25, 34]]
+
+text(line, {
+  size: 0.08,
+  ranges: (t) => [atoms[Math.floor(t * 2) % 3]],
+  mark: { mode: 'fill', color: '#ffd84f' },
+}).out()
+```
+
+A fn of `t` is the whole point — the marks move while the string sits still.
+`mode` is the shape (`'box'`, `'fill'`, `'underline'`, `'circle'`, `'dim'`,
+`'none'`, or an array of them) and it's separate from the color, so `on`
+recolors the marked glyphs under any of them. `'dim'` is the one that inverts
+the job: everything *not* marked drops to `dim` alpha.
+
+`.marked()` is how much of the string the marks cover, 0..1 by character, as a
+signal. Which means the text can drive the picture without writing a mapping:
+
+```js
+const line = text('one two three four', { size: 0.1, bg: null, ranges: (t) => [[0, 3 + (t * 6) % 15]] })
+
+line.bloom({ threshold: line.marked().range(0.9, 0.3) }).out()
+```
+
+### fitting
+
+`fit: [w, h]` sizes the type to fill a box instead of taking a `size`, so two
+words come out huge and a whole file comes out small. Same units as `size`
+(above 1 screen pixels, 0..1 a fraction of the frame), and it wraps at `w`:
+
+```js
+const words = 'fit sizes the type to fill the box you give it'.split(' ')
+
+text((t) => words.slice(0, 1 + Math.floor(t) % words.length).join(' '), {
+  fit: [0.8, 0.6],
+  bg: '#101014',
+}).out()
+```
+
+It's a size, not a position: `pos` and `align` still place the text. `size`
+alongside it becomes the cap — the size the type may not exceed, which is what
+stops two words going comically large. `wrap` on its own breaks lines at a
+width without touching the size.
+
+### reading it from somewhere else
+
+`feed(url)` is live text from a URL, and `text({ url })` is the short way to
+draw one. Wikimedia publishes every page created across its wikis as an event
+stream, which is a real one to point at:
+
+```js
+text({
+  url: 'https://stream.wikimedia.org/v2/stream/page-create',
+  pick: 'page_title',
+  fit: [0.88, 0.4],
+  bg: null,
+}).out()
+```
+
+The frame is whatever the producer sends. A plain-text body is the text; JSON
+with `text` (and `ranges`, if it has them) is drawn as they are; any other
+field it sends comes along untouched, and `pick` points at the field holding
+the text when it isn't called `text` — `page_title`, above. An event stream
+pushes, so the drawing follows it; anything else is fetched once, or every
+`poll` seconds:
+
+```js
+text({
+  url: 'https://services.swpc.noaa.gov/text/3-day-forecast.txt',
+  poll: 600,
+  fit: [0.92, 0.9],
+  align: 'left',
+  pos: [0.04, 0.5],
+  color: '#9ce8c0',
+  bg: '#0b0b10',
+}).out()
+```
+
+`feed()` hands back the frame as a callable, which is what to reach for when
+the text wants handling before it's drawn. `f(t)` is whatever arrived last,
+`f.text` and `f.ranges` are the two fns of `t` that `text()` takes, `f.marked`
+is the signal, and `f.slice()` / `f.invert()` hand back the same shape with the
+offsets moved to match:
+
+```js
+const pages = feed('https://stream.wikimedia.org/v2/stream/page-create', { pick: 'page_title' })
+
+// the first forty characters, and the marks that came with them
+text({
+  text: (t) => pages.slice(0, 40).text(t) || 'waiting for an edit',
+  ranges: pages.slice(0, 40).ranges,
+  fit: [0.9, 0.5],
+  color: '#ffd84f',
+  bg: null,
+}).out()
+```
+
+Cut the string by hand and every range past the cut points at the wrong
+characters, which is why those two exist.
+
+Nothing here stops the picture. A feed that is down, refused, or sending
+nonsense draws its last good frame and keeps going, and reconnects on its own —
+restarting the thing at the other end mid-set is expected. One connection is
+shared by every call on the same URL, and it's held across a re-run, so
+ctrl+enter doesn't blank the text for a frame.
+
+**Pointing it at something on this machine** — a livecoding editor, a score
+follower, whatever is serving — takes one more thing: since Chrome 142, an
+`https` page asking for a loopback or LAN address is a local network request,
+and the browser prompts once before allowing it. Use an IP literal,
+`http://127.0.0.1:4000`, not `localhost`: that's what lets the browser tell the
+request is local before it resolves the name, and it's what gets the request
+exempted from mixed-content blocking. `localhost` is refused instead.
+
+A producer worth drawing sends `{ text, ranges }` and leaves the cutting down
+at its end — `ranges` being `[start, end)` offsets into the `text` of that same
+frame. There's a stand-in in the repo to build against: `node
+scripts/fake-feed.mjs` serves `/events` as a stream, `/text` as plain text and
+`/json` as one frame.
 
 ## media files
 

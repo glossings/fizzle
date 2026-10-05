@@ -7,6 +7,7 @@ import { Bundle, EMPTY_BUNDLE } from './link.js';
 import { Blobs, MAX_SLOTS } from './blobs.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
 import { sig } from './audio.js';
+import { normRanges } from './feed.js';
 import { site, begin, end, PASS_3D } from './profile.js';
 
 // Texture operators. Each op is a fragment-shader pass rendering into its own
@@ -2575,6 +2576,201 @@ function cssFont(spec, weight = 400) {
   return entry;
 }
 
+// --- 2D text layout ---------------------------------------------------------
+//
+// Wrapping, and the size search behind fit(). A glyph's advance is linear in
+// font size, so every run is measured once at a reference size and each
+// candidate size is arithmetic from there — which is what makes fitting a
+// string that changes thirty times a second affordable.
+const REF_PX = 100;
+
+// The string as runs: words, the whitespace between them, and the newlines,
+// each carrying where it starts. Line breaking has to keep character offsets,
+// because a mark is a range into the string and a line needs to know which
+// part of it it is.
+function textRuns(g, str, family, weight, trackingEm) {
+  g.font = `${weight} ${REF_PX}px ${family}`;
+  if ('letterSpacing' in g) g.letterSpacing = `${trackingEm * REF_PX}px`;
+  const runs = [];
+  for (const m of str.matchAll(/\n|[^\S\n]+|\S+/g)) {
+    const text = m[0];
+    const br = text === '\n';
+    runs.push({
+      start: m.index,
+      end: m.index + text.length,
+      br,
+      space: !br && /\s/.test(text[0]),
+      w: br ? 0 : g.measureText(text).width,
+    });
+  }
+  return runs;
+}
+
+// A word with no box to fit in breaks inside itself rather than running off
+// the edge. The proportional guess is exact for a monospace face and within a
+// character or two of anything else, which the measured back-off closes.
+function breakWord(lines, start, end, maxW, measure) {
+  let s = start;
+  while (s < end) {
+    let w = measure(s, end);
+    if (w <= maxW) { lines.push({ start: s, end, w }); return; }
+    let n = Math.max(1, Math.floor((end - s) * (maxW / w)));
+    w = measure(s, s + n);
+    while (n > 1 && w > maxW) w = measure(s, s + --n);
+    lines.push({ start: s, end: s + n, w });
+    s += n;
+  }
+}
+
+// Greedy line breaking at run boundaries. A line's trailing spaces stay out of
+// what gets drawn but still count toward where the next line starts, so the
+// offsets stay true to the original string.
+function wrapRuns(runs, scale, maxW, measure) {
+  const lines = [];
+  let cur = null, pend = 0, endAt = 0, afterBreak = false;
+  const flush = () => { if (cur) lines.push(cur); cur = null; pend = 0; };
+  for (const r of runs) {
+    endAt = r.end;
+    if (r.br) {
+      // n newlines are n + 1 lines, trailing one included: the block is
+      // centered on how many lines it has, so 'a\n' sits a half line high
+      lines.push(cur ?? { start: r.start, end: r.start, w: 0 });
+      cur = null;
+      pend = 0;
+      afterBreak = true;
+      continue;
+    }
+    afterBreak = false;
+    if (r.space) { if (cur) pend += r.w * scale; continue; }
+    const w = r.w * scale;
+    if (cur && cur.w + pend + w <= maxW) {
+      cur.w += pend + w;
+      cur.end = r.end;
+      pend = 0;
+      continue;
+    }
+    flush();
+    if (w <= maxW) cur = { start: r.start, end: r.end, w };
+    else breakWord(lines, r.start, r.end, maxW, measure);
+  }
+  if (cur) flush();
+  else if (afterBreak) lines.push({ start: endAt, end: endAt, w: 0 });
+  return lines;
+}
+
+// { fontPx, lines }. Without a fit box the size is the one asked for; with
+// one, the largest size whose wrapped lines still fit inside it. The predicate
+// is monotone — bigger type wraps to more lines and stands taller — so the
+// answer is a bisection, twelve of which lands well inside a pixel.
+function layoutText(g, str, o) {
+  const runs = textRuns(g, str, o.family, o.weight, o.trackingEm);
+  const at = (fontPx) => {
+    const scale = fontPx / REF_PX;
+    return wrapRuns(runs, scale, o.maxW, (a, b) => g.measureText(str.slice(a, b)).width * scale);
+  };
+  if (!o.fit) return { fontPx: o.fontPx, lines: at(o.fontPx) };
+  let lo = 0, hi = Math.max(1, o.cap), best = null;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    const lines = at(mid);
+    if (lines.length * mid * o.leadingEm <= o.maxH + 0.01) {
+      lo = mid;
+      best = { fontPx: mid, lines };
+    } else hi = mid;
+  }
+  // nothing fit at any size the search tried: draw at the smallest it reached
+  return best ?? { fontPx: hi, lines: at(hi) };
+}
+
+// The frame, drawn. Lines come from layoutText; ranges are marks to pick out
+// of them. Separate from the node mostly because the index math earns being
+// readable on its own: a mark has to land on the same glyphs the text does, so
+// nothing here lets the canvas align a line — every run is placed by measure.
+function paintText(g, str, layout, o) {
+  const { fontPx, lines } = layout;
+  const lineH = o.leadingEm * fontPx;
+  const tracking = o.trackingEm * fontPx;
+  if (o.bg == null) g.clearRect(0, 0, o.w, o.h);
+  else {
+    g.fillStyle = o.bg;
+    g.fillRect(0, 0, o.w, o.h);
+  }
+  g.font = `${o.weight} ${Math.round(fontPx)}px ${o.family}`;
+  if ('letterSpacing' in g) g.letterSpacing = `${tracking}px`;
+  else if (tracking) warn('text: tracking needs canvas letterSpacing, which this browser lacks — drawing it untracked');
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  const x0 = o.px * o.w;
+  const y0 = (1 - o.py) * o.h - ((lines.length - 1) * lineH) / 2;
+  const padPx = o.markPadEm * fontPx;
+  const dim = o.modes.includes('dim');
+  const fill = o.modes.includes('fill');
+  const stroked = o.modes.includes('box') || o.modes.includes('underline') || o.modes.includes('circle');
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const lineText = str.slice(l.start, l.end);
+    if (!lineText) continue;
+    const m = g.measureText(lineText);
+    // the canvas spaces after the last glyph too, which drags anything but
+    // 'left' off its anchor by that trailing gap
+    const visual = m.width - tracking;
+    const left = o.align === 'center' ? x0 - visual / 2 : o.align === 'right' ? x0 - visual : x0;
+    const y = y0 + i * lineH;
+    const asc = m.fontBoundingBoxAscent ?? fontPx * 0.72;
+    const desc = m.fontBoundingBoxDescent ?? fontPx * 0.28;
+    const xAt = (i0) => (i0 <= l.start ? left : left + g.measureText(str.slice(l.start, i0)).width);
+    // this line's share of the marks, clipped to it and placed in px
+    const spans = [];
+    for (const [a, b] of o.ranges) {
+      const s = Math.max(a, l.start), e = Math.min(b, l.end);
+      // the right edge sits before the trailing letter-space, which the
+      // advance width of the run includes
+      if (e > s) spans.push([s, e, xAt(s), xAt(e) - tracking]);
+    }
+    if (fill) {
+      g.fillStyle = o.markColor;
+      for (const [, , x1, x2] of spans)
+        g.fillRect(x1 - padPx, y - asc - padPx, x2 - x1 + padPx * 2, asc + desc + padPx * 2);
+    }
+    // the glyphs, in runs that alternate unmarked/marked — which is what lets
+    // a mark recolor its own characters, or a dim leave them at full strength
+    const cuts = [l.start];
+    for (const [a, b] of spans) cuts.push(a, b);
+    cuts.push(l.end);
+    for (let k = 0; k + 1 < cuts.length; k++) {
+      const a = cuts[k], b = cuts[k + 1];
+      if (b <= a) continue; // kept in the walk, so the parity still holds
+      const marked = k % 2 === 1;
+      g.globalAlpha = dim && !marked ? o.dimA : 1;
+      g.fillStyle = marked ? o.onColor ?? (fill ? o.bg ?? '#000000' : o.color) : o.color;
+      g.fillText(str.slice(a, b), xAt(a), y);
+    }
+    g.globalAlpha = 1;
+    if (spans.length && stroked) {
+      g.strokeStyle = o.markColor;
+      g.lineWidth = Math.max(1, o.markWeightEm * fontPx);
+      for (const [, , sx1, sx2] of spans) {
+        const x1 = sx1 - padPx, x2 = sx2 + padPx;
+        const top = y - asc - padPx, h = asc + desc + padPx * 2;
+        if (o.modes.includes('box')) g.strokeRect(x1, top, x2 - x1, h);
+        if (o.modes.includes('underline')) {
+          g.beginPath();
+          g.moveTo(x1, y + desc + padPx);
+          g.lineTo(x2, y + desc + padPx);
+          g.stroke();
+        }
+        if (o.modes.includes('circle')) {
+          g.beginPath();
+          g.ellipse((x1 + x2) / 2, y, (x2 - x1) / 2 + padPx, h / 2 + padPx, 0, 0, Math.PI * 2);
+          g.stroke();
+        }
+      }
+    }
+  }
+}
+
+const MARK_MODES = ['box', 'fill', 'underline', 'circle', 'dim', 'none'];
+
 // ascii() vocabularies, ordered dark→bright — the ordering *is* the mapping,
 // so a set that isn't sorted by ink coverage reads as noise. Each starts with
 // a space so black stays empty. A `chars` that isn't one of these names is
@@ -3669,6 +3865,25 @@ export class TextureOp {
     };
   }
 
+  // .marked() — how much of a text() is marked, 0..1 by character, as a
+  // signal. Read from the parameters rather than from what was drawn, so it
+  // reports whether or not the chain is on screen, and reads a sketch's own
+  // ranges as readily as a feed's.
+  marked() {
+    if (this.kind !== 'textGen') {
+      warn('.marked() belongs to text() — it reports how much of the text its ranges cover');
+      return sig(() => 0);
+    }
+    const p = this.params;
+    return sig((t) => {
+      const str = String(resolve(p.text ?? '', t));
+      if (!str.length) return 0;
+      let n = 0;
+      for (const [a, b] of normRanges(resolve(p.ranges, t), str.length)) n += b - a;
+      return n / str.length;
+    });
+  }
+
   // three reads a render target's wrap mode once, when it first sets the target
   // up — so a node feeding a tiled material map has to be marked before that
   // happens, and re-marked whenever a resize forces a realloc
@@ -3831,12 +4046,15 @@ export class TextureOp {
       const p = this.params;
       const str = String(resolve(p.text ?? '', ctx.t));
       // size: CSS-pixel font size (size: 100 looks like 100px on screen,
-      // whatever the retina/quality scale); <= 1 = fraction of screen height
+      // whatever the retina/quality scale); <= 1 = fraction of screen height.
+      // Under fit it's the cap instead — the size the type may not exceed.
       const size = resolve(p.size ?? 0.15, ctx.t);
       // > 1 is CSS pixels, so it measures against how tall the canvas is
       // *displayed* — which resolution() decouples from the window height
       const shownH = ctx.renderer.domElement.clientHeight || window.innerHeight;
-      const fontPx = size <= 1 ? size * ctx.h : size * (ctx.h / shownH);
+      const pxScale = ctx.h / shownH;
+      const span = (v, of) => (v <= 1 ? v * of : v * pxScale);
+      const fontPx = span(size, ctx.h);
       // this one paints on a 2D canvas rather than into a uniform, so the
       // color has to come back out as CSS; a null bg paints nothing at all
       const color = cssColor(p.color ?? '#ffffff', ctx.t);
@@ -3845,16 +4063,52 @@ export class TextureOp {
       const pos = p.pos ?? [0.5, 0.5];
       const px = resolve(pos[0], ctx.t), py = resolve(pos[1], ctx.t);
       const ff = cssFont(String(p.font ?? 'ui-monospace, Menlo, monospace'), p.weight ?? 700);
-      const font = ff.family;
+      const family = ff.family;
       const weight = p.weight ?? 700;
       const align = p.align ?? 'center';
       // both in ems, so they hold their look across sizes
-      const tracking = resolve(p.tracking ?? 0, ctx.t) * fontPx;
-      const lineH = resolve(p.leading ?? 1.2, ctx.t) * fontPx;
-      // ff.loaded flips when a URL font finishes loading, forcing a redraw
-      const sig = [str, fontPx, color, bg ?? '', px, py, font, ff.loaded, weight, align, tracking, lineH, ctx.w, ctx.h].join('\x1f');
-      if (sig !== this._textSig) {
-        this._textSig = sig;
+      const trackingEm = resolve(p.tracking ?? 0, ctx.t);
+      const leadingEm = resolve(p.leading ?? 1.2, ctx.t);
+
+      // fit: [w, h] — the box the type is sized to fill, so two words come out
+      // huge and a whole file comes out small. A size, not a position: where
+      // the text sits is still pos and align.
+      // fit: 0.8 is the square box, the same shorthand a bare size would read as
+      const fitBox = p.fit == null ? null : Array.isArray(p.fit) ? p.fit : [p.fit, p.fit];
+      const fit = fitBox ? [resolve(fitBox[0] ?? 1, ctx.t), resolve(fitBox[1] ?? 1, ctx.t)] : null;
+      const wrapAt = p.wrap != null ? resolve(p.wrap, ctx.t) : null;
+      const maxW = fit ? span(fit[0], ctx.w) : wrapAt != null ? span(wrapAt, ctx.w) : Infinity;
+      const maxH = fit ? span(fit[1], ctx.h) : Infinity;
+      // with no size to cap it, the type may grow until the box's height stops
+      // it — one line filling the box is the point of asking for a fit
+      const cap = fit ? (p.size != null ? fontPx : maxH) : fontPx;
+
+      // ranges: [[start, end), ...] into the string, drawn as marks. mark says
+      // how they look; the geometry and the color are separate, so recoloring
+      // the marked glyphs (on) composes with any of the shapes.
+      const ranges = normRanges(resolve(p.ranges, ctx.t), str.length);
+      const mk = p.mark ?? {};
+      const modes = (Array.isArray(mk.mode) ? mk.mode : [mk.mode ?? 'box']).map(String);
+      for (const m of modes) {
+        if (!MARK_MODES.includes(m)) warn(`text: mark mode "${m}" isn't one of ${MARK_MODES.join(', ')}`);
+      }
+      const markColor = cssColor(mk.color ?? p.color ?? '#ffffff', ctx.t);
+      const onColor = mk.on != null ? cssColor(mk.on, ctx.t) : null;
+      const markWeightEm = resolve(mk.weight ?? 0.06, ctx.t);
+      const markPadEm = resolve(mk.pad ?? 0.08, ctx.t);
+      const dimA = Math.min(1, Math.max(0, resolve(mk.dim ?? 0.25, ctx.t)));
+
+      // Two signatures: the marks move every frame a feed changes, the layout
+      // only when the string or the box does. Keeping them apart means a live
+      // feed re-wraps and re-fits its text once per edit instead of once per
+      // frame — and ff.loaded flips when a URL font lands, forcing both.
+      const layoutSig = [str, family, ff.loaded, weight, trackingEm, leadingEm, maxW, maxH, cap, ctx.w, ctx.h].join('\x1f');
+      const paintSig = [
+        layoutSig, color, bg ?? '', px, py, align, ranges.join(';'),
+        modes.join('+'), markColor, onColor ?? '', markWeightEm, markPadEm, dimA,
+      ].join('\x1f');
+      if (paintSig !== this._textSig) {
+        this._textSig = paintSig;
         if (!this._canvas) {
           this._canvas = document.createElement('canvas');
           this._ctex = new THREE.CanvasTexture(this._canvas);
@@ -3873,23 +4127,14 @@ export class TextureOp {
         c.width = ctx.w;
         c.height = ctx.h;
         const g = c.getContext('2d');
-        if (bg == null) g.clearRect(0, 0, c.width, c.height);
-        else {
-          g.fillStyle = bg;
-          g.fillRect(0, 0, c.width, c.height);
+        if (this._layoutSig !== layoutSig) {
+          this._layoutSig = layoutSig;
+          this._layout = layoutText(g, str, { family, weight, trackingEm, leadingEm, fontPx, maxW, maxH, cap, fit: !!fit });
         }
-        g.fillStyle = color;
-        g.font = `${weight} ${Math.round(fontPx)}px ${font}`;
-        g.textAlign = align;
-        g.textBaseline = 'middle';
-        if ('letterSpacing' in g) g.letterSpacing = `${tracking}px`;
-        else if (tracking) warn('text: tracking needs canvas letterSpacing, which this browser lacks — drawing it untracked');
-        // the canvas spaces after the last glyph too, which drags anything
-        // but 'left' off its anchor by that trailing gap
-        const x0 = px * c.width + (align === 'center' ? tracking / 2 : align === 'right' ? tracking : 0);
-        const lines = str.split('\n');
-        const y0 = (1 - py) * c.height - ((lines.length - 1) * lineH) / 2;
-        lines.forEach((line, i) => g.fillText(line, x0, y0 + i * lineH));
+        paintText(g, str, this._layout, {
+          w: c.width, h: c.height, bg, color, family, weight, trackingEm, leadingEm,
+          align, px, py, ranges, modes, markColor, onColor, markWeightEm, markPadEm, dimA,
+        });
         this._ctex.needsUpdate = true;
       }
       return this._ctex;

@@ -10,6 +10,7 @@ import { fetchPolyhaven } from './polyhaven.js';
 import { classifySet, IMAGE_RE, HDRI_RE } from './pbr.js';
 import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
 import { claimDuring, claimUnder, sweepCarried, resetCarried } from './carry.js';
+import { closeFeed } from './feed.js';
 import { bandsCall, rewriteBlocks } from './sketch-blocks.js';
 import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
@@ -170,6 +171,7 @@ export class Engine {
     this.videos = new Map();        // camera captures by name, shared across re-runs while used
     this.segments = new Map();      // person() masks by camera name, shared across re-runs while used
     this.media = new Map();         // imported media files (kind:name), shared across re-runs
+    this.feeds = new Map();         // feed()/text({ url }) connections by url, shared across re-runs
     this.models = new Map();        // parsed .obj/.fbx geometry, shared across re-runs
     this.pointSets = new Map();     // shape -> sampled surface points, geo.sample()
     this.textures = new Map();      // decoded material maps by filename, shared across re-runs
@@ -811,6 +813,14 @@ export class Engine {
       if (ae.gen === this.patchGen) continue;
       this.audios.delete(key);
       ae.stop();
+    }
+    // a feed is claimed where it's written rather than where it renders, so
+    // the stamp is enough — a text({ url }) in a dormant .when() branch still
+    // built its node this run
+    for (const [key, f] of this.feeds) {
+      if (f.gen === this.patchGen) continue;
+      this.feeds.delete(key);
+      closeFeed(f);
     }
   }
 
