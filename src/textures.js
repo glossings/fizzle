@@ -4143,16 +4143,10 @@ export class TextureOp {
     if (this.kind === 'switch') {
       // all of them, not just the taken branch — the others allocate on a flip
       if (this._needsMips) for (const n of this.inputs) n._needsMips = true;
-      // cond picks between two (.when), index picks among any number (select)
+      // cond picks between two (.when), index picks among any number (select).
+      // select() hands over a resolved list index, so there's nothing to wrap.
       const { cond, index } = this.params;
-      let i;
-      if (cond != null) i = resolve(cond, ctx.t) >= 0.5 ? 1 : 0;
-      else {
-        const n = this.inputs.length;
-        i = Math.floor(resolve(index, ctx.t)) % n;
-        if (!Number.isFinite(i)) i = 0;
-        else if (i < 0) i += n;
-      }
+      const i = cond != null ? (resolve(cond, ctx.t) >= 0.5 ? 1 : 0) : index(ctx.t);
       this._taken = i;
       return this.inputs[i].renderNode(ctx);
     }
@@ -4229,13 +4223,11 @@ export class TextureOp {
     }
     if (this.kind === 'imageseq' || this.kind === 'videoseq') {
       const media = this.kind === 'imageseq' ? 'image' : 'video';
-      const { names } = this.params;
+      const { names, index } = this.params;
       if (!names.length) return blackTex();
-      // a NaN index (a signal fed something it couldn't resolve) would index
-      // past the list and ask for a file called 'undefined' — hold on the first
-      const raw = Math.floor(resolve(this.params.index ?? ((t) => t), ctx.t));
-      const i = Number.isFinite(raw) ? raw : 0;
-      const tex = this.engine.ensureMedia(media, names[((i % names.length) + names.length) % names.length]).texture;
+      // already a list index: imageseq()/videoseq() wrap whatever they were
+      // given in listIndex(), so both index conventions land here the same way
+      const tex = this.engine.ensureMedia(media, names[index(ctx.t)]).texture;
       // warm the rest so switching is seamless — videos keep playing while
       // unselected, so a switch lands mid-action like cutting between feeds
       for (const n of names) this.engine.ensureMedia(media, n);
@@ -4813,6 +4805,9 @@ export class TextureOp {
     this._copy?.mesh.dispose();
   }
 }
+
+// So signal-space code can spot a chain without importing this module.
+TextureOp.prototype.isTextureOp = true;
 
 // The short forms of the two long transform verbs, so a texture chain types as
 // fast as a geometry one. (.rot is .rotation's short form over there — same

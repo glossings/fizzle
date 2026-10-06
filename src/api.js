@@ -21,7 +21,7 @@ import { warn } from './warn.js';
 import { rewriteBlocks } from './sketch-blocks.js';
 import { SAVED_BLOCK } from './engine.js';
 import { site, tag } from './profile.js';
-import { sig, Signal, valueNoise, barPhase, setBpmSource } from './audio.js';
+import { sig, Signal, valueNoise, barPhase, setBpmSource, listIndex } from './audio.js';
 import { bandValue } from './bands.js';
 import { makeFeed } from './feed.js';
 import { midiHandle, gamepadHandle } from './control.js';
@@ -1849,12 +1849,13 @@ export function makeApi(engine) {
     // several videos with an index picking the current one, like imageseq() —
     // a clip bank. All of them keep playing, so a switch lands mid-action, the
     // way cutting between live feeds does.
-    videoseq(names, index) {
+    videoseq(names, index = (t) => t) {
       if (names == null || !names.length) {
         engine.requestMediaPick('videoseq', 'video', true);
         names = [];
       }
-      return new TextureOp(engine, 'videoseq', { names: names.map(String), index });
+      names = names.map(String);
+      return new TextureOp(engine, 'videoseq', { names, index: listIndex(index, names.length) });
     },
     imagefile(name) {
       if (Array.isArray(name)) return api.imageseq(name);
@@ -1862,14 +1863,16 @@ export function makeApi(engine) {
       return new TextureOp(engine, 'imagefile', { name: name != null ? String(name) : null });
     },
     // several images with an index picking the current one — any fn of t or
-    // signal (floored, wrapped): imageseq([...], beat(4)) steps on
-    // the beat, .hold(audio().kicks()).counter() on kicks. Default: 1/sec.
-    imageseq(names, index) {
+    // signal in list units (floored, wrapped): imageseq([...], beat(4)) steps on
+    // the beat, .hold(audio().kicks()).counter() on kicks. { phase: s } spreads
+    // 0..1 over the list instead, the way select() takes it. Default: 1/sec.
+    imageseq(names, index = (t) => t) {
       if (names == null || !names.length) {
         engine.requestMediaPick('imageseq', 'image', true);
         names = [];
       }
-      return new TextureOp(engine, 'imageseq', { names: names.map(String), index });
+      names = names.map(String);
+      return new TextureOp(engine, 'imageseq', { names, index: listIndex(index, names.length) });
     },
 
     // audio input as signals — fns of t with chainable processing, so they
@@ -1950,9 +1953,13 @@ export function makeApi(engine) {
     // form that works for texture chains: hand it values and it gives back a
     // signal, hand it chains and it gives back a texture showing one of them,
     // switched the way .when() does (all built once, only the chosen one
-    // rendering). The index is any fn of t or signal, floored and wrapped, so
-    // the timing is whatever drives it — beat(1) walks the list a step per
-    // bar, rand().mul(3).beat() lands somewhere new each beat.
+    // rendering).
+    //
+    // Two ways to drive it. A signal is in list units, floored and wrapped, so
+    // the timing is whatever drives it — beat(1) walks the list a step per bar,
+    // rand().mul(3).beat() lands somewhere new each beat. { phase: s } is 0..1
+    // across the whole list, for the knobs and faders that already have that
+    // range: select(items, { phase: midi().cc(74) }).
     // Default: one item per second, like imageseq().
     select(items, index = (t) => t) {
       if (!Array.isArray(items)) items = [items];
@@ -1969,14 +1976,13 @@ export function makeApi(engine) {
         return sig(() => 0);
       }
       const n = items.length;
-      const at = (t) => {
-        const i = Math.floor(resolve(index, t));
-        return Number.isFinite(i) ? ((i % n) + n) % n : 0;
-      };
+      const at = listIndex(index, n);
       if (textures.length) {
         // a fixed index can never change — take that branch now, as .when() does
-        return typeof index === 'function'
-          ? new TextureOp(engine, 'switch', { index }, items)
+        const moving = typeof index === 'function'
+          || (index !== null && typeof index === 'object' && typeof index.phase === 'function');
+        return moving
+          ? new TextureOp(engine, 'switch', { index: at }, items)
           : items[at(0)];
       }
       return sig((t) => resolve(items[at(t)], t));

@@ -60,8 +60,8 @@ export const GLOBALS = {
   person: ["person(name?, { part: 'hair'|'face'|'body'|'skin'|'clothes'|'other', smooth })", "Texture generator: a person mask from the live camera — white where a person is, black elsewhere. name picks a camera exactly like video()'s: no name = the default camera, 'front'/'back' = a facing, anything else matches a camera label by substring. part masks one region instead. First use fetches the model (~12 MB, +16 MB with a part) and prompts for camera permission; black until ready."],
   videofile: ["videofile(name?, { speed, loop, mute, restart, phase, jump })", "Texture generator: an imported video file, looping. Empty call = picker; drag a file in to import; name matches by substring, or is an https:// URL. ctrl+r or restartMedia() rewinds; phase scrubs it by hand, jump throws it around while it plays."],
   imagefile: ["imagefile(name?)", 'Texture generator: an imported image file (drag one in, or empty call = picker), or an https:// URL, which downloads once. An array delegates to imageseq().'],
-  imageseq: ["imageseq(['a.png', ...], index?)", 'Texture generator: several imported images with a signal picking the current one (floored, wrapped). Default index: one per second. Empty call = multi-file picker.'],
-  videoseq: ["videoseq(['a.mp4', ...], index?)", 'Texture generator: several imported videos with a signal picking the current one (floored, wrapped) — a clip bank. All of them keep playing, so a switch lands mid-action like cutting between feeds. Default index: one per second. Empty call = multi-file picker.'],
+  imageseq: ["imageseq(['a.png', ...], index? | { phase })", "Texture generator: several imported images with a signal picking the current one (floored, wrapped), or { phase: s } to spread 0..1 over the list the way select() does. Default index: one per second. Empty call = multi-file picker."],
+  videoseq: ["videoseq(['a.mp4', ...], index? | { phase })", "Texture generator: several imported videos with a signal picking the current one (floored, wrapped), or { phase: s } to spread 0..1 over the list the way select() does — a clip bank. All of them keep playing, so a switch lands mid-action like cutting between feeds. Default index: one per second. Empty call = multi-file picker."],
   noise: ['noise({ period, freq, octaves, lacunarity, gain, speed, seed, channels, a, b })', 'Texture generator: animated fbm simplex noise, shading from a to b. Output is normalized — the octave keys change its texture, not its level.'],
   fluid: ["fluid({ res, speed, fade, damping, vorticity, iterations, wrap })", "Texture generator: an incompressible fluid sim. .push(map) drives the field, .ink(chain) pours dye into it, .obstacle(mask) puts solids in its way; the chain itself is the dye, and .velocity()/.curl() read the fields behind it. Contents survive a re-run."],
   glsl: ["glsl(source, uniforms)", "Texture generator: a fragment shader you write. vUv is the pixel (0..1), uTime the clock, uFrame the frame count since the last restart, uDelta the frame's own length, uTexel one pixel across and down, uAspect the frame's width over its height; tex0 is black, nothing having come before it. uniforms is an object of names you choose, each holding a number, a 2/3/4 array, a color, a fn of t, or a texture chain, which arrives as a sampler2D of that name.\nA bare expression is a whole body, or write void main() yourself, or paste a Shadertoy mainImage(), whose globals are all mapped. A shader that doesn't compile warns with the line number and draws nothing."],
@@ -87,7 +87,7 @@ export const GLOBALS = {
   bands: ['bands({ name: { from, to, lo, hi, sm, auto }, level: { lo, hi, sm, auto } })', "The audio bands this sketch reads, written by the audio manager's pin to sketch. In any sketch that contains it, the manager (ctrl+a) is linked to the code: it edits these bands instead of your usual ones, and writes every change back here."],
   restartMedia: ['restartMedia(name?)', "Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute. ctrl+r rewinds media too, and starts a sketch's particles, delays, trails and counters over with it."],
   rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1. Positional rand(freq, seed) also works.'],
-  select: ['select([a, b, c], index?)', "Pick from a list by index (floored, wrapped) — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nThe index is any signal, so it carries the timing: B steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second."],
+  select: ['select([a, b, c], index? | { phase })', "Pick from a list — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nA bare index is in list units, floored and wrapped, so it carries the timing: B steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second.\n{ phase: s } reads 0..1 across the whole list instead, which is the range a knob, fader or band already has: select([a, b, c], { phase: midi().cc(74) }) sweeps the three with one knob."],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
   T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
   B: ['B', 'T on the tempo grid: bars elapsed, counting up, at the audio manager\'s tempo. A value, not a call — no parentheses.\nRate is set the way T\'s is, so B.mul(2).sin() is a half-bar LFO the way T.mul(2).sin() is a half-second one. The whole part is which bar, so B.select([...]) steps a list on the downbeat and B.mul(4) counts quarter notes.'],
@@ -272,7 +272,7 @@ export const METHODS = {
   gte: ['.gte(v)', 'Signal: 1 while the value is >= v, else 0.'],
   lte: ['.lte(v)', 'Signal: 1 while the value is <= v, else 0.'],
   counter: ['.counter(max?, threshold = 0.5)', 'Signal: counts rising edges; wraps at max.'],
-  select: ['.select([a, b, c, ...])', 'Signal: index the array by the value (floored, wrapped). Items may be numbers, colors, strings, or fns of t.'],
+  select: ['.select([a, b, c, ...])', "Signal: index the array by the value (floored, wrapped). Items may be numbers, colors, strings, or fns of t.\nThe value is the index here, so it's in list units — for a 0..1 knob use select(items, { phase: s }), which is also the only form that takes texture chains."],
   sin: ['.sin(rate = 1)', 'Signal: sine shape of the value-as-phase (0..1 out, one cycle per whole unit). rate scales the phase on the way in, so T.sin(0.3) is a 0.3 Hz sine — the same thing T.mul(0.3).sin() spells the long way. Takes a fn of t.'],
   cos: ['.cos(rate = 1)', 'Signal: cosine shape of the value-as-phase (0..1 out) — .sin() a quarter cycle ahead, so it starts at 1. rate scales the phase on the way in, like .sin()\'s.'],
   tri: ['.tri(rate = 1)', 'Signal: triangle shape of the value-as-phase (0..1 out). rate scales the phase on the way in, like .sin()\'s.'],
@@ -750,6 +750,15 @@ const GLOBAL_KEY_DOCS = {
   person: {
     part: "One region instead of the whole person: 'hair', 'face', 'body', 'skin' (face + body), 'clothes' or 'other' (accessories). Uses a larger model, fetched on first use.",
     smooth: 'How much of the previous frame each new mask keeps, 0..0.95 — steadies flicker at the cost of a trailing edge. Default 0.4; 0 is the model raw. Takes a fn of t.',
+  },
+  select: {
+    phase: 'Position in the list as 0..1 rather than an index: 0 the first item, 1 the last, split evenly between. For the knobs, faders and bands that already run 0..1 — { phase: midi().cc(74) } sweeps the list with one knob, where a bare index would sit on the first item the whole way up. Takes a fn of t.',
+  },
+  imageseq: {
+    phase: 'Position in the list as 0..1 rather than an index: 0 the first file, 1 the last, split evenly between. Takes a fn of t, same as select()\'s.',
+  },
+  videoseq: {
+    phase: 'Position in the bank as 0..1 rather than an index: 0 the first clip, 1 the last, split evenly between. Takes a fn of t, same as select()\'s.',
   },
   videofile: {
     speed: 'Playback rate: 1 normal, 0.5 half, 0 freezes the frame. Takes a fn of t. Rates past 16 clamp; negative freezes, since no browser plays a video backwards.',

@@ -4075,7 +4075,8 @@ scene().when(beat(4, 0.25), s => s.invert())         // first quarter of each be
 - `.counter(max?, threshold?)` — counts rising edges, wrapping at `max`. For
   event streams like kicks and clicks; `B` already counts bars itself.
 - `.select([...])` — index a list by the value (floored, wrapped); items can
-  be numbers, colors, strings, or functions of `t`.
+  be numbers, colors, strings, or functions of `t`. The value is the index, so
+  it's in list units — for a 0..1 knob reach for `select(items, { phase: s })`.
 - `.gte(v)` / `.lte(v)` — comparison gates, mainly for `.when()` and
   `.counter()`.
 - `.hold(trigger, threshold?)` — sample-and-hold driven by **another** signal.
@@ -4102,6 +4103,20 @@ select(CHAINS, mouse('down').counter())        // click to advance
 
 It floors and wraps, so a climbing `.counter()` can't index off the end. With
 no index it steps one item per second, like `imageseq()`.
+
+**One knob over the whole list** is `{ phase: s }` instead of an index. A
+`phase` is 0..1 across the list — 0 the first item, 1 the last, split evenly —
+which is the range a knob, fader, band or `.sin()` already has:
+
+```js static
+select(CHAINS, { phase: midi().cc(74) })   // one knob sweeps the list
+select(CHAINS, { phase: band('bass') })    // the bass walks it
+```
+
+A bare index is in list units, so handing it a 0..1 signal leaves you on the
+first item for the whole travel — that's what `phase` is for, and you never
+have to scale by the length yourself. `imageseq()` and `videoseq()` take it the
+same way.
 
 ## random & custom signals
 

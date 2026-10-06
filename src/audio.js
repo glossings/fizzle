@@ -371,14 +371,40 @@ Signal.prototype.counter = function (max = Infinity, threshold = 0.5) {
     return s.n;
   });
 };
-// index an array by the value (floored, wrapped) — items may be fns of t,
-// and non-numeric items (colors, strings) are fine
+// Where a list index comes from, for the two conventions a list can be driven
+// by. A signal in list units is floored and wrapped, so B.select([...]) steps on
+// the downbeat and a counter walks the list. { phase: s } is 0..1 across the
+// whole list instead — the shape a knob, fader, band or .sin() already has —
+// and its top lands on the last item rather than wrapping back to the first.
+// A knob held at 1 should show the end of the list, not the start.
+//
+// The two can't share one argument: a 0..1 signal and an integer index parked
+// at 0 read the same, so the convention has to be said rather than guessed.
+export function listIndex(index, n) {
+  const norm = index !== null && typeof index === 'object' && 'phase' in index;
+  const src = norm ? index.phase : index;
+  return (t) => {
+    if (n <= 0) return 0; // an empty list (a picker still waiting for files)
+    const x = resolve(src, t);
+    // NaN means a signal was fed something it couldn't resolve — hold on the
+    // first item rather than indexing past the list
+    if (!Number.isFinite(x)) return 0;
+    if (norm) return Math.min(n - 1, Math.max(0, Math.floor(x * n)));
+    return ((Math.floor(x) % n) + n) % n;
+  };
+}
+// index an array by the value (floored, wrapped) — items may be fns of t, and
+// non-numeric items (colors, strings) are fine. The signal is the index here, so
+// it's list units; the 0..1 form is select(items, { phase: s }).
 Signal.prototype.select = function (arr) {
   const self = this;
-  return mk(self, (t) => {
-    const i = ((Math.floor(self(t)) % arr.length) + arr.length) % arr.length;
-    return resolve(arr[i], t);
-  });
+  // a texture chain can't be a signal's value: switching between chains is a
+  // render-graph branch, which only the standalone select() can build
+  if (arr.some((v) => v !== null && typeof v === 'object' && v.isTextureOp)) {
+    warn('.select: texture chains need select([...], index) as a call of its own — on a signal the list has to be values. For a 0..1 knob: select([...], { phase: s })');
+  }
+  const at = listIndex(self, arr.length);
+  return mk(self, (t) => resolve(arr[at(t)], t));
 };
 // waveshapes: treat the value as a phase ramp (beat(), or anything);
 // one cycle per whole unit, all outputs 0..1.
