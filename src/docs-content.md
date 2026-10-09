@@ -1873,7 +1873,7 @@ stack().kaleido(6).bloom({ threshold: 0.5, strength: 1.5 }).out()
   a function of `t`. `bg: null` puts the letters on nothing. `tracking` spaces
   the letters and `leading` the lines, both in ems of `size`. `wrap`, `fit`,
   `ranges` and `url` are in **live text**.
-- `video(name?)` — live camera (see **video input**).
+- `video(name?, { fit })` — live camera (see **video input**).
 - `person(name?)` — a live person mask cut from that same camera (see **video
   input**).
 - `videofile(name?)` / `imagefile(name?)` / `imageseq([names], index?)` /
@@ -3577,6 +3577,19 @@ video()
   .out()
 ```
 
+**`fit`** says how the camera lands in a frame of another shape. `'cover'`,
+the default, fills the frame and crops what overflows; `'contain'` shows the
+whole picture with transparent bars; `'stretch'` pulls it to the frame's shape.
+
+```js
+resolution(1080, 1920)
+constant('#203040').out()
+video({ fit: 'contain' }).out()
+```
+
+`person()`, `videofile()`, `imagefile()`, `imageseq()` and `videoseq()` take
+the same key.
+
 **`person(name?)`** reads the same camera as a person mask: white where a
 segmentation model sees somebody, black elsewhere, gray at the uncertain edge.
 It shares `video(name)`'s stream and permission, and fetches its model on first
@@ -3766,10 +3779,11 @@ do; most results you'd right-click out of an image search do not, and those say
 so in the console instead of loading. To put your own images behind a URL, push
 them to a public GitHub repo and copy the **Raw** link.
 
-- `videofile(name?, { speed, loop, mute, restart, phase, jump })` — a looping
-  video as a texture. `speed` and `loop` take functions of `t`; `mute: false`
-  unmutes its soundtrack; `phase` and `jump` move it around (below).
-- `imagefile(name?)` — a still image as a texture.
+- `videofile(name?, { speed, loop, mute, restart, phase, jump, fit })` — a
+  looping video as a texture. `speed` and `loop` take functions of `t`;
+  `mute: false` unmutes its soundtrack; `phase` and `jump` move it around
+  (below).
+- `imagefile(name?, { fit })` — a still image as a texture.
 - `imageseq([names], index?)` — several images with a signal choosing the
   current one (floored, wrapped). Dropping multiple images at once types
   `imageseq([...], B.mul(4))` for you. Swap the index for any counter:

@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
 import { displacedPoint, displacedNormal } from './noise-cpu.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, expandMaterial, tileSources, applyTileMap, applyPointSize } from './materials.js';
-import { TextureOp, glslNode, reciprocal, autoBuffer, setRate } from './textures.js';
+import { TextureOp, glslNode, reciprocal, autoBuffer, setRate, FIT_NAMES } from './textures.js';
 import { claimFluidState } from './fluid.js';
 import { ParticleOp } from './particles.js';
 import { lineGeometry } from './lines.js';
@@ -195,6 +195,22 @@ function resolveFont(o) {
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
+
+// { fit } on a camera or file source; a name that isn't one falls back to the
+// default rather than stopping the sketch
+const fitOf = (fit, what) => {
+  if (fit == null || FIT_NAMES.includes(fit)) return fit ?? undefined;
+  warn(`${what}: no fit '${fit}' — ${FIT_NAMES.join(' ')}; using cover`);
+  return undefined;
+};
+
+// imageseq()/videoseq()'s second argument: an index, or options that may carry
+// one as { phase }. Without either it steps once a second.
+const seqArgs = (index, n, what) => {
+  const o = index !== null && typeof index === 'object' ? index : {};
+  const at = index == null || (o === index && !('phase' in o)) ? (t) => t : index;
+  return { index: listIndex(at, n), fit: fitOf(o.fit, what) };
+};
 
 // .position/.rotation/.scale also take a whole vector in the first slot, so a sampled
 // point goes straight in: x.position(pts.sample(i)). Arrays and anything carrying
@@ -1823,7 +1839,13 @@ export function makeApi(engine) {
     // camera capture as a texture; name matches a camera label (substring,
     // case-insensitive), no name = default camera. Permission prompt on
     // first use; the stream survives re-runs.
-    video: (name) => new TextureOp(engine, 'video', name != null ? { name: String(name) } : {}),
+    video(name, o = {}) {
+      if (name !== null && typeof name === 'object') { o = name; name = o.name; }
+      const p = {};
+      if (name != null) p.name = String(name);
+      if (o.fit != null) p.fit = fitOf(o.fit, 'video');
+      return new TextureOp(engine, 'video', p);
+    },
     // person mask from the same camera stream video(name) uses; the
     // segmentation models load on first use (see segment.js). Naming a part
     // switches to the multiclass model; options may ride the first argument
@@ -1833,6 +1855,7 @@ export function makeApi(engine) {
       if (name != null) p.name = String(name);
       if (o.part != null) p.part = String(o.part);
       if (o.smooth != null) p.smooth = o.smooth;
+      if (o.fit != null) p.fit = fitOf(o.fit, 'person');
       return new TextureOp(engine, 'segment', p);
     },
 
@@ -1841,38 +1864,43 @@ export function makeApi(engine) {
     // name = filename, exact or case-insensitive substring; files persist
     // in the browser across reloads and keep playing through re-runs.
     videofile(name, o = {}) {
-      if (Array.isArray(name)) return api.videoseq(name);
+      if (Array.isArray(name)) return api.videoseq(name, { fit: o.fit });
       if (name !== null && typeof name === 'object') { o = name; name = o.name; }
       if (name == null) engine.requestMediaPick('videofile', 'video');
-      return new TextureOp(engine, 'videofile', { ...o, name: name != null ? String(name) : null });
+      return new TextureOp(engine, 'videofile', {
+        ...o, fit: fitOf(o.fit, 'videofile'), name: name != null ? String(name) : null,
+      });
     },
     // several videos with an index picking the current one, like imageseq() —
     // a clip bank. All of them keep playing, so a switch lands mid-action, the
     // way cutting between live feeds does.
-    videoseq(names, index = (t) => t) {
+    videoseq(names, index) {
       if (names == null || !names.length) {
         engine.requestMediaPick('videoseq', 'video', true);
         names = [];
       }
       names = names.map(String);
-      return new TextureOp(engine, 'videoseq', { names, index: listIndex(index, names.length) });
+      return new TextureOp(engine, 'videoseq', { names, ...seqArgs(index, names.length, 'videoseq') });
     },
-    imagefile(name) {
-      if (Array.isArray(name)) return api.imageseq(name);
+    imagefile(name, o = {}) {
+      if (Array.isArray(name)) return api.imageseq(name, { fit: o.fit });
+      if (name !== null && typeof name === 'object') { o = name; name = o.name; }
       if (name == null) engine.requestMediaPick('imagefile', 'image');
-      return new TextureOp(engine, 'imagefile', { name: name != null ? String(name) : null });
+      return new TextureOp(engine, 'imagefile', {
+        name: name != null ? String(name) : null, fit: fitOf(o.fit, 'imagefile'),
+      });
     },
     // several images with an index picking the current one — any fn of t or
     // signal in list units (floored, wrapped): imageseq([...], beat(4)) steps on
     // the beat, .hold(audio().kicks()).counter() on kicks. { phase: s } spreads
     // 0..1 over the list instead, the way select() takes it. Default: 1/sec.
-    imageseq(names, index = (t) => t) {
+    imageseq(names, index) {
       if (names == null || !names.length) {
         engine.requestMediaPick('imageseq', 'image', true);
         names = [];
       }
       names = names.map(String);
-      return new TextureOp(engine, 'imageseq', { names, index: listIndex(index, names.length) });
+      return new TextureOp(engine, 'imageseq', { names, ...seqArgs(index, names.length, 'imageseq') });
     },
 
     // audio input as signals — fns of t with chainable processing, so they

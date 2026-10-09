@@ -192,6 +192,16 @@ const SPECS = {
     frag: `void main() { gl_FragColor = texture2D(tex0, vUv); }`,
   },
 
+  // a camera or file drawn at its own shape rather than stretched to the
+  // frame's: uFit scales the uv about the center (see TextureOp._fit)
+  fit: {
+    extras: { uFit: [1, 1] },
+    frag: `
+      void main() {
+        gl_FragColor = wrapSample(tex0, (vUv - 0.5) * uFit + 0.5, 3.0);
+      }`,
+  },
+
   // depth() — tex0 is the scene's depth attachment (window-space, non-linear).
   // Undo the projection to get eye-space distance in world units, then map it
   // to 0..1 so the result behaves like every other grayscale texture.
@@ -1374,6 +1384,9 @@ const SDF_MODES = { direction: 0, distance: 1, step: 2 };
 // what docs and completion offer — black is an alias, polar internal plumbing
 export const WRAP_MODE_NAMES = ['clamp', 'repeat', 'mirror', 'transparent'];
 
+// how a camera or file of one shape lands in a frame of another
+export const FIT_NAMES = ['cover', 'contain', 'stretch'];
+
 // First spelling of each mode is the canonical one — that's the set docs and
 // completion offer (BLEND_MODE_NAMES); the rest are aliases.
 const BLEND_MODES = {
@@ -1780,10 +1793,11 @@ const declOf = (name, type) => {
 const mentions = (src, name) => new RegExp(`\\b${name}\\b`).test(src);
 
 // A texture's own pixel size, for iChannelResolution — a render target carries
-// it on .image, a video element under another name.
+// it on .image, a video element under another name (its .width is the html
+// attribute, 0 unless set, so that one is asked first).
 const texSize = (tex) => {
   const im = tex?.image;
-  return [im?.width ?? im?.videoWidth ?? 1, im?.height ?? im?.videoHeight ?? 1];
+  return [im?.videoWidth || im?.width || 1, im?.videoHeight || im?.height || 1];
 };
 
 // Per-frame values for whichever of the above the shader actually declared.
@@ -3391,9 +3405,12 @@ export class TextureOp {
   lut(source, mix = 1) {
     // options object in the scalar slot, the same as .displace()'s amount
     if (mix !== null && typeof mix === 'object') mix = mix.mix ?? 1;
-    const src = typeof source === 'string'
+    let src = typeof source === 'string'
       ? new TextureOp(this.engine, 'imagefile', { name: source })
       : this._texture(source, 'lut');
+    // a cube is read texel for texel, so the file is never fitted to the frame
+    if (src?.kind === 'imagefile' || src?.kind === 'imageseq')
+      src = new TextureOp(this.engine, src.kind, { ...src.params, fit: 'stretch' });
     return src ? this._n('lut', { mix }, [src]) : this;
   }
   // .alpha(0.5) is a half-faded image; .alpha(map) fades per pixel by the
@@ -3923,6 +3940,27 @@ export class TextureOp {
     return rt;
   }
 
+  // A camera or file at its own shape instead of the frame's: 'cover' fills the
+  // frame and loses the overflow, 'contain' shows all of it over nothing,
+  // 'stretch' is the texture as it comes. `size` is for a texture that isn't
+  // the shape of its source. Matching shapes cost no pass.
+  _fit(ctx, tex, size = texSize(tex)) {
+    const mode = this.params.fit ?? 'cover';
+    const [sw, sh] = size;
+    if (mode === 'stretch' || sw <= 1 || sh <= 1) return tex;
+    // source aspect over frame aspect: above 1 it is the wider of the two
+    const r = (sw / sh) * (ctx.h / ctx.w);
+    if (Math.abs(r - 1) < 1e-3) return tex;
+    const wide = r > 1;
+    this._fitMat ??= makeMaterial(SPECS.fit);
+    const out = this._rt(ctx);
+    runPass(ctx, this._fitMat, tex, null, out, (u) => {
+      if (mode === 'contain') u.uFit.value.set(wide ? 1 : 1 / r, wide ? r : 1);
+      else u.uFit.value.set(wide ? 1 / r : 1, wide ? 1 : r);
+    });
+    return out.texture;
+  }
+
   renderNode(ctx) {
     // Once a frame — and once per context, since a tile set renders its sources
     // at the tile's size rather than the frame's. A chain used both ways draws
@@ -4153,7 +4191,8 @@ export class TextureOp {
 
     // camera capture (stream owned by the engine, black until it's live)
     if (this.kind === 'video') {
-      return this.engine.ensureVideo(this.params.name).texture ?? blackTex();
+      const tex = this.engine.ensureVideo(this.params.name).texture;
+      return tex ? this._fit(ctx, tex) : blackTex();
     }
     // person(): the segmenter's mask, black until the model and stream are
     // live. The stamp tells the inference loop someone is still reading, so
@@ -4164,7 +4203,9 @@ export class TextureOp {
       // capped short of 1, where the mask would freeze and never recover
       if (this.params.smooth != null)
         s.smooth = Math.min(0.95, Math.max(0, resolve(this.params.smooth, ctx.t)));
-      return s.texture ?? blackTex();
+      if (!s.texture) return blackTex();
+      // fitted by the camera's shape, not the mask's, so it lands on video()
+      return this._fit(ctx, s.texture, texSize(this.engine.ensureVideo(this.params.name).texture));
     }
 
     // imported media files (drag-drop / picker); black until loaded, and
@@ -4215,11 +4256,12 @@ export class TextureOp {
           }
         }
       }
-      return m.texture ?? blackTex();
+      return m.texture ? this._fit(ctx, m.texture) : blackTex();
     }
     if (this.kind === 'imagefile') {
       if (this.params.name == null) return blackTex();
-      return this.engine.ensureMedia('image', this.params.name).texture ?? blackTex();
+      const tex = this.engine.ensureMedia('image', this.params.name).texture;
+      return tex ? this._fit(ctx, tex) : blackTex();
     }
     if (this.kind === 'imageseq' || this.kind === 'videoseq') {
       const media = this.kind === 'imageseq' ? 'image' : 'video';
@@ -4231,7 +4273,7 @@ export class TextureOp {
       // warm the rest so switching is seamless — videos keep playing while
       // unselected, so a switch lands mid-action like cutting between feeds
       for (const n of names) this.engine.ensureMedia(media, n);
-      return tex ?? blackTex();
+      return tex ? this._fit(ctx, tex) : blackTex();
     }
 
     // One instanced draw of the picture so far, into a target cleared to
