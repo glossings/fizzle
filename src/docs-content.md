@@ -99,6 +99,11 @@ picture alone and bring the code up part way through if that's the set.
 The `● 0:42` in the corner is yours alone — it's not in the file and not on the
 projector.
 
+**Screenshot**: right-click the picture and pick **save screenshot**. It
+downloads a `.png` of the current frame at the same size a recording would be,
+with the code in it when the code is on screen. Right-clicking a line of code
+still opens the browser's own menu.
+
 Recording is desktop-only for now: a phone's own screen recorder does a better
 job of a phone than this can.
 

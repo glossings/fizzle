@@ -544,8 +544,57 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
     unwatch();
   }
 
+  // A still of the next frame, at the size a recording would be and with the
+  // code over it when it's on screen. Asked for from a click, taken in the
+  // render loop: the drawing buffer can't be read from anywhere else.
+  let stillWanted = false;
+  const still = () => { stillWanted = true; };
+
+  async function grab() {
+    const [W, H] = getSize().map((n) => Math.max(1, Math.round(n)));
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d');
+    const fit = Math.min(W / canvas.width, H / canvas.height);
+    const dw = Math.round(canvas.width * fit), dh = Math.round(canvas.height * fit);
+    const dx = Math.round((W - dw) / 2), dy = Math.round((H - dh) / 2);
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, W, H);
+    // before the first await, while the frame is still in the buffer
+    try { g.drawImage(canvas, dx, dy, dw, dh); }
+    catch (e) { return warn(`screenshot: the picture couldn't be read (${e.message ?? e})`); }
+
+    const layer = codeLayer();
+    if (layer) {
+      try {
+        const k = Math.min(3, Math.max(0.5, dw / layer.clip.w));
+        const code = await snapshot(layer.el, k);
+        // a tainted layer would make the whole canvas unreadable
+        if (code && !isClean(code)) warn('screenshot: the code layer came back tainted — saving the picture only');
+        else if (code) {
+          const q = layer.clip;
+          g.drawImage(code, q.x * k, q.y * k, q.w * k, q.h * k, dx, dy, dw, dh);
+        }
+      } catch (e) {
+        warn(`screenshot: the code couldn't be drawn in (${e.message ?? e})`);
+      }
+    }
+
+    let blob = null;
+    try { blob = await new Promise((done) => c.toBlob(done, 'image/png')); } catch { /* reported below */ }
+    if (!blob) return warn('screenshot: the picture couldn\'t be encoded');
+    const name = `${slug(getName())}-${stamp()}.png`;
+    download(new File([blob], name, { type: 'image/png' }));
+    flash?.(`⤓ ${name} (${W}×${H})`);
+  }
+
   // One composited frame, from inside the render loop.
   function frame() {
+    if (stillWanted && canvas.width && canvas.height) {
+      stillWanted = false;
+      grab();
+    }
     if (!rec || !canvas.width || !canvas.height) return;
     // Direct capture: the compositor is feeding the recorder the frames this
     // canvas draws, and there's nothing for the loop to do. Just notice if the
@@ -1041,5 +1090,5 @@ export function initRecorder({ canvas, getSize, getName, getFormat, getScale, ge
   // state the next load offers back.
   window.addEventListener('pagehide', () => { if (rec) stop(); });
 
-  return { frame, recording, toggle };
+  return { frame, recording, toggle, still };
 }

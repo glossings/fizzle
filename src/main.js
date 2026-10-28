@@ -9,6 +9,7 @@ import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media
 import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
 import { initRecorder } from './record.js';
+import { initContextMenu } from './context-menu.js';
 import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
 import { learnMidi, learnPad } from './control.js';
 import { writeChip, removeChip, foldChip } from './band-chip.js';
@@ -272,6 +273,10 @@ const recorder = initRecorder({
 // Both want this frame while it's still in the drawing buffer: the recorder
 // composites it, the projector snapshots it for the audience's window.
 engine.onFrame = () => { recorder.frame(); projector.frame(); };
+
+initContextMenu(glCanvas, [
+  { label: 'save screenshot', run: () => recorder.still() },
+]);
 
 function togglePause() {
   if (engine.togglePause()) {
