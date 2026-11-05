@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { nameOk } from './src/sketch-name.js';
 
 // Dev-server API for sketch files. User sketches live in sketches/user/ as
@@ -328,8 +329,30 @@ function transcodeApi() {
   };
 }
 
+// Writes the docs into docs.html at build time, so the page's text is there for
+// search engines and link unfurlers that don't run scripts. The dev server
+// skips it and docs-page.js renders in the browser, which keeps edits live.
+function prerenderDocs() {
+  return {
+    name: 'prerender-docs',
+    apply: 'build',
+    async transformIndexHtml(html, ctx) {
+      if (path.basename(ctx.filename) !== 'docs.html') return html;
+      // a computed URL, so the config bundler leaves it (and three.js) alone
+      const { renderDocs } = await import(pathToFileURL(path.resolve('src/docs-render.js')).href);
+      const { body, toc } = renderDocs(fs.readFileSync(path.resolve('src/docs-content.md'), 'utf8'));
+      const BYLINE = /<p id="doc-byline">[\s\S]*?<\/p>/;
+      const TOC = '<div id="toc-links"></div>';
+      if (!BYLINE.test(html) || !html.includes(TOC)) throw new Error('prerender-docs: docs.html lost its #doc-byline or #toc-links');
+      return html
+        .replace(TOC, () => `<div id="toc-links">${toc}</div>`)
+        .replace(BYLINE, (m) => `${m}\n${body}`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [sketchApi(), libraryApi(), snippetApi(), gfontApi(), transcodeApi()],
+  plugins: [sketchApi(), libraryApi(), snippetApi(), gfontApi(), transcodeApi(), prerenderDocs()],
   build: {
     rollupOptions: {
       // two pages: the app itself and the interactive docs

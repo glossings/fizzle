@@ -15,7 +15,6 @@ import { Prec } from '@codemirror/state';
 import { acceptCompletion } from '@codemirror/autocomplete';
 import { indentMore, indentLess } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { bodyFor, configSections, infoNodes, GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG } from './docs.js';
 import { sketchLanguage, apiHover } from './complete.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
@@ -24,7 +23,6 @@ import { mediaPut, pickFiles, nameList } from './media.js';
 import { fillCall } from './editor.js';
 import { learnMidi, learnPad } from './control.js';
 import { ICON } from './icons.js';
-import CONTENT from './docs-content.md?raw';
 
 // --- preview engine --------------------------------------------------------
 
@@ -347,189 +345,38 @@ function makeExample(code, autorun) {
   return ex;
 }
 
-// --- tiny markdown renderer (the subset docs-content.md uses) --------------
-
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const slug = (s) => s.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
-
-function inline(s) {
-  // protect code spans so bold/link markup inside them stays literal
-  const spans = [];
-  s = esc(s).replace(/`([^`]+)`/g, (_, c) => `\x00${spans.push(c) - 1}\x00`);
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-  return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${spans[i]}</code>`);
-}
-
-const FENCE = /^\s*```/;
-
-function renderMarkdown(md, root) {
-  const lines = md.split('\n');
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (!line.trim()) { i++; continue; }
-
-    // a fence written under a list item is indented; it's still a code block,
-    // and the block's own indentation is what's left after that one is taken off
-    const fence = line.match(/^(\s*)```(\S*)\s*(.*)$/);
-    if (fence) {
-      const [, indent, lang, flags] = fence;
-      const codeLines = [];
-      i++;
-      while (i < lines.length && !FENCE.test(lines[i])) codeLines.push(lines[i++]);
-      i++; // closing fence
-      const code = codeLines.map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l)).join('\n');
-      // ```js — a live editor; ```js static — a snippet that can't run here
-      // (it names files only you have), so it renders as plain code
-      if (lang === 'js' && !flags.includes('static')) {
-        root.appendChild(makeExample(code, flags.includes('autorun')));
-      } else {
-        const pre = document.createElement('pre');
-        pre.className = 'static';
-        pre.textContent = code;
-        root.appendChild(pre);
-      }
-      continue;
-    }
-
-    const h = line.match(/^(#{2,3}) (.+)$/);
-    if (h) {
-      const el = document.createElement(h[1].length === 2 ? 'h2' : 'h3');
-      el.id = slug(h[2]);
-      el.innerHTML = inline(h[2]);
-      root.appendChild(el);
-      i++;
-      continue;
-    }
-
-    if (/^\|/.test(line)) {
-      const rows = [];
-      while (i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i++]);
-      const table = document.createElement('table');
-      const cells = (r) => r.replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-      rows.forEach((r, ri) => {
-        if (ri === 1 && /^[\s|:-]+$/.test(r)) return; // header separator
-        const tr = table.insertRow();
-        for (const c of cells(r)) {
-          const cell = document.createElement(ri === 0 ? 'th' : 'td');
-          cell.innerHTML = inline(c);
-          tr.appendChild(cell);
-        }
-      });
-      root.appendChild(table);
-      continue;
-    }
-
-    if (/^- /.test(line)) {
-      const ul = document.createElement('ul');
-      let item = null;
-      while (i < lines.length && !FENCE.test(lines[i])
-             && (/^- /.test(lines[i]) || /^ {2,}\S/.test(lines[i]))) {
-        if (/^- /.test(lines[i])) {
-          item = document.createElement('li');
-          item.innerHTML = inline(lines[i].slice(2));
-          ul.appendChild(item);
-        } else if (item) {
-          item.innerHTML += ' ' + inline(lines[i].trim());
-        }
-        i++;
-      }
-      root.appendChild(ul);
-      continue;
-    }
-
-    // paragraph: gather until a blank line or a new block form
-    const para = [];
-    while (i < lines.length && lines[i].trim()
-           && !FENCE.test(lines[i]) && !/^(#{2,3} |\| |- )/.test(lines[i])) {
-      para.push(lines[i++]);
-    }
-    const p = document.createElement('p');
-    p.innerHTML = inline(para.join(' '));
-    root.appendChild(p);
-  }
-}
-
-// --- reference (generated from docs.js so it can't drift) ------------------
-
-function referenceSection(root) {
-  const h2 = document.createElement('h2');
-  h2.id = 'reference';
-  h2.textContent = 'reference';
-  root.appendChild(h2);
-
-  const p = document.createElement('p');
-  p.innerHTML = inline(
-    'The full API, straight from the table that powers autocomplete. ' +
-    'The same text pops up in the app on `ctrl + hover`.'
-  );
-  root.appendChild(p);
-
-  const search = document.createElement('input');
-  search.id = 'ref-search';
-  search.type = 'search';
-  search.placeholder = 'filter… (name, signature, or description)';
-  root.appendChild(search);
-
-  const groups = [
-    ['globals', GLOBALS, GLOBAL_CONFIG],
-    ['chain methods', METHODS, METHOD_CONFIG],
-  ];
-  const rows = [];
-  for (const [title, table, config] of groups) {
-    const h3 = document.createElement('h3');
-    h3.id = slug(`ref ${title}`);
-    h3.textContent = title;
-    root.appendChild(h3);
-    const t = document.createElement('table');
-    t.className = 'ref';
-    for (const [name, [sig, info]] of Object.entries(table)) {
-      const tr = t.insertRow();
-      // the keys the signature is too short to list, so the page and the
-      // completion popup describe the same call
-      const sections = configSections(config[name]);
-      const keys = sections?.map(([s, list]) => `${s}: ${list.join(' ')}`).join('\n') ?? '';
-      tr.dataset.text = `${name} ${sig} ${bodyFor(info)} ${keys}`.toLowerCase();
-      const td1 = tr.insertCell();
-      td1.innerHTML = `<code class="ref-sig">${esc(sig)}</code>`;
-      const td2 = tr.insertCell();
-      td2.append(...infoNodes(info));
-      if (sections) {
-        const dl = document.createElement('div');
-        dl.className = 'ref-keys';
-        for (const [section, list] of sections) {
-          dl.innerHTML += `<span>${esc(section)}</span><code>${esc(list.join(' '))}</code>`;
-        }
-        td2.appendChild(dl);
-      }
-      rows.push(tr);
-    }
-    root.appendChild(t);
-  }
-  search.addEventListener('input', () => {
-    const q = search.value.trim().toLowerCase();
-    for (const r of rows) r.hidden = q !== '' && !r.dataset.text.includes(q);
-  });
-}
-
 // --- assemble --------------------------------------------------------------
 
+// A build ships the page already rendered (prerenderDocs in vite.config.js);
+// the dev server doesn't, so the page renders itself here.
 const content = document.getElementById('content');
-renderMarkdown(CONTENT, content);
-referenceSection(content);
-
-// table of contents from the rendered h2s, with scrollspy
 const tocLinks = document.getElementById('toc-links');
-const h2s = [...content.querySelectorAll('h2')];
-const linkFor = new Map();
-for (const h of h2s) {
-  const a = document.createElement('a');
-  a.href = `#${h.id}`;
-  a.textContent = h.textContent;
-  tocLinks.appendChild(a);
-  linkFor.set(h.id, a);
+if (!content.querySelector('h1')) {
+  const [{ renderDocs }, { default: md }] = await Promise.all([
+    import('./docs-render.js'),
+    import('./docs-content.md?raw'),
+  ]);
+  const { body, toc } = renderDocs(md);
+  content.insertAdjacentHTML('beforeend', body);
+  tocLinks.innerHTML = toc;
 }
+
+for (const pre of content.querySelectorAll('pre.ex-src')) {
+  pre.replaceWith(makeExample(pre.textContent, pre.hasAttribute('data-autorun')));
+}
+
+const search = document.getElementById('ref-search');
+const rows = [...content.querySelectorAll('table.ref tr')]
+  .map((tr) => [tr, `${tr.dataset.name} ${tr.textContent}`.toLowerCase()]);
+search.addEventListener('input', () => {
+  const q = search.value.trim().toLowerCase();
+  for (const [tr, text] of rows) tr.hidden = q !== '' && !text.includes(q);
+});
+
+// table of contents scrollspy
+const heads = [...content.querySelectorAll('h1, h2')];
+const linkFor = new Map();
+for (const a of tocLinks.querySelectorAll('a')) linkFor.set(a.hash.slice(1), a);
 const spy = new IntersectionObserver(
   (entries) => {
     for (const e of entries) {
@@ -540,4 +387,4 @@ const spy = new IntersectionObserver(
   },
   { rootMargin: '0px 0px -70% 0px' }
 );
-h2s.forEach((h) => spy.observe(h));
+heads.forEach((h) => spy.observe(h));

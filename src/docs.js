@@ -1434,10 +1434,21 @@ export function docDom([sig, info], kind) {
   return dom;
 }
 
-// The same body without the signature, for the reference table's own layout.
-export function infoNodes(info) {
+// The same body without the signature, as markup for the reference table —
+// which is rendered at build time, where there's no document to build nodes in.
+const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export function infoHtml(info) {
   const [lead, ...rest] = blocksOf(bodyFor(info));
-  return [el('p', null, lead), ...tailNodes(rest)];
+  let out = `<p>${escHtml(lead)}</p>`;
+  let inList = false;
+  for (const block of rest) {
+    const bullet = block.startsWith('- ');
+    if (bullet && !inList) out += '<ul class="td-doc-list">';
+    if (!bullet && inList) out += '</ul>';
+    inList = bullet;
+    out += bullet ? `<li>${escHtml(block.slice(2))}</li>` : `<p>${escHtml(block)}</p>`;
+  }
+  return inList ? out + '</ul>' : out;
 }
 
 // Every key, grouped, for the reference page — which scrolls, so it can afford
