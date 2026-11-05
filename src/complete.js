@@ -323,6 +323,7 @@ export function apiCompletions(context) {
   if (node.name === 'String') {
     return stringValues(state, node, pos)
       ?? deviceValues(state, node, pos)
+      ?? cameraValues(state, node, pos)
       ?? bandValues(state, node, pos)
       ?? sketchValues(state, node, pos)
       ?? mediaCompletions(context, node);
@@ -450,6 +451,42 @@ function deviceValues(state, node, pos) {
   if (argIndex(parent, node) !== 0) return null;
   const names = midiPortNames();
   return names.length ? valueResult(state, pos, node, names) : null;
+}
+
+// Phones and tablets are where 'front'/'back' pick different cameras; on a
+// laptop both land on the one webcam. iPadOS reports a Mac UA, hence the
+// touch-point check.
+const hasFacings = () =>
+  navigator.userAgentData?.mobile
+  || /Android|iPhone|iPad/.test(navigator.userAgent)
+  || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
+// Inside video('…') / person('…'): the cameras the browser lists, plus the
+// facings on phones and tablets. Labels stay blank until camera permission is
+// granted (the first video() run).
+function cameraValues(state, node, pos) {
+  const parent = node.parent;
+  if (parent?.name !== 'ArgList') return null;
+  const callee = calleeName(state, parent.parent);
+  if (!callee || callee.method || (callee.name !== 'video' && callee.name !== 'person')) return null;
+  if (argIndex(parent, node) !== 0) return null;
+  const body = stringBody(state, pos, node);
+  return (async () => {
+    let labels = [];
+    try {
+      const devs = await navigator.mediaDevices?.enumerateDevices?.() ?? [];
+      const full = [...new Set(devs.filter((d) => d.kind === 'videoinput' && d.label).map((d) => d.label))];
+      // Chrome appends a USB id, "Camera (05ac:8514)", that other browsers
+      // don't; drop it unless two cameras would then share a name
+      const short = full.map((l) => l.replace(/ \([0-9a-f]{4}:[0-9a-f]{4}\)$/i, ''));
+      labels = full.map((l, i) => (short.filter((s) => s === short[i]).length > 1 ? l : short[i]));
+    } catch { /* no camera list; facings alone, if any */ }
+    const options = [
+      ...labels.map((label) => ({ label, type: 'constant', detail: 'camera', boost: 1 })),
+      ...(hasFacings() ? ['front', 'back'] : []).map((label) => ({ label, type: 'enum', detail: 'facing' })),
+    ];
+    return options.length ? { ...body, options, validFor: /^[^'"]*$/ } : null;
+  })();
 }
 
 // Inside band('…'): the bands this sketch actually reads, 'level' first — its
