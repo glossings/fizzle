@@ -705,7 +705,9 @@ export class Engine {
     const cams = async () =>
       (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
     const labels = (devs) => devs.map((d) => `"${d.label}"`).join(', ') || 'none found';
-    (async () => {
+    // Writes into this same entry each time it runs, so a person() holding
+    // the entry follows a reconnect too.
+    const acquire = async () => {
       try {
         const facing = name && FACING[String(name).toLowerCase()];
         let constraint = true; // no name: whatever the system calls the default
@@ -737,12 +739,38 @@ export class Engine {
         }
         // labels unlock once a stream is live; refresh so the listing is useful
         if (!devs.some((d) => d.label)) devs = await cams();
-        console.info(`fizzle: video: using "${stream.getVideoTracks()[0]?.label}". Sources: ${labels(devs)}`);
-        v.texture = new THREE.VideoTexture(this.videoElement(stream, `video(${name ?? ''})`));
+        const track = stream.getVideoTracks()[0];
+        const what = `video(${name ?? ''})`;
+        // getSettings() is the size the browser believes it negotiated;
+        // videoWidth is what the frames are. They disagree for virtual cameras
+        // that advertise one fixed size, which is worth seeing in a report.
+        const { width, height } = track?.getSettings() ?? {};
+        console.info(`fizzle: video: using "${track?.label}" ${width}x${height}. Sources: ${labels(devs)}`);
+        const el = this.videoElement(stream, what);
+        el.addEventListener('resize', () => console.info(`fizzle: ${what}: frames now ${el.videoWidth}x${el.videoHeight}`));
+        v.texture = new THREE.VideoTexture(el);
+        // The browser mutes a track whose camera stops delivering frames and
+        // ends one the camera dropped (a virtual camera reconfiguring its
+        // output does the latter). Neither shows in the sketch as anything
+        // but black, so say so; an ended track is asked for again.
+        track?.addEventListener('mute', () => warn(`${what}: "${track.label}" stopped sending frames`));
+        track?.addEventListener('ended', () => {
+          if (this.videos.get(key) !== v) return;
+          warn(`${what}: "${track.label}" ended — reconnecting`);
+          setTimeout(() => {
+            if (this.videos.get(key) !== v) return;
+            const el = v.texture?.image;
+            if (el) { el.srcObject = null; el.remove(); }
+            v.texture?.dispose();
+            v.texture = null;
+            acquire();
+          }, 1000);
+        });
       } catch (e) {
         warn(`video: ${e.message ?? e}`);
       }
-    })();
+    };
+    acquire();
     return v;
   }
 
