@@ -747,7 +747,12 @@ export class Engine {
         const { width, height } = track?.getSettings() ?? {};
         console.info(`fizzle: video: using "${track?.label}" ${width}x${height}. Sources: ${labels(devs)}`);
         const el = this.videoElement(stream, what);
-        el.addEventListener('resize', () => console.info(`fizzle: ${what}: frames now ${el.videoWidth}x${el.videoHeight}`));
+        let seen = '';
+        el.addEventListener('resize', () => {
+          const size = `${el.videoWidth}x${el.videoHeight}`;
+          if (size !== seen) console.info(`fizzle: ${what}: frames now ${size}`);
+          seen = size;
+        });
         v.texture = new THREE.VideoTexture(el);
         // The browser mutes a track whose camera stops delivering frames and
         // ends one the camera dropped (a virtual camera reconfiguring its

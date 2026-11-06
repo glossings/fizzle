@@ -843,15 +843,11 @@ const GLOBAL_KEY_DOCS = {
     leading: "Distance from one line to the next, in ems: 1 sets lines one size apart, 2 double-spaces. Default is the font's own line height.",
     center: 'Center the text on the origin. Default true.',
   },
-  // The outer keys of bands() are band names, so there's nothing to complete
-  // there; these are the keys of one band's object, one level in.
+  // The outer keys of bands() are band names; one band's own keys are
+  // documented in bandKeys(), reached from inside any of them.
   bands: {
-    from: 'Bottom of the band, in Hz. A kick lives around 30–160, a snare 200–400, hats 6k up.',
-    to: 'Top of the band, in Hz. Below from it swaps with it; a band narrower than a twentieth is widened to one.',
-    lo: 'What the band has to read before this band reports anything above 0, 0..1. Anything quieter clips to 0, which is how a band ignores the rest of the mix bleeding into it. Default 0.',
-    hi: 'What the band has to read for this band to report 1, 0..1. Anything louder clips to 1. Default 1 — bring it down to the loudest the band actually gets and the sketch sees the full 0..1 sweep.',
-    sm: 'Seconds of smoothing before the anchors, so the value eases instead of snapping. Default 0. A kick wants 0.05 to stay punchy, a pad 0.3 or more.',
-    auto: "Fit lo and hi to whatever is playing, continuously, instead of holding the numbers above. Default false. The one setting worth carrying between machines, since it calibrates itself to the input it finds — which is also why a band with auto on is written without lo and hi.",
+    name: "Any name you give a band: band('kick') reads the one called kick. Its value is that band's settings, { from, to, lo, hi, sm, auto }.",
+    level: "The whole mix as one band, which band() with no name and band('level') read. Takes the same settings minus from and to.",
   },
   audiofile: {
     volume: '0..1 playback level. Only how loud it plays — the signal it returns is unaffected.',
@@ -1160,6 +1156,28 @@ for (const [docs, config] of [[GLOBAL_KEY_DOCS, GLOBAL_CONFIG], [METHOD_KEY_DOCS
 // wants the light-option half of .shadow()'s signature.
 export const NESTED_CONFIG = { shadow: METHOD_CONFIG.shadow, mark: markKeys() };
 
+// Nested configs reached by the call rather than the key: every key of
+// bands({ ... }) is a band name, and the object under it takes a band's keys.
+export const NESTED_BY_CALL = { bands: bandKeys() };
+
+function bandKeys() {
+  const map = parseConfig(GLOBAL_CONFIG.bands.get('name').hint);
+  const docs = {
+    from: 'Bottom of the band, in Hz. A kick lives around 30–160, a snare 200–400, hats 6k up.',
+    to: 'Top of the band, in Hz. Below from it swaps with it; a band narrower than a twentieth is widened to one.',
+    lo: 'What the band has to read before this band reports anything above 0, 0..1. Anything quieter clips to 0, which is how a band ignores the rest of the mix bleeding into it. Default 0.',
+    hi: 'What the band has to read for this band to report 1, 0..1. Anything louder clips to 1. Default 1 — bring it down to the loudest the band actually gets and the sketch sees the full 0..1 sweep.',
+    sm: 'Seconds of smoothing before the anchors, so the value eases instead of snapping. Default 0. A kick wants 0.05 to stay punchy, a pad 0.3 or more.',
+    auto: "Fit lo and hi to whatever is playing, continuously, instead of holding the numbers above. Default false. The one setting worth carrying between machines, since it calibrates itself to the input it finds — which is also why a band with auto on is written without lo and hi.",
+  };
+  for (const [k, doc] of Object.entries(docs)) {
+    const spec = map.get(k);
+    if (spec) spec.doc = doc;
+    else if (import.meta.env?.DEV) console.warn(`docs: bands({ name }) has no key "${k}" to document`);
+  }
+  return map;
+}
+
 // text({ mark: { ... } }) — its own little config, documented on the keys
 // rather than in the one line text()'s signature can spare for it.
 function markKeys() {
@@ -1297,7 +1315,7 @@ export const KIND_LABEL = {
 export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
   ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sketch sky stack text video videofile videoseq voronoi'],
-  ['signals', 'audio audiofile B band bands beat feed gamepad midi mouse rand restartMedia select sig T tempo'],
+  ['signals', 'audio audiofile B band bands beat feed gamepad midi mouse rand restartMedia select sig speed T tempo'],
   ['structure', 'curve data layout link segments spread track'],
   ['lights', 'ambient directional hdri hemi point spot'],
   ['scene', 'bg camera fog hsl hsv param resolution'],

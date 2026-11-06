@@ -28,7 +28,7 @@ import { bandStore, sketchBandSet } from './bands.js';
 import { blockLabels } from './sketch-blocks.js';
 import { allSketches } from './sidebar.js';
 import {
-  GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG,
+  GLOBALS, METHODS, GLOBAL_CONFIG, METHOD_CONFIG, NESTED_CONFIG, NESTED_BY_CALL,
   GLOBAL_ARGS, METHOD_ARGS, GLOBAL_SECTIONS,
   GLOBAL_KIND, METHOD_KINDS, CALLBACK_KIND, docDom, keyEntry,
 } from './docs.js';
@@ -250,6 +250,13 @@ function configContext(state, node, pos) {
     const key = propertyKey(state, parent);
     const keys = NESTED_CONFIG[key];
     found = keys && { label: `.${key}`, keys };
+    if (!found) {
+      // bands({ kick: { … } }): the key is a name, the call says what's under it
+      const outer = parent.parent?.parent;
+      const callee = outer?.name === 'ArgList' && calleeName(state, outer.parent);
+      const byCall = callee && !callee.method && NESTED_BY_CALL[callee.name];
+      found = byCall && { label: key, keys: byCall };
+    }
   // `{ col` misparses far enough that the ObjectPattern's parent is an
   // AssignmentExpression sitting in the ArgList
   } else if (parent?.name === 'AssignmentExpression' && parent.parent?.name === 'ArgList') {
