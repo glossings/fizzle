@@ -21,6 +21,7 @@ import { makeApi } from './api.js';
 import { initPolyhaven } from './polyhaven.js';
 import { mediaPut, pickFiles, nameList } from './media.js';
 import { fillCall } from './editor.js';
+import { errorMarks, showErrorMark } from './error-mark.js';
 import { learnMidi, learnPad } from './control.js';
 import { ICON } from './icons.js';
 
@@ -151,8 +152,9 @@ function runBlock(block, { reveal = false } = {}) {
   pauseBtn.innerHTML = ICON.pause;
   const ctx = { view: block.view, rerun: () => runBlock(block) };
   const err = engine.run(block.view.state.doc.toString(), api);
+  showErrorMark(block.view, err?.where);
   if (err) {
-    statusEl.textContent = String(err.message ?? err);
+    statusEl.textContent = err.where ? `line ${err.where.line}:${err.where.col} — ${err.where.text}` : String(err.message ?? err);
     statusEl.className = 'err';
   } else {
     statusEl.textContent = '✓ running';
@@ -299,6 +301,7 @@ function makeExample(code, autorun) {
       apiHover,
       oneDark,
       EditorView.lineWrapping,
+      errorMarks,
     ],
   });
 

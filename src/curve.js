@@ -1,3 +1,4 @@
+import { autoSeed } from './seeds.js';
 import { warn } from './warn.js';
 import { sig } from './audio.js';
 import { Layout } from './layout.js';
@@ -288,7 +289,8 @@ export function spread(n = 12, o = {}) {
   n = Math.floor(n);
   if (!(n >= 1)) { warn(`spread: how many values? — got ${JSON.stringify(n)}, using 12`); n = 12; }
   if (n > 100000) { warn('spread: capped at 100000 values'); n = 100000; }
-  const { jitter = 0, random = false, seed = 0, end = false } = o ?? {};
+  const { jitter = 0, random = false, end = false } = o ?? {};
+  const seed = o?.seed ?? autoSeed();
   const out = new Array(n);
   for (let i = 0; i < n; i++) {
     if (random) out[i] = hash(i, seed);

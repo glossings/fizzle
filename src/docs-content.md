@@ -1607,8 +1607,8 @@ scene().bloom({ threshold: 0.2, strength: 0.9 }).out()
 ```
 
 `spread(80, { jitter: 0.5 })` roughs the spacing and `{ random: true }`
-scatters it; both hold still across frames and re-runs, with `seed` as the
-reroll. The default runs `i / n` so a closed curve gets no doubled point at
+scatters it; both hold still across frames and re-runs, and each call gets
+its own values unless two share a `seed`. The default runs `i / n` so a closed curve gets no doubled point at
 the seam; `spread(5, { end: true })` counts fence posts instead
 (`0, 0.25, 0.5, 0.75, 1`) for an open curve. And a distribution of your own
 is just arithmetic on the phases before the curve takes them:
@@ -1679,6 +1679,36 @@ camera(0, 3, 8)
 A branching layout has no single path, so `curve(tree)` warns and follows the
 copies in placement order.
 
+### walk: wandering a shape
+
+`.walk()` on a shape is a point that wanders its surface, ready for
+`.position()`. It moves at a steady `speed`, its heading turning at random by
+`turn`, and bounces off the edges. The shape only marks out the region, so it
+doesn't need to be in the scene:
+
+```js
+bg('#06070d')
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.5 }).position(3, 5, 4).out()
+
+const region = plane({ width: 6, height: 3.5 })
+
+sphere({ radius: 0.2 })
+  .position(region.walk({ speed: 0.8 }))
+  .material({ color: '#ffd166', emissive: '#ffd166' })
+  .out()
+
+sphere({ radius: 0.2 })
+  .position(region.walk({ speed: 0.8, turn: 4 }))
+  .material({ color: '#4fd1c5', emissive: '#4fd1c5' })
+  .out()
+```
+
+`jitter` adds a random nudge to every step: a little reads as trembling, and
+`{ speed: 0, jitter: 0.5 }` is a plain random walk. The path is the same on
+every run, so editing the sketch doesn't send the walker somewhere new. Only
+`plane()` can be walked so far.
+
 ## lights, camera, scene
 
 ```js
@@ -1696,12 +1726,16 @@ plane({ width: 24, height: 24, res: 128 })
   .out()
 ```
 
-- Every light is configured the same way — `ambient({ intensity })`,
-  `directional({ intensity, color })`, `point({ intensity, distance, decay })`
-  — and every value takes a function of `t`.
-- `directional` / `point` / `spot` / `hemi` chain `.position(x, y, z).out()`,
-  with functions of `t` for moving lights. `ambient` has no position and adds
-  itself without an `.out()`.
+- `light(type, { … })` is every kind of light: `'directional'` (the default),
+  `'point'`, `'spot'`, `'ambient'` or `'hemi'`. `light({ type })` works too. Directional, point and spot
+  read about the same brightness at the same `intensity` (a point or spot
+  light matches at 4 units away), so changing `type` doesn't blow out or black
+  out the scene. Every value takes a function of `t`.
+- Lights chain `.position(x, y, z).out()`, with functions of `t` for moving
+  lights. An ambient light has no position and adds itself without an `.out()`.
+- `ambient()`, `directional()`, `point()`, `spot()` and `hemi()` are the same
+  lights by their own names, on three.js's scale: a `point()` needs about 16×
+  the intensity of a directional light to look as bright.
 - `spot({ angle, penumbra })` is a cone from `.position()` toward `.target()`.
   `angle` is its half-width in radians, `penumbra` (0..1) how soft the rim is.
   `directional` takes a `.target(x, y, z)` too; both aim at the origin without
@@ -4139,9 +4173,10 @@ same way.
 
 ## random & custom signals
 
-`rand({ freq, seed })` is a smooth random signal, 0..1, the signal cousin of
-the `noise()` texture. Different seeds are independent, so `rand({ seed: i })`
-inside a `.tile()` or `.instance()` function gives every copy its own.
+`rand({ freq, seed, type })` is a smooth random signal, 0..1, the signal cousin of
+the `noise()` texture. Every call is its own stream, and so is every copy
+inside a `.tile()` or `.instance()` function. To make two match, reuse the
+value or give both the same `seed`.
 `.beat(perBar)` snaps it to the grid, `.hold(trigger)` samples a new value
 each time some other trigger fires:
 
@@ -4153,6 +4188,26 @@ directional({ intensity: 1.5 }).position(4, 6, 3).out()
 
 sphere({ res: 96 })
   .noise({ amp: 0.35, freq: 3, seed: rand().hold(hit).mul(4).round() })
+  .color('#4fd1c5')
+  .out()
+```
+
+`type: 'simplex'` swaps the noise underneath. Plain `rand()` picks a value
+every `1/freq` seconds and eases between them, so it stalls at each one, even
+partway across. Simplex keeps the same pace and range but only slows where it
+turns around:
+
+```js
+ambient({ intensity: 0.25 })
+directional({ intensity: 1.5 }).position(4, 6, 3).out()
+
+sphere({ radius: 0.4 })   // value: stalls at every waypoint
+  .position(rand({ freq: 0.5 }).range(-3.5, -0.5), rand({ freq: 0.5 }).range(-2, 2))
+  .color('#ff7a59')
+  .out()
+
+sphere({ radius: 0.4 })   // simplex: keeps moving
+  .position(rand({ freq: 0.5, type: 'simplex' }).range(0.5, 3.5), rand({ freq: 0.5, type: 'simplex' }).range(-2, 2))
   .color('#4fd1c5')
   .out()
 ```

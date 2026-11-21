@@ -34,10 +34,11 @@ export const tag = (fn, s) => { tags.set(fn, s); };
 export const tagOf = (fn) => tags.get(fn) ?? UPDATERS;
 
 // Sketch code runs inside new Function (Engine.run), whose frames read
-// <anonymous>:line in Chrome and "> Function:line" in Firefox, counted from a
+// <anonymous>:line in Chrome and "> Function:line" in Firefox (fizzle-sketch-N:line
+// under the sourceURL Engine.run tags them with), counted from a
 // wrapper that differs by browser. The same wrapper around a probe says which
 // line is the sketch's first.
-const FRAME = /(?:<anonymous>|> Function):(\d+)/;
+const FRAME = /(?:<anonymous>|> Function|fizzle-sketch-\d+):(\d+)/;
 let firstLine;
 function locate(s) {
   if (s.line !== undefined || !s.at) return;

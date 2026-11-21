@@ -180,6 +180,13 @@ pre.static {
 .ex .cm-editor .cm-gutters { display: none; }
 .ex .cm-editor.cm-focused { outline: none; }
 .ex .cm-editor .cm-activeLine { background: rgba(255, 255, 255, 0.04); }
+/* where the last run failed (error-mark.js) */
+.ex .cm-editor .cm-line.cm-eval-error-line { background: rgba(255, 80, 80, 0.1); }
+.ex .cm-editor .cm-eval-error {
+  text-decoration: underline wavy #ff7b72;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
 
 /* the block's own controls, and — while it's the one playing — the preview's
    status line and pause button, moved in from the park */

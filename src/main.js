@@ -3,6 +3,7 @@ import { Transaction } from '@codemirror/state';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor, foldLists, fillCall } from './editor.js';
+import { showErrorMark } from './error-mark.js';
 import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash, viewFromUrl } from './share.js';
 import { mediaPut, pickFiles, classifyFile, snippetFor, nameList } from './media.js';
@@ -82,8 +83,11 @@ function run(code, push = false) {
   syncHash(code, push);
   warned = false;
   const err = engine.run(code, api);
+  if (view) showErrorMark(view, err?.where);
   if (err) {
-    const msg = String(err.stack?.split('\n').slice(0, 2).join('\n') ?? err);
+    const msg = err.where
+      ? `line ${err.where.line}:${err.where.col} — ${err.where.text}`
+      : String(err.stack?.split('\n').slice(0, 2).join('\n') ?? err);
     status.textContent = err.restored ? `${msg}\n(previous sketch still playing)` : msg;
     status.className = 'show err';
   } else if (!warned) {

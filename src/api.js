@@ -4,7 +4,9 @@ import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyDisplacement, applyDisplacementDepth, addUvBasis } from './noise.js';
-import { displacedPoint, displacedNormal } from './noise-cpu.js';
+import { displacedPoint, displacedNormal, snoise } from './noise-cpu.js';
+import { walkOn } from './walk.js';
+import { autoSeed, fieldSeed, seededInstance } from './seeds.js';
 import { applyMaps, applyMaterialScalars, applySurface, applyHdri, hasMaps, isPhysical, checkMaterialKeys, expandMaterial, tileSources, applyTileMap, applyPointSize } from './materials.js';
 import { TextureOp, glslNode, reciprocal, autoBuffer, setRate, FIT_NAMES } from './textures.js';
 import { claimFluidState } from './fluid.js';
@@ -195,6 +197,21 @@ function resolveFont(o) {
 
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 const resolve3 = (v, t) => v.map((c) => resolve(c, t));
+
+// rand()'s two types, x = t * freq. Simplex turns ~3x as often per unit as value
+// noise and spans about ±0.85, so it's slowed and widened to match: freq and the
+// 0..1 range read the same for either type.
+const RAND_TYPES = ['value', 'simplex'];
+const randAt = (type, x, seed) => type === 'simplex'
+  ? Math.min(1, Math.max(0, 0.5 + 0.58 * snoise(x * 0.32, seed * 31.7 + 0.5, 3.7)))
+  : valueNoise(x + seed * 137.31);
+const randSignal = (freq, seed, type) => {
+  if (!RAND_TYPES.includes(type)) {
+    warn(`rand: no type '${type}' — ${RAND_TYPES.join(' ')}; using value`);
+    type = 'value';
+  }
+  return sig((t) => randAt(type, t * resolve(freq, t), resolve(seed, t)));
+};
 
 // { fit } on a camera or file source; a name that isn't one falls back to the
 // default rather than stopping the sketch
@@ -602,6 +619,12 @@ class GeoOp {
     return new ScatterBundle(this.engine, this, n);
   }
 
+  // walk({ speed, turn, jitter, seed }) — a point wandering the surface, for
+  // .position(). See walk.js.
+  walk(o = {}) {
+    return walkOn(this, o);
+  }
+
   // link({ count, within, max, fill, fade, color, opacity, blend }) —
   // segments between every pair of scatter points closer than within; fill
   // shades the triangles they close. With .noise() on the chain the points
@@ -738,7 +761,7 @@ class GeoOp {
       lacunarity: o.lacunarity ?? 2,
       gain: o.gain ?? 0.5,
       speed: o.speed ?? 0.3,
-      seed: o.seed ?? 0,
+      seed: o.seed ?? fieldSeed(),
     };
     return this;
   }
@@ -794,12 +817,12 @@ class GeoOp {
       this._instance = {
         count: l.slots,
         fn: fn
-          ? (x, i, n, t) => fn(l.apply(x, i, t), i, n, t)
+          ? seededInstance((x, i, n, t) => fn(l.apply(x, i, t), i, n, t))
           : (x, i, n, t) => l.apply(x, i, t),
       };
       return this;
     }
-    this._instance = { count, fn: fn ?? ((x, i) => x.position(i * 2, 0, 0)) };
+    this._instance = { count, fn: fn ? seededInstance(fn) : ((x, i) => x.position(i * 2, 0, 0)) };
     return this;
   }
 
@@ -1280,6 +1303,36 @@ function applyShadow(light, o) {
   s.camera.updateProjectionMatrix();
 }
 
+const LIGHT_REF = 4;
+const LIGHT_TYPES = ['directional', 'point', 'spot', 'ambient', 'hemi'];
+
+// adds itself: it has nowhere to be, so an .out() would have nothing to say
+function ambientLight(engine, o) {
+  const { intensity = 0.3, color = 0xffffff } = o;
+  return new LightOp(engine, new THREE.AmbientLight(makeColor(color), resolve(intensity, 0)), { intensity, color }).out();
+}
+function hemiLight(engine, o) {
+  return new LightOp(engine, new THREE.HemisphereLight(
+    makeColor(o.sky ?? 0x8899ff), makeColor(o.ground ?? 0x332211), resolve(o.intensity ?? 0.6, 0)), o);
+}
+function directionalLight(engine, o) {
+  return new LightOp(engine, new THREE.DirectionalLight(
+    makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 1.5, 0)), o);
+}
+function pointLight(engine, o) {
+  return new LightOp(engine, new THREE.PointLight(
+    makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 20, 0),
+    resolve(o.distance ?? 0, 0), resolve(o.decay ?? 2, 0)), o);
+}
+// a cone from .position() toward .target(): angle is its half-width in radians,
+// penumbra (0..1) how soft the rim is
+function spotLight(engine, o) {
+  return new LightOp(engine, new THREE.SpotLight(
+    makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 60, 0),
+    resolve(o.distance ?? 0, 0), resolve(o.angle ?? Math.PI / 6, 0),
+    resolve(o.penumbra ?? 0.4, 0), resolve(o.decay ?? 2, 0)), o);
+}
+
 class LightOp {
   constructor(engine, light, opts = {}) {
     this.engine = engine;
@@ -1491,30 +1544,34 @@ export function makeApi(engine) {
     // ambient(intensity, color) predates the config form.
     ambient(intensity = 0.3, color = 0xffffff) {
       if (typeof intensity === 'object' && intensity !== null) ({ intensity = 0.3, color = 0xffffff } = intensity);
-      const light = new THREE.AmbientLight(makeColor(color), resolve(intensity, 0));
-      return new LightOp(engine, light, { intensity, color }).out();
+      return ambientLight(engine, { intensity, color });
     },
-    directional(o = {}) {
-      return new LightOp(engine, new THREE.DirectionalLight(
-        makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 1.5, 0)), o);
+    directional: (o = {}) => directionalLight(engine, o),
+    point: (o = {}) => pointLight(engine, o),
+    spot: (o = {}) => spotLight(engine, o),
+    // Every light behind one name. A point or spot light fades with distance,
+    // so its intensity is scaled to light a surface LIGHT_REF units away as
+    // brightly as a directional light of the same number: switching type keeps
+    // roughly the same brightness. Ambient and hemi keep their own scale.
+    light(o = {}, more = {}) {
+      // light('point', { … }) names the type up front, like .material('glass', { … })
+      if (typeof o === 'string') o = { ...more, type: o };
+      const { type = 'directional', ...rest } = o ?? {};
+      if (type === 'ambient') return ambientLight(engine, rest);
+      if (type === 'hemi') return hemiLight(engine, rest);
+      if (type === 'directional') return directionalLight(engine, rest);
+      const make = type === 'point' ? pointLight : type === 'spot' ? spotLight : null;
+      if (!make) {
+        warn(`light: no type '${type}' — ${LIGHT_TYPES.join(' ')}; using directional`);
+        return directionalLight(engine, rest);
+      }
+      const i = rest.intensity ?? 1.5;
+      const d = rest.decay ?? 2;
+      const gain = (t) => LIGHT_REF ** resolve(d, t);
+      const dynamic = typeof i === 'function' || typeof d === 'function';
+      return make(engine, { ...rest, intensity: dynamic ? (t) => resolve(i, t) * gain(t) : i * gain(0) });
     },
-    point(o = {}) {
-      return new LightOp(engine, new THREE.PointLight(
-        makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 20, 0),
-        resolve(o.distance ?? 0, 0), resolve(o.decay ?? 2, 0)), o);
-    },
-    // a cone from .position() toward .target(): angle is its half-width in radians,
-    // penumbra (0..1) how soft the rim is
-    spot(o = {}) {
-      return new LightOp(engine, new THREE.SpotLight(
-        makeColor(o.color ?? 0xffffff), resolve(o.intensity ?? 60, 0),
-        resolve(o.distance ?? 0, 0), resolve(o.angle ?? Math.PI / 6, 0),
-        resolve(o.penumbra ?? 0.4, 0), resolve(o.decay ?? 2, 0)), o);
-    },
-    hemi(o = {}) {
-      return new LightOp(engine, new THREE.HemisphereLight(
-        makeColor(o.sky ?? 0x8899ff), makeColor(o.ground ?? 0x332211), resolve(o.intensity ?? 0.6, 0)), o);
-    },
+    hemi: (o = {}) => hemiLight(engine, o),
 
     // static args: place the camera, orbit controls stay live.
     // any function arg: the sketch drives the camera and orbiting is disabled
@@ -1811,12 +1868,12 @@ export function makeApi(engine) {
       node.sim = claimFluidState();
       return node;
     },
-    noise: (o) => new TextureOp(engine, 'noiseGen', o ?? {}),
+    noise: (o) => new TextureOp(engine, 'noiseGen', { ...o, seed: o?.seed ?? fieldSeed() }),
     // A fragment pass written by hand, as a source: vUv is the pixel, tex0 is
     // black (nothing came before it), and the second argument names uniforms.
     // chain.glsl() is the same call with the picture so far in tex0.
     glsl: (source, uniforms) => glslNode(engine, source, uniforms),
-    voronoi: (o) => new TextureOp(engine, 'voronoi', o ?? {}),
+    voronoi: (o) => new TextureOp(engine, 'voronoi', { ...o, seed: o?.seed ?? fieldSeed() }),
     // Canvas-rendered text. Options may ride the first argument, which is how
     // a text with no string of its own is written: text({ url }).
     text(text, o = {}) {
@@ -2022,9 +2079,10 @@ export function makeApi(engine) {
     // rand().hold(audio().kicks()) one on every kick.
     // rand({ freq, seed }) and positional rand(freq, seed) both work, and both
     // take signals — a moving seed jumps between independent randoms.
-    rand(freq = 1, seed = 0) {
-      if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed = 0 } = freq);
-      return sig((t) => valueNoise(t * resolve(freq, t) + resolve(seed, t) * 137.31));
+    rand(freq = 1, seed) {
+      let type = 'value';
+      if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed, type = 'value' } = freq);
+      return randSignal(freq, seed ?? autoSeed(), type);
     },
     // Pointer position as a signal, -1..1 with 0 at the center — the range a
     // .position() wants, so mouse() drops straight into one. 'down' is a 1/0 gate

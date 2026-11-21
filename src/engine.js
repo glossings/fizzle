@@ -12,6 +12,8 @@ import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
 import { claimDuring, claimUnder, sweepCarried, resetCarried } from './carry.js';
 import { closeFeed } from './feed.js';
 import { bandsCall, rewriteBlocks } from './sketch-blocks.js';
+import { sketchTag, locateError } from './eval-errors.js';
+import { resetRunSeeds, resetFrameSeeds, seedScope, strKey } from './seeds.js';
 import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
 // The engine owns the renderer/scene/camera and a "patch" — everything the
@@ -354,6 +356,7 @@ export class Engine {
   tick() {
     this.frames++;
     frameStart(this.renderer);
+    resetFrameSeeds();
     // wall clock in seconds; only ever read as a difference, so the epoch
     // doesn't matter (THREE.Clock was this plus a deprecation warning)
     const now = performance.now() / 1000;
@@ -563,7 +566,7 @@ export class Engine {
     this.scope = sc;
     block.building = true;
     try {
-      claimUnder(sc.path, block.fn);
+      claimUnder(sc.path, () => seedScope(strKey(sc.path), block.fn));
     } catch (e) {
       warn(`${block.name}: ${e.message ?? e}`);
       sc.stack.length = 0;
@@ -1368,7 +1371,8 @@ export class Engine {
   // Evaluate sketch code with the livecoding API in scope. Returns an error
   // (or null) instead of throwing so the editor can show it inline. A run that
   // throws restores the last good sketch: mid-edit errors show in the status
-  // bar while the visuals keep playing (err.restored says that happened).
+  // bar while the visuals keep playing (err.restored says that happened), and
+  // err.where says where in the code it went wrong (eval-errors.js).
   run(code, api) {
     this.lastCode = code;
     // Only worth saving when the camera is the user's to move: after a run
@@ -1394,8 +1398,14 @@ export class Engine {
       try { js = rewriteBlocks(src); } catch { /* as written */ }
       this.scope = this.root;
       this.declareChip(src);
+      const { id, comment } = sketchTag();
+      resetRunSeeds();
       try {
-        claimDuring(() => new Function(...names, `"use strict";\n{${js}\n}`)(...values));
+        claimDuring(() => new Function(...names, `"use strict";\n{${js}\n}${comment}`)(...values));
+      } catch (err) {
+        // located now: the restore below runs another sketch over this one
+        if (err && typeof err === 'object' && !err.where) err.where = locateError(err, src, id, names);
+        throw err;
       } finally {
         this.scope = this.root; // a throw from inside a block mustn't leave it current
       }
@@ -1407,6 +1417,7 @@ export class Engine {
       }
       this.syncResolution(); // before the settle below, so the aspect is right
       // settle the new patch at current sketch time (matters when paused)
+      resetFrameSeeds();
       for (const fn of this.liveUpdaters()) {
         try { fn(this.time, 0); } catch (e) { /* the next frame's tick warns */ }
       }

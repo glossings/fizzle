@@ -8,6 +8,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
 import { sketchLanguage, apiHover } from './complete.js';
 import { sketchFolding, foldsChanged } from './fold.js';
+import { errorMarks } from './error-mark.js';
 import { isTouch, pinchZoom, keyboardInset } from './touch.js';
 
 // Fold the bracketed lists inside a just-inserted range, so an import of forty
@@ -129,6 +130,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
         ...(isTouch ? { position: 'absolute' } : {}),
       }),
       sketchFolding(), // the projected copy folds with the same hands (fold.js)
+      errorMarks,
       colorPicker(onLiveChange),
       // the projector window replays these to stay in step with what's typed
       EditorView.updateListener.of((u) => {

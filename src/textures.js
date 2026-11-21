@@ -1,3 +1,4 @@
+import { seededInstance } from './seeds.js';
 import * as THREE from 'three';
 import { SNOISE_GLSL } from './noise.js';
 import { setColor as writeColor, cssColor } from './color.js';
@@ -3488,10 +3489,10 @@ export class TextureOp {
       // closes over itself
       const after = fn;
       fn = after
-        ? (x, i, k, t) => after(l.apply(x, i, t), i, k, t)
+        ? seededInstance((x, i, k, t) => after(l.apply(x, i, t), i, k, t))
         : (x, i, k, t) => l.apply(x, i, t);
     } else {
-      fn ??= (x, i, k) => x.position((i - (k - 1) / 2) * 0.25, 0).scale(0.2);
+      fn = fn ? seededInstance(fn) : (x, i, k) => x.position((i - (k - 1) / 2) * 0.25, 0).scale(0.2);
     }
     const blend = o.blend ?? 'add';
     if (!COPY_BLEND[blend]) {

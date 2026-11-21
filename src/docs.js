@@ -26,6 +26,7 @@ export const GLOBALS = {
   model: ["model(name?, { center, fit })", "Geometry op from an imported .obj/.fbx. Empty model() opens the Poly Haven browser; drag a file in to import; name matches by substring.\nEvery mesh in the file merges into one geometry and its own materials are dropped."],
 
   ambient: ['ambient({ intensity, color })', "Ambient light — an even fill from every direction, so it casts no shadows. The one light that adds itself: .out() is optional. Positional ambient(intensity, color) also works."],
+  light: ["light('directional'|'point'|'spot'|'ambient'|'hemi', { type, color, intensity, distance, decay, angle, penumbra, sky, ground, shadow })", "A light. The type can go first or as { type }. 'directional' (default) shines parallel rays from .position() toward .target(), like the sun; 'point' is a bare bulb at .position(); 'spot' is a cone toward .target(); 'ambient' and 'hemi' fill every surface evenly. Directional, point and spot read about the same brightness at the same intensity."],
   directional: ['directional({ color, intensity, shadow })', 'Directional light — parallel rays, like the sun, shining from .position() toward .target(). position, target, color and intensity take fns of t.'],
   point: ['point({ color, intensity, distance, decay, shadow })', "Point light — a bare bulb at .position(), throwing light every way at once. position, color and intensity take fns of t."],
   spot: ['spot({ color, intensity, angle, penumbra, distance, decay, shadow })', 'Spot light — a cone from .position() toward .target() (the origin without one).'],
@@ -86,7 +87,7 @@ export const GLOBALS = {
   band: ["band(name? | n?)", 'A named band as a signal, normalized 0..1 by its meter anchors. band() is the global level; bands are named 1, 2, 3 by default, so band(1) reads the first. The names come from the sketch\'s own bands({ ... }) when it has one, and from the audio manager (ctrl+a) when it doesn\'t.'],
   bands: ['bands({ name: { from, to, lo, hi, sm, auto }, level: { lo, hi, sm, auto } })', "The audio bands this sketch reads, written by the audio manager's pin to sketch. In any sketch that contains it, the manager (ctrl+a) is linked to the code: it edits these bands instead of your usual ones, and writes every change back here."],
   restartMedia: ['restartMedia(name?)', "Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute. ctrl+r rewinds media too, and starts a sketch's particles, delays, trails and counters over with it."],
-  rand: ['rand({ freq: 1, seed: 0 })', 'Smooth random signal: deterministic value noise of t, 0..1. Positional rand(freq, seed) also works.'],
+  rand: ["rand({ freq: 1, seed: 0, type: 'value'|'simplex' })", 'Smooth random signal: deterministic noise of t, 0..1. Positional rand(freq, seed) also works.'],
   select: ['select([a, b, c], index? | { phase })', "Pick from a list — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nA bare index is in list units, floored and wrapped, so it carries the timing: B steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second.\n{ phase: s } reads 0..1 across the whole list instead, which is the range a knob, fader or band already has: select([a, b, c], { phase: midi().cc(74) }) sweeps the three with one knob."],
   sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
   T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
@@ -171,6 +172,7 @@ export const METHODS = {
   helix: ['curve.helix({ radius, height, turns })', "A helix rising along Y through the origin — u = 0 at the bottom, 1 at the top. Every option takes a fn of t."],
   normal: ['.normal(i)  ·  scatter data: .normal', 'The surface normal at .sample(i), as {x, y, z} — which way the shape faces there. A .scatter() bundle carries them all as .normal.'],
   scatter: ['.scatter(n)', "Geometry: the first n surface scatter points as a bundle — the same points .sample(i) reads, with .noise() and the transform applied. Renders nothing."],
+  walk: ['.walk({ speed, turn, jitter, seed })', "Geometry: a point wandering the shape's surface, for .position(). Moves at a constant speed with a heading that turns at random, and bounces off the edges. Same path on every run. Plane only for now."],
   pairs: ['.pairs({ within, max })  ·  .pairs(other, { within, max })', "Bundle: every pair of points closer than within, at most max per point. Handed another bundle (or plain array) it pairs across the two instead. .list holds the [a, b] index pairs, .tris the trios that are all in reach of one another.\nAny bundle pairs: a tracker's blobs, a layout's placed copies, a swarm read back. Records that aren't there — an empty slot, a particle between lives — are left out."],
   link: ['.link({ within, max, fill, lit, fade, color, opacity, blend })  ·  .link(other, { … })  ·  particles: { sample }  ·  geometry: { count }', "Draw a line between every pair of points closer than within. On a geometry it connects its scatter; on particles, the swarm, drawn by the system's own .out(); on a bundle it ends in its own .out(), and .link(other) pairs across to the other's points.\nAny bundle links: a tracker's blobs, a layout's placed copies, points of your own. Records that aren't there are left out."],
   hide: ['.hide(v = true)', "Instance copy: leave this copy out of the frame. Checked after the fn has run, so nothing later can bring back a copy that asked to go — which is how .instance(track(…)) drops the slots with no blob in them. What a count sized for the most copies a sketch might need does with the rest."],
@@ -532,7 +534,7 @@ const GLOBAL_KEY_DOCS = {
   spread: {
     jitter: 'How far a value may leave its even slot, 0..1 of half a step. Deterministic by seed.',
     random: 'Scatter the values instead of spacing them evenly. Deterministic by seed.',
-    seed: 'Reroll for jitter and random.',
+    seed: 'Picks the jitter and random values. Default: different for every call. The same seed in two places gives the same values.',
     end: 'Include both endpoints — i/(n-1) instead of i/n. Fence posts on an open curve; a closed one would double its seam.',
   },
   track: {
@@ -652,6 +654,19 @@ const GLOBAL_KEY_DOCS = {
     near: 'World distance at which the fade starts. Default 5.',
     far: 'World distance at which geometry is fully fog. Default 30.',
   },
+  light: {
+    type: "'directional' (default): parallel rays from .position() toward .target(), the same strength everywhere. 'point': a bulb at .position(), fading with distance. 'spot': a cone from .position() toward .target(). 'ambient': an even fill from every direction, no .out() needed. 'hemi': sky color from the .position() side, ground color from the other.",
+    color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
+    intensity: "Brightness. Default 1.5 (ambient 0.3, hemi 0.6). A point or spot light reaches this at 4 units away, brighter closer and dimmer further. Takes a fn of t.",
+    distance: "'point' and 'spot': where the light reaches zero. Default 0, meaning it never fully stops.",
+    decay: "'point' and 'spot': falloff exponent. Default 2, the physical inverse-square. Around 1.3 pushes light further.",
+    angle: "'spot': half-width of the cone, in radians. Default ~0.52 (a desk lamp); 0.1 is a searchlight.",
+    penumbra: "'spot': 0 is a hard-edged circle of light, 1 fades from the rim all the way to the center. Default 0.4.",
+    sky: "'hemi': the color from the .position() side. Default #8899ff.",
+    ground: "'hemi': the color from the opposite side. Default #332211.",
+    shadow: "true to cast shadows, or an object to tune them: { map, soft, strength, area, near, far, bias, normalBias }. On a point light this costs six renders; ambient and hemi cast none.",
+  },
+
   directional: {
     color: 'Light color. Default white. Hex, CSS name, or [r, g, b] 0..1 — any of them, or a channel of the array, may be a fn of t.',
     intensity: 'Brightness. Default 1.5. Takes a fn of t.',
@@ -785,7 +800,7 @@ const GLOBAL_KEY_DOCS = {
     lacunarity: 'How much finer each octave is than the last. Default 2, meaning twice.',
     gain: 'How much quieter each octave is than the last. Default 0.5. Near 0 stays smooth and cloudy, near 1 goes rough and grainy.',
     speed: 'How fast the field churns. Default 0.3; 0 freezes it into a still.',
-    seed: 'Picks a different field of the same character — a reroll for when the settings are right but the shape is wrong.',
+    seed: 'Picks a field. Default: a different one for every call. The same seed in two places gives the same field.',
     channels: '1 for grayscale, 2-4 for independent fields in R/G/B/A. Default 1. Feed channels: 2 to .displace() so it wobbles both ways instead of along the diagonal.',
     a: 'Color the low end shades to. Default black; null shades from transparent, so the clouds float over whatever is under the comp.',
     b: 'Color the high end shades to. Default white; null shades to transparent.',
@@ -804,7 +819,7 @@ const GLOBAL_KEY_DOCS = {
     freq: 'How many cells span the frame — the reciprocal of period. Default 6: 2 is a few big plates, 40 is fine crazing. scale is the old name for this key and still works.',
     speed: 'How fast the points drift inside their cells. Default 0.3; 0 freezes the pattern into a still.',
     blend: "How far past its own cell each pixel samples, in cell widths. Default 0 — hard edges. Raising it blends neighboring cells into each other ('cells'), rounds the wells ('distance') and fattens the seams ('edges'). A texture here makes the pattern crisp in some places and blended in others.",
-    seed: 'Picks a different scatter of the same character. Default 0.',
+    seed: 'Picks a field. Default: a different one for every call. The same seed in two places gives the same field.',
     mode: "'cells' (default) fills each cell flat, 'distance' shades by how far the pixel is from its point — dark at the points, bright at the walls — and 'edges' lights only the seams, where the two nearest points are equally close.",
     a: 'Color the low end shades to. Default black; null is transparent. In cells mode each cell picks its own point on the a→b ramp, so two different colors give a scatter of tints; .lookup() a grayscale one through a gradient for a wider palette.',
     b: 'Color the high end shades to. Default white; null is transparent.',
@@ -858,7 +873,8 @@ const GLOBAL_KEY_DOCS = {
   },
   rand: {
     freq: 'How fast the value wanders. Default 1.',
-    seed: 'Picks an independent stream. Default 0 — rand({ seed: i }) inside .instance() gives every copy its own wander.',
+    seed: 'Picks a stream. Default: a different one for every call, and for every copy inside .instance(). The same seed in two places gives the same stream.',
+    type: "'value' (default) picks a random value each 1/freq seconds and eases between them, so it stalls at each one, even partway through a rise. 'simplex' is gradient noise (Perlin's successor): the same pace and range, slowing only where it turns around.",
   },
   gamepad: {
     deadzone: 'How far a stick must leave center before it reads at all, 0..1. Default 0.08, which covers the drift on a worn stick; the travel past it is rescaled so the full reach is still there.',
@@ -883,6 +899,12 @@ const METHOD_KEY_DOCS = {
   pairs: {
     within: 'Connection distance in world units — two points closer than this pair up. Default 1. Takes a fn of t, so the web can breathe.',
     max: 'At most this many pairs per point. Default 6. Keeps a dense clump from turning into a solid mass, and bounds the cost.',
+  },
+  walk: {
+    speed: 'Distance per second. Default 0.5; 0 holds still apart from jitter.',
+    turn: 'How much the heading wanders. Default 1; 0 runs straight between the edges, 3 or more curls.',
+    jitter: 'A random nudge added to every step, about this far per second. Default 0; with speed: 0 it is a plain random walk.',
+    seed: 'Picks a path. Default: a different one for every call. The same seed in two places gives the same path.',
   },
   link: {
     count: 'Geometry only: how many scatter points to connect. Default 200.',
@@ -927,7 +949,7 @@ const METHOD_KEY_DOCS = {
     lacunarity: 'How much finer each octave is than the last. Default 2.',
     gain: 'How much smaller each octave is than the last. Default 0.5. Low stays smooth, high goes crinkly.',
     speed: 'How fast the surface churns. Default 0.3; 0 freezes it.',
-    seed: 'Picks a different field, for a different shape at the same settings.',
+    seed: 'Picks a field. Default: a different one for every call. The same seed in two places gives the same field.',
   },
   translate: {
     wrap: "What fills the space shifted in from off-frame: 'clamp' smears the edge pixel, 'repeat' tiles, 'mirror' reflects, 'transparent' leaves it empty — a cutout in a comp. Default 'clamp'.",
@@ -1131,7 +1153,7 @@ const METHOD_KEY_DOCS = {
     period: 'World units from one swirl to the next — bigger is broader weather. Default 2.',
     freq: 'Spatial frequency, 1/period — the other spelling, matching noise(). Default 0.5.',
     speed: 'How fast the field itself drifts, so the weather changes. Default 0.5.',
-    seed: 'Different seeds give independent fields. Default 0.',
+    seed: 'Picks a field. Default: a different one for every call. The same seed in two places gives the same field.',
   },
   sqr: {
     width: 'How much of each cycle reads 1, 0..1. Default 0.5, a square wave; 0.1 is a click and 0.9 a gap. Takes a fn of t.',
@@ -1235,7 +1257,7 @@ const names = (s) => s.trim().split(/\s+/);
 const globalKinds = {
   geo: 'sphere box plane torus torusKnot cylinder capsule icosa model text3d',
   particle: 'particles',
-  light: 'ambient directional point spot hemi',
+  light: 'ambient directional light point spot hemi',
   layout: 'layout',
   blobs: 'track',
   curvens: 'curve',
@@ -1251,7 +1273,7 @@ const globalKinds = {
 const methodKinds = {
   curve: 'tangent',
   curvens: 'circle line helix',
-  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal scatter link particles render out',
+  geo: 'position rotation scale align shadow noise displace points lines wire instance material color sample normal scatter walk link particles render out',
   particle: 'force turbulence attract drag noise evolve size color opacity fade blend soft lit shadow position rotation scale read link render out',
   // the handle .evolve() gives its fn — what a life point can set
   evolve: 'size color opacity force',
@@ -1317,7 +1339,7 @@ export const GLOBAL_SECTIONS = [
   ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sketch sky stack text video videofile videoseq voronoi'],
   ['signals', 'audio audiofile B band bands beat feed gamepad midi mouse rand restartMedia select sig speed T tempo'],
   ['structure', 'curve data layout link segments spread track'],
-  ['lights', 'ambient directional hdri hemi point spot'],
+  ['lights', 'ambient directional hdri hemi light point spot'],
   ['scene', 'bg camera fog hsl hsv param resolution'],
   ['escape hatches', 'bufferId Geometry glsl onFrame Signal Texture THREE'],
 ].map(([name, list]) => [name, names(list)]);

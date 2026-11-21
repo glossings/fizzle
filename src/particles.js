@@ -1,3 +1,4 @@
+import { fieldSeed } from './seeds.js';
 import * as THREE from 'three';
 import { SNOISE_GLSL, noiseParamsGlsl, noiseFieldGlsl } from './noise.js';
 import { Quad, reciprocal } from './textures.js';
@@ -646,7 +647,7 @@ export class ParticleOp {
       amp: o.amp ?? 1,
       freq: o.period !== undefined ? reciprocal(o.period) : o.freq ?? 0.5,
       speed: o.speed ?? 0.5,
-      seed: o.seed ?? 0,
+      seed: o.seed ?? fieldSeed(),
     });
     return this;
   }
@@ -696,7 +697,7 @@ export class ParticleOp {
       amp: o.amp ?? 0.3,
       freq: o.period !== undefined ? reciprocal(o.period) : o.freq ?? 1,
       speed: o.speed ?? 0.5,
-      seed: o.seed ?? 0,
+      seed: o.seed ?? fieldSeed(),
     };
     return this;
   }

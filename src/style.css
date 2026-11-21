@@ -67,6 +67,13 @@ html.cam-drag, html.cam-drag * { cursor: default !important; }
 .cm-editor .cm-activeLine { background: rgba(20, 20, 30, 0.75); }
 .cm-editor .cm-cursor { border-left-color: #fff; }
 .cm-editor .cm-selectionBackground { background: rgba(90, 120, 255, 0.35) !important; }
+/* where the last run failed (error-mark.js) */
+.cm-editor .cm-line.cm-eval-error-line { background: rgba(70, 12, 16, 0.85); }
+.cm-editor .cm-eval-error {
+  text-decoration: underline wavy #ff7b72;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
 
 .cm-color-swatch {
   display: inline-block;
