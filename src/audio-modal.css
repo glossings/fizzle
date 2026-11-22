@@ -240,17 +240,4 @@ input.au-name:hover, input.au-name:focus {
 }
 button.au-del:hover { color: #ff7b72; }
 
-/* the sidebar's way in */
-#sb-audio-manage {
-  display: block;
-  margin: 7px 0;
-  background: rgba(255, 255, 255, 0.08);
-  color: #cfd4e0;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 5px;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-#sb-audio-manage:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
+/* the sidebar's way in is a .sb-opens button (style.css) */

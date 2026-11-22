@@ -1,29 +1,16 @@
 /* --- desktop ---
   fizzle
 
-    ctrl+enter  run                ctrl+h   hide code
-    ctrl+.      pause              ctrl+m   hide code here
-    ctrl+r      restart media      ctrl+p   sidebar
-    ctrl+e      record             ctrl+j   snippets
-    F1          projector window
-
-  F1 opens the visuals in a second window on their own — that's the one to
-  drag to a projector, leaving the code on your laptop.
-
-  every numeric param also takes a function of time:  t => ...
-  click any color swatch (or type #) for a color picker
+  ctrl+enter to run · ctrl+p for settings and hotkeys
+  F1 opens the visuals in their own window, for a projector
 */
 /* --- touch ---
   fizzle
 
     ▶  play / pause        ↻  run        ⟨/⟩  hide the code
 
-  with the code up the screen is the editor: one finger scrolls it, two
-  fingers zoom in on it. hide the code and the screen is the camera
-  instead — drag to orbit, pinch to zoom.
-
-  every numeric param also takes a function of time:  t => ...
-  tap any color swatch (or type #) for a color picker
+  with the code up, one finger scrolls it and two fingers zoom in on it.
+  hide the code and the screen is the camera: drag to orbit, pinch to zoom.
 */
 
 bg('#0b0d13')

@@ -765,3 +765,76 @@ body.scrubbing * { cursor: grabbing !important; }
 /* one widget in the hand: the rest stay quiet under the pointer */
 body.cm-w-holding .cm-w-grip { pointer-events: none; }
 body.cm-w-holding .cm-w-grip::after { content: none !important; }
+
+/* the hotkeys panel (hotkeys-panel.js) */
+.hk-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 80;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(11, 13, 19, 0.96);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: #d8dce6;
+  font-size: 13px;
+}
+.hk-panel[hidden] { display: none; }
+.hk-head { display: flex; align-items: center; justify-content: space-between; }
+.hk-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.hk-close { border: 0; background: none; color: #9aa4bf; font-size: 18px; cursor: pointer; }
+.hk-close:hover { color: #fff; }
+.hk-hint { margin: 6px 0 10px; color: #9aa4bf; font-size: 12px; line-height: 1.4; }
+.hk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+.hk-key {
+  flex: none;
+  min-width: 13ch; /* holds "press a key…" and the default keys alike, so neither moves the row */
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #d8dce6;
+  font: 12px ui-monospace, Menlo, monospace;
+  cursor: pointer;
+}
+.hk-key:hover { border-color: rgba(255, 255, 255, 0.5); }
+.hk-key.custom { color: #e5c07b; }
+.hk-key.listening { border-color: #61afef; color: #61afef; }
+.hk-note { min-height: 1.4em; margin: 8px 0 4px; color: #e5c07b; font-size: 12px; }
+.hk-foot { display: flex; justify-content: flex-end; }
+.hk-reset {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: none;
+  color: #d8dce6;
+  cursor: pointer;
+}
+.hk-reset:hover { border-color: rgba(255, 255, 255, 0.5); }
+
+/* the sidebar's buttons that open a panel: audio manager…, hotkeys… */
+.sb-opens {
+  display: block;
+  margin: 7px 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfd4e0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sb-opens:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; }

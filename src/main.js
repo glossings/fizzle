@@ -12,7 +12,8 @@ import { initPolyhaven } from './polyhaven.js';
 import { initProjector } from './projector.js';
 import { initRecorder } from './record.js';
 import { initContextMenu } from './context-menu.js';
-import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, RUN_HINT, PLAY_HINT } from './touch.js';
+import { isTouch, initTouchBar, trackKeyboard, blockPageZoom, lockCameraGesture, forPlatform, runHint, playHint } from './touch.js';
+import { hotkeyLabel } from './hotkeys.js';
 import { learnMidi, learnPad } from './control.js';
 import { writeChip, removeChip, foldChip } from './band-chip.js';
 import { initSnippets } from './snippets.js';
@@ -178,7 +179,7 @@ async function handleMediaPick() {
   // reload, so name the key that turns the next run into a gesture.
   if (navigator.userActivation && !navigator.userActivation.isActive) {
     const what = { textures: 'material', hdris: 'HDRI', models: 'model' }[req.browse] ?? req.kind;
-    status.textContent = `${req.fn}() has nothing to show yet — ${RUN_HINT} to open the ${what} picker`;
+    status.textContent = `${req.fn}() has nothing to show yet — ${runHint()} to open the ${what} picker`;
     status.className = 'show';
     return;
   }
@@ -237,7 +238,7 @@ function handleLearn() {
 // F1: a second window with only the visuals and the code, for the projector
 function toggleProjector() {
   const state = projector.toggle(view.state, editor.scrollAnchor());
-  if (state === 'open') flash('📽 projector open — f there for fullscreen, ctrl+h hides its code, ctrl+m yours');
+  if (state === 'open') flash(`📽 projector open — f there for fullscreen, ${hotkeyLabel('hideCode')} hides its code, ${hotkeyLabel('hideCodeHere')} yours`);
   else if (state === 'closed') flash('projector closed');
   else {
     status.textContent = 'the browser blocked the projector window — allow pop-ups for this site';
@@ -309,7 +310,7 @@ initContextMenu(glCanvas, [
 
 function togglePause() {
   if (engine.togglePause()) {
-    status.textContent = `⏸ paused — ${PLAY_HINT} to resume`;
+    status.textContent = `⏸ paused — ${playHint()} to resume`;
     status.className = 'show ok';
   } else {
     status.className = '';
@@ -467,7 +468,7 @@ function initDrop() {
     // a material folder is a dozen files; name the folders, not every map
     const names = [...new Set(files.map((f) => (f.name.includes('/') ? f.name.split('/')[0] : f.name)))];
     const listed = names.slice(0, 4).join(', ') + (names.length > 4 ? `, +${names.length - 4} more` : '');
-    flash(`imported ${listed} — ctrl+enter to run`);
+    flash(`imported ${listed} — ${hotkeyLabel('run')} to run`);
   }, true);
 }
 initDrop();

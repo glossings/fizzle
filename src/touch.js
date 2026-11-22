@@ -12,13 +12,16 @@
 //
 // A trackpad iPad reports hover, and it has the keys anyway — so the gate is
 // coarse *and* hoverless, and on a laptop none of this exists.
+import { hotkeyLabel } from './hotkeys.js';
 import { ICON } from './icons.js';
 
 export const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches;
 
 // Prose that names a key has to name something else here.
-export const RUN_HINT = isTouch ? 'tap ↻' : 'press ctrl+enter';
-export const PLAY_HINT = isTouch ? 'tap ▶' : 'ctrl+.';
+// how a message says to run or to resume: the touch bar's button, or the key
+// as it's bound now (hotkeys.js)
+export const runHint = () => (isTouch ? 'tap ↻' : `press ${hotkeyLabel('run')}`);
+export const playHint = () => (isTouch ? 'tap ▶' : hotkeyLabel('pause'));
 
 // A sketch may carry a header per kind of screen, each its own comment block
 // opening with `--- desktop ---` or `--- touch ---`. Only the one that applies

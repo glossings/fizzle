@@ -16,6 +16,7 @@
 // so the folder reads and hand-edits like the sketches next to it
 // (sketches/user/snippets/ via the dev-server API, localStorage without one).
 
+import { hotkeyMatches, hotkeyLabel } from './hotkeys.js';
 import './snippets.css';
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap, tooltips } from '@codemirror/view';
@@ -264,7 +265,7 @@ export function initSnippets({ getView, flash }) {
   // Nothing typed in here reaches the editor's or the canvas's bindings,
   // except the ctrl+j that closes the window it opened.
   function onKey(e) {
-    if (e.ctrlKey && e.key === 'j') return;
+    if (hotkeyMatches('snippets', e)) return;
     e.stopPropagation();
     // the code panes and the rename field own their keys
     if (e.target.closest?.('.cm-editor') || e.target.classList?.contains('sn-rename')) return;
@@ -486,7 +487,7 @@ export function initSnippets({ getView, flash }) {
     if (!shown.length) {
       const empty = document.createElement('div');
       empty.className = 'sn-empty';
-      empty.textContent = q.trim() ? 'no snippets match' : 'nothing kept yet: select some code in the editor, then ctrl+j';
+      empty.textContent = q.trim() ? 'no snippets match' : `nothing kept yet: select some code in the editor, then ${hotkeyLabel('snippets')}`;
       list.append(empty);
     }
     for (const s of shown) {

@@ -16,6 +16,7 @@ import { acceptCompletion } from '@codemirror/autocomplete';
 import { indentMore, indentLess } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { sketchLanguage, apiHover } from './complete.js';
+import { hotkeyMatches, hotkeyLabel } from './hotkeys.js';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { initPolyhaven } from './polyhaven.js';
@@ -181,7 +182,7 @@ async function handlePick({ view, rerun }) {
   engine.pendingPick = null;
   // a block that autoran on page load has no activation to spend on a dialog
   if (navigator.userActivation && !navigator.userActivation.isActive) {
-    statusEl.textContent = `${req.fn}() has nothing to show yet — press ctrl+enter in the block to pick something`;
+    statusEl.textContent = `${req.fn}() has nothing to show yet — press ${hotkeyLabel('run')} in the block to pick something`;
     statusEl.className = 'err';
     return;
   }
@@ -283,10 +284,17 @@ function makeExample(code, autorun) {
   // the block runs itself: also how a filled-in pick re-runs (see handlePick)
   const start = (reveal) => runBlock(block, { reveal });
 
+  // the app's run key, as the user has it bound (hotkeys.js)
+  const runHotkey = Prec.highest(EditorView.domEventHandlers({
+    keydown: (e) => {
+      if (!hotkeyMatches('run', e)) return false;
+      e.preventDefault();
+      start(true);
+      return true;
+    },
+  }));
   const runKeys = Prec.highest(
     keymap.of([
-      { key: 'Ctrl-Enter', run: () => { start(true); return true; } },
-      { key: 'Shift-Enter', run: () => { start(true); return true; } },
       { key: 'Tab', run: acceptCompletion },
       { key: 'Tab', run: indentMore, shift: indentLess },
     ])
@@ -295,6 +303,7 @@ function makeExample(code, autorun) {
     doc: code,
     parent: ex,
     extensions: [
+      runHotkey,
       runKeys,
       basicSetup,
       sketchLanguage,
@@ -305,13 +314,13 @@ function makeExample(code, autorun) {
     ],
   });
 
-  const playBtn = button('play (ctrl+enter)', ICON.play, () =>
+  const playBtn = button(`play (${hotkeyLabel('run')})`, ICON.play, () =>
     block === active ? stopActive() : start(true)
   );
   playBtn.className = 'ex-play';
   // a re-run of the sketch already playing looks like nothing happened unless
   // the edit changed something, so the button says it landed
-  const updBtn = button('update with your edits (ctrl+enter)', ICON.run, () => {
+  const updBtn = button(`update with your edits (${hotkeyLabel('run')})`, ICON.run, () => {
     start(false);
     flash(updBtn);
   });
@@ -338,7 +347,7 @@ function makeExample(code, autorun) {
     setRunning(on) {
       ex.classList.toggle('running', on);
       playBtn.innerHTML = on ? ICON.stop : ICON.play;
-      playBtn.title = on ? 'stop' : 'play (ctrl+enter)';
+      playBtn.title = on ? 'stop' : `play (${hotkeyLabel('run')})`;
       playBtn.setAttribute('aria-label', playBtn.title);
       updBtn.hidden = !on;
     },

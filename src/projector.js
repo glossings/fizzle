@@ -1,3 +1,4 @@
+import { hotkeyMatches } from './hotkeys.js';
 import { EditorState } from '@codemirror/state';
 import { EditorView, ViewPlugin, Decoration, WidgetType } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
@@ -329,13 +330,13 @@ export function initProjector(canvas, getResolution, onPointer) {
       else doc.documentElement.requestFullscreen?.().catch(() => { /* denied */ });
     };
     win.addEventListener('keydown', (e) => {
-      if (e.key === 'h' && e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (hotkeyMatches('hideCode', e)) {
         e.preventDefault();
         code.classList.toggle('hidden');
       } else if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         fullscreen();
-      } else if (e.key === 'F1' || e.key === 'Escape') {
+      } else if (hotkeyMatches('projector', e) || e.key === 'Escape') {
         // escape belongs to fullscreen first — that's what the browser has
         // trained everyone it does, and it's one keypress from closing by
         // accident mid-set otherwise

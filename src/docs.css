@@ -68,6 +68,24 @@ body {
   margin-right: -1px;
 }
 #toc-links a:hover { color: var(--text); }
+/* a chapter's name over its sections */
+#toc-links a.toc-chapter {
+  margin-top: 14px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+#toc-links a.toc-chapter:first-child { margin-top: 4px; }
+#content .chapter {
+  margin: 64px 0 -8px;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 #toc-links a.here {
   color: var(--accent);
   border-right-color: var(--accent);

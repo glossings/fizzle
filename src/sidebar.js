@@ -3,6 +3,8 @@
 // be git-versioned; when no server API is available (e.g. a static build)
 // they fall back to localStorage. Examples are bundled read-only.
 
+import { hotkeyLabel, onHotkeysChange } from './hotkeys.js';
+import { openHotkeys } from './hotkeys-panel.js';
 import { syncHash, obsUrl } from './share.js';
 import { nameOk, NAME_RULE } from './sketch-name.js';
 import { isTouch, forPlatform, exampleApplies } from './touch.js';
@@ -182,7 +184,8 @@ export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
       <label>font size <input id="sb-font" type="number" min="9" max="40" step="1"></label>
       <label>audio in <select id="sb-audio"></select></label>
       <label>audio out <select id="sb-audio-out"></select></label>
-      <button id="sb-audio-manage" title="devices, bands, levels & tempo (ctrl+a)">audio manager…</button>
+      <button id="sb-audio-manage" class="sb-opens">audio manager…</button>
+      <button id="sb-hotkeys" class="sb-opens" title="see and change the keyboard shortcuts">hotkeys…</button>
       <label class="sb-rec">recording <select id="sb-recfmt"></select></label>
       <label class="sb-rec">rec. audio
         <select id="sb-recaudio">
@@ -237,7 +240,13 @@ export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
 
   const toggleBtn = document.createElement('button');
   toggleBtn.id = 'sb-toggle';
-  toggleBtn.title = 'settings & sketches (ctrl+p)';
+  const keyTitles = () => {
+    toggleBtn.title = `settings & sketches (${hotkeyLabel('sidebar')})`;
+    el.querySelector('#sb-audio-manage').title = `devices, bands, levels & tempo (${hotkeyLabel('audio')})`;
+  };
+  keyTitles();
+  onHotkeysChange(keyTitles);
+  el.querySelector('#sb-hotkeys').addEventListener('click', () => openHotkeys());
   toggleBtn.textContent = '☰';
   document.body.appendChild(toggleBtn);
 

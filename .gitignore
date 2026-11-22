@@ -5,3 +5,6 @@ dist/
 
 # Personal sketches — saved locally by the dev server, not shared
 sketches/user/
+
+# macOS Finder metadata
+.DS_Store

@@ -8,6 +8,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
 import { widgetsEditor, isControlArg } from './widgets-editor.js';
 import { numberScrub } from './scrub.js';
+import { hotkeyFor } from './hotkeys.js';
 import { sketchLanguage, apiHover } from './complete.js';
 import { sketchFolding, foldsChanged } from './fold.js';
 import { errorMarks } from './error-mark.js';
@@ -52,15 +53,9 @@ export function fillCall(view, fn, args, suffix = '') {
   return false;
 }
 
-// Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
-//   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
-//   this window's code · ctrl+p sidebar · ctrl+a audio manager · ctrl+r
-//   restart · ctrl+e record · ctrl+j snippets · ctrl+k capture the controls'
-//   last movements · ctrl+[ / ctrl+] previous /
-//   next in the playlist · F1 projector window
-// The exception is +/-/0, which take Cmd too, because they're taking those
-// keys *back* from the browser's zoom — see the handler below.
-// Returns the view plus toggleCode, which the touch controls press too.
+// The app's shortcuts live in hotkeys.js, where they can be rebound; this
+// file only says what each one does. The editor checks them before its own
+// keymap, and the window checks them for when the canvas has focus.
 export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onWidgetChange, onCapture, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onFontSize, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
@@ -76,24 +71,32 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     toggleLocalCode();
   };
 
+  const actions = {
+    run: () => onRun(view.state.doc.toString()),
+    pause: () => onTogglePause(),
+    hideCode: () => toggleCode(),
+    hideCodeHere: () => toggleLocalCode(),
+    sidebar: () => onToggleSidebar?.(),
+    audio: () => onToggleAudio?.(),
+    restart: () => onRestartMedia?.(),
+    record: () => onRecord?.(),
+    snippets: () => onSnippets?.(),
+    capture: () => onCapture?.(),
+    prev: () => onStep?.(-1),
+    next: () => onStep?.(1),
+    projector: () => onToggleProjector?.(),
+  };
+  const dispatch = (e) => {
+    const id = hotkeyFor(e);
+    if (!id || !actions[id]) return false;
+    e.preventDefault();
+    actions[id]();
+    return true;
+  };
+  const hotkeys = Prec.highest(EditorView.domEventHandlers({ keydown: (e) => dispatch(e) }));
+
   const keys = Prec.highest(
     keymap.of([
-      { key: 'Ctrl-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
-      { key: 'Shift-Enter', run: (v) => { onRun(v.state.doc.toString()); return true; } },
-      { key: 'Ctrl-.', run: () => { onTogglePause(); return true; } },
-      { key: 'Ctrl-h', run: () => { toggleCode(); return true; } },
-      { key: 'Ctrl-m', run: () => { toggleLocalCode(); return true; } },
-      { key: 'Ctrl-p', run: () => { onToggleSidebar?.(); return true; } },
-      { key: 'Ctrl-a', run: () => { onToggleAudio?.(); return true; } },
-      { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
-      { key: 'Ctrl-e', run: () => { onRecord?.(); return true; } },
-      { key: 'Ctrl-j', run: () => { onSnippets?.(); return true; } },
-      { key: 'Ctrl-k', run: () => { onCapture?.(); return true; } },
-      // brackets rather than the arrows: ctrl+up/down belong to Mission
-      // Control on a Mac and never reach the page
-      { key: 'Ctrl-[', run: () => { onStep?.(-1); return true; } },
-      { key: 'Ctrl-]', run: () => { onStep?.(1); return true; } },
-      { key: 'F1', run: () => { onToggleProjector?.(); return true; } },
       // completions accept with Tab, not Enter; Enter just newlines through
       // an open popup. Tab indents when no popup is showing.
       { key: 'Tab', run: acceptCompletion },
@@ -113,6 +116,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     doc: initialCode,
     parent,
     extensions: [
+      hotkeys,
       keys,
       basicSetup,
       sketchLanguage,
@@ -149,10 +153,11 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
   // handled (its keymap calls preventDefault before this bubbles up)
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented) return;
-    if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      return onToggleProjector?.();
-    }
+    // the hotkeys panel is listening for keys to bind, and in a text field the
+    // audio manager's ctrl+a is select-all
+    if (e.target.closest?.('.hk-panel')) return;
+    if (hotkeyFor(e) === 'audio' && e.target.closest?.('input, textarea, select, .cm-editor')) return;
+    if (dispatch(e)) return;
     // Zoom the code, not the page. Browser zoom is the wrong tool here: past
     // 200% the renderer's pixel-ratio clamp stops compensating and the drawing
     // buffer — and so every recording made from it — silently shrinks. These
@@ -163,18 +168,6 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       e.preventDefault();
       return onFontSize(e.key === '0' ? 0 : e.key === '-' || e.key === '_' ? -1 : 1);
     }
-    if (!e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'Enter') { e.preventDefault(); onRun(view.state.doc.toString()); }
-    else if (e.key === '.') { e.preventDefault(); onTogglePause(); }
-    else if (e.key === 'h') { e.preventDefault(); toggleCode(); }
-    else if (e.key === 'm') { e.preventDefault(); toggleLocalCode(); }
-    else if (e.key === 'p') { e.preventDefault(); onToggleSidebar?.(); }
-    else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
-    else if (e.key === 'e') { e.preventDefault(); onRecord?.(); }
-    else if (e.key === 'j') { e.preventDefault(); onSnippets?.(); }
-    else if (e.key === 'k') { e.preventDefault(); onCapture?.(); }
-    else if (e.key === '[') { e.preventDefault(); onStep?.(-1); }
-    else if (e.key === ']') { e.preventDefault(); onStep?.(1); }
   });
 
   // Where the view is scrolled to, as the projector can use it: the line at the

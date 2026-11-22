@@ -502,15 +502,9 @@ export function initAudioModal({ engine, settings, persist, applyAudio, chip }) 
 
   const toggle = () => (isOpen() ? close() : open());
 
+  // its hotkey is the editor's (hotkeys.js); escape closes it
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isOpen()) return close();
-    // ctrl+a from anywhere the editor's keymap doesn't reach; skip text
-    // fields, where it means select-all / line-start
-    if (e.key === 'a' && e.ctrlKey && !e.metaKey && !e.altKey && !e.defaultPrevented
-        && !e.target.closest?.('input, textarea, select, .cm-editor')) {
-      e.preventDefault();
-      toggle();
-    }
+    if (e.key === 'Escape' && isOpen()) close();
   });
 
   return { toggle, open, close };

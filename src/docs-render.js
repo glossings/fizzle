@@ -50,6 +50,14 @@ function markdown(md) {
       continue;
     }
 
+    // `# name` opens a chapter: a divider in the page, a group label in the contents
+    const ch = line.match(/^# (.+)$/);
+    if (ch) {
+      out.push(`<div class="chapter" id="${slug(`chapter ${ch[1]}`)}">${inline(ch[1])}</div>`);
+      i++;
+      continue;
+    }
+
     const h = line.match(/^(#{2,3}) (.+)$/);
     if (h) {
       const tag = h[1].length === 3 ? 'h3' : titled ? 'h2' : 'h1';
@@ -132,8 +140,10 @@ function reference() {
 // body goes after the byline in #content; toc fills #toc-links
 export function renderDocs(md) {
   const body = markdown(md) + '\n' + reference();
-  const toc = [...body.matchAll(/<h[12] id="([^"]+)">(.*?)<\/h[12]>/g)]
-    .map(([, id, text]) => `<a href="#${id}">${text.replace(/<[^>]+>/g, '')}</a>`)
+  const toc = [...body.matchAll(/<(h[12]|div class="chapter") id="([^"]+)">(.*?)<\/(?:h[12]|div)>/g)]
+    .map(([, tag, id, text]) => (tag.startsWith('div')
+      ? `<a class="toc-chapter" href="#${id}">${text.replace(/<[^>]+>/g, '')}</a>`
+      : `<a href="#${id}">${text.replace(/<[^>]+>/g, '')}</a>`))
     .join('');
   return { body, toc };
 }
