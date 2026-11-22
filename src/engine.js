@@ -12,8 +12,9 @@ import { warn, notice, resetWarnings, newWarningRun } from './warn.js';
 import { claimDuring, claimUnder, sweepCarried, resetCarried } from './carry.js';
 import { closeFeed } from './feed.js';
 import { bandsCall, rewriteBlocks } from './sketch-blocks.js';
-import { sketchTag, locateError } from './eval-errors.js';
-import { beginWidgets } from './widgets.js';
+import { sketchTag, locateError, stackPositions } from './eval-errors.js';
+import { beginWidgets, siteCall } from './widgets.js';
+import { tagSites, SITE_HOOK } from './widget-calls.js';
 import { resetRunSeeds, resetFrameSeeds, seedScope, strKey } from './seeds.js';
 import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
@@ -1420,14 +1421,18 @@ export class Engine {
       // labeled blocks become calls (sketch-blocks.js); a source the rewrite
       // can't make sense of runs as written and says what's wrong itself
       let js = src;
-      try { js = rewriteBlocks(src); } catch { /* as written */ }
+      // without positions on the stack, the widget calls say where they are
+      if (!stackPositions()) {
+        try { js = tagSites(src); } catch { /* untagged: no widgets drawn */ }
+      }
+      try { js = rewriteBlocks(js); } catch { /* as written */ }
       this.scope = this.root;
       this.declareChip(src);
       const { id, comment } = sketchTag();
       beginWidgets(id, src);
       resetRunSeeds();
       try {
-        claimDuring(() => new Function(...names, `"use strict";\n{${js}\n}${comment}`)(...values));
+        claimDuring(() => new Function(...names, SITE_HOOK, `"use strict";\n{${js}\n}${comment}`)(...values, siteCall));
       } catch (err) {
         // located now: the restore below runs another sketch over this one
         if (err && typeof err === 'object' && !err.where) err.where = locateError(err, src, id, names);

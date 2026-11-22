@@ -37,6 +37,30 @@ export function widgetSites(src) {
   return out;
 }
 
+// For a browser whose stacks carry no positions: src with each widget call
+// handing its own offset over (widgets.js siteCall), so a control finds its
+// call without the stack. `slider(` runs as `__fzSite(12, slider)(`, and
+// `.plot(` as `[__fzSite.member(30, 'plot')](`.
+export const SITE_HOOK = '__fzSite';
+
+export function tagSites(src) {
+  const edits = [];
+  for (const s of widgetSites(src)) {
+    const end = s.from + s.kind.length;
+    if (s.kind !== 'plot') {
+      edits.push([s.from, end, `${SITE_HOOK}(${s.from}, ${s.kind})`]);
+      continue;
+    }
+    let dot = s.from - 1;
+    while (dot > 0 && /\s/.test(src[dot])) dot--;
+    if (src[dot] !== '.' || src[dot - 1] === '?') continue;
+    edits.push([dot, end, `[${SITE_HOOK}.member(${s.from}, 'plot')]`]);
+  }
+  let out = src;
+  for (const [a, b, text] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + text + out.slice(b);
+  return out;
+}
+
 // The rows of a matrix({ name: "x . x .", ... }) object: each string-valued
 // key, as { name, from, to, text } with from/to around the quoted string.
 export function matrixRows(objText, offset = 0) {

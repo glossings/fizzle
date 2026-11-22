@@ -49,6 +49,10 @@ export function lineCol(src, at) {
   return { line: before.split('\n').length, col: at - (before.lastIndexOf('\n') + 1) + 1 };
 }
 
+// Whether this browser's stacks say where in the sketch a frame is. Safari's
+// don't: a frame in eval'd code reads `anonymous@`, with no position at all.
+export const stackPositions = () => !!wrapperShift();
+
 // The innermost frame inside the run tagged `id`, as an offset into src.
 export function stackOffset(stack, id, src) {
   const s = wrapperShift();

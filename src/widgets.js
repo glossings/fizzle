@@ -29,6 +29,7 @@ import {
 } from './widget-calls.js';
 
 const entries = new Map(); // key -> control, for this run
+let handed = null; // the offset a tagged call handed over (tagSites), while it runs
 let run = null; // { id, src, sites }
 let serial = 0;
 
@@ -52,7 +53,8 @@ export const widgetEntry = (key) => entries.get(key);
 // sketch's own source (a saved sketch pulled in by sketch('name')).
 function siteFor(kind) {
   if (!run) return null;
-  const at = stackOffset(new Error().stack, run.id, run.src);
+  const at = handed ?? stackOffset(new Error().stack, run.id, run.src);
+  handed = null;
   if (at == null) return null;
   run.sites ??= widgetSites(run.src);
   let best = null;
@@ -70,6 +72,17 @@ function siteFor(kind) {
   }
   return best;
 }
+
+// What a call tagged by tagSites() runs through: the widget function, called
+// with its offset handed over.
+export function siteCall(at, fn) {
+  return (...args) => {
+    handed = at;
+    try { return fn(...args); } finally { handed = null; }
+  };
+}
+// .plot(): the offset is handed over while the method's name is looked up
+siteCall.member = (at, name) => { handed = at; return name; };
 
 const num = (v, fallback, what) => {
   if (v === undefined || v === null) return fallback;
