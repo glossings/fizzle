@@ -4,6 +4,7 @@ import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor, foldLists, fillCall } from './editor.js';
 import { syncWidgets, captureWidgets } from './widgets-editor.js';
+import { setWidgetClock } from './widgets.js';
 import { showErrorMark } from './error-mark.js';
 import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash, viewFromUrl } from './share.js';
@@ -31,6 +32,7 @@ const projector = initProjector(glCanvas, () => engine.resolution, {
   down: (v) => { engine.pointer.down = v; },
 });
 const api = makeApi(engine);
+setWidgetClock(() => engine.time);
 const status = document.getElementById('status');
 // the asset browser an empty hdri() / .material() opens; builds its DOM lazily
 const polyhaven = initPolyhaven();
@@ -298,7 +300,9 @@ engine.onFrame = () => { recorder.frame(); projector.frame(); };
 function capture() {
   if (!view) return;
   const got = captureWidgets(view);
-  if (!got) return flash('nothing to capture — move a control first');
+  if (!got) return flash('nothing to capture — move a control or alt-drag a number first');
+  // a dragged number became a knob, which exists once it's run
+  if (got.converted) run(view.state.doc.toString(), true);
   const n = got.controls.length;
   flash(`captured ${n} control${n === 1 ? '' : 's'}, ${got.bars} bar${got.bars === 1 ? '' : 's'}`);
 }
@@ -502,6 +506,12 @@ initDrop();
     onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); else syncWhenQuiet(code); },
     onWidgetChange: syncWhenQuiet,
     onCapture: capture,
+    // learn mode's prompts stay up until the next one; `done` is a passing note
+    onLearnStatus: (msg, done) => {
+      if (done) return flash(msg);
+      status.textContent = msg;
+      status.className = 'show';
+    },
     onToggleSidebar: sidebar.toggle,
     onToggleAudio: sidebar.audioModal.toggle,
     // Allowed to restart the show only because a person asked, rather than an

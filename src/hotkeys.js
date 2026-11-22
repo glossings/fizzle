@@ -23,6 +23,7 @@ export const HOTKEY_ACTIONS = [
   { id: 'record', label: 'start / stop recording', keys: ['ctrl+e'] },
   { id: 'snippets', label: 'snippets', keys: ['ctrl+j'] },
   { id: 'capture', label: 'capture the controls\' movements', keys: ['ctrl+k'] },
+  { id: 'learn', label: 'learn a control from MIDI or a gamepad', keys: ['ctrl+l'] },
   { id: 'prev', label: 'previous sketch in the playlist', keys: ['ctrl+['] },
   { id: 'next', label: 'next sketch in the playlist', keys: ['ctrl+]'] },
   { id: 'projector', label: 'projector window', keys: ['f1'] },

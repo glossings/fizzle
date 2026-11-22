@@ -1,8 +1,9 @@
 // Alt-drag (option on a Mac) up or down on any number in the code to change it.
 // The rate follows the number's size, so 0.4 moves by about 0.0025 a pixel and
-// 40 by about 0.25; a whole number stays whole. Shift is ten times finer. The
+// 40 by about 0.25, gaining decimals as it goes. Shift is ten times finer. The
 // sketch re-runs as it changes, the way a color drag does, unless the number
-// belongs to a control (widgets.js), which already hears its own code.
+// belongs to a control (widgets.js), which already hears its own code. Each
+// drag is reported (onScrub), so capture can turn it into a recorded knob.
 
 import { Prec } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
@@ -38,12 +39,9 @@ const decimalsOf = (text) => (text.includes('.') ? text.length - text.indexOf('.
 // how much one pixel moves this number, and how many decimals that needs
 function rate(text, fine) {
   const v = Number(text);
-  const whole = !text.includes('.');
   const place = v === 0 ? 10 ** -Math.max(1, decimalsOf(text)) : 10 ** Math.floor(Math.log10(Math.abs(v)));
-  let perPx = place / PX_PER_DIGIT / (fine ? FINE : 1);
-  if (whole) perPx = Math.max(perPx, fine ? 0.05 : 0.2);
-  const dec = whole ? 0 : Math.max(decimalsOf(text), Math.ceil(-Math.log10(perPx)));
-  return { perPx, dec };
+  const perPx = place / PX_PER_DIGIT / (fine ? FINE : 1);
+  return { perPx, dec: Math.max(decimalsOf(text), Math.ceil(-Math.log10(perPx))) };
 }
 
 const format = (v, dec) => {
@@ -52,7 +50,7 @@ const format = (v, dec) => {
   return Number(s) === 0 ? s.replace('-', '') : s;
 };
 
-export function numberScrub({ onChange, isControl }) {
+export function numberScrub({ onChange, isControl, onScrub }) {
   return Prec.highest(EditorView.domEventHandlers({
     mousedown(e, view) {
       if (!e.altKey || e.button !== 0) return false;
@@ -66,6 +64,7 @@ export function numberScrub({ onChange, isControl }) {
       const coarse = rate(hit.text, false);
       const fine = rate(hit.text, true);
       let base = { v: Number(hit.text), y: e.clientY, shift: e.shiftKey };
+      const base0 = base.v;
       const control = isControl?.(view, hit.from);
       document.body.classList.add('scrubbing');
 
@@ -79,7 +78,10 @@ export function numberScrub({ onChange, isControl }) {
         if (text === view.state.doc.sliceString(range.from, range.to)) return;
         view.dispatch({ changes: { from: range.from, to: range.to, insert: text }, userEvent: 'input.scrub' });
         range = { from: range.from, to: range.from + text.length };
-        if (!control) onChange?.(view.state.doc.toString());
+        if (!control) {
+          onScrub?.(view, range.from, Number(text), base0);
+          onChange?.(view.state.doc.toString());
+        }
       };
       const up = () => {
         window.removeEventListener('pointermove', move);

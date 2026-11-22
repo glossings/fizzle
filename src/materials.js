@@ -19,6 +19,17 @@ import { warn } from './warn.js';
 const pair = (v) => (Array.isArray(v) ? [v[0], v[1] ?? v[0]] : [v, v]);
 const resolve = (v, t) => (typeof v === 'function' ? v(t) : v);
 
+// One clone of a cached map per tiling, made once and kept across runs.
+const tiledCopies = new WeakMap(); // texture -> Map(tiling -> clone)
+function tiledCopy(tex, tiling, configure) {
+  let byTiling = tiledCopies.get(tex);
+  if (!byTiling) tiledCopies.set(tex, (byTiling = new Map()));
+  const key = JSON.stringify(tiling);
+  let copy = byTiling.get(key);
+  if (!copy) byTiling.set(key, (copy = configure(tex.clone())));
+  return copy;
+}
+
 // The knobs that go with maps and environment lighting. envIntensity is the
 // one that means something on a plain colored material too — it scales how
 // hard the hdri() environment hits this surface — so this runs for every
@@ -440,8 +451,10 @@ export function applyMaps(engine, material, m, isAlive, tileUniforms) {
 
   const assign = (slot, tex) => {
     if (!tex || !isAlive()) return;
-    // clone so tiling belongs to this material — the cached original is shared
-    material[slot] = configure(tex.clone());
+    // The cached texture itself when untiled. A clone is a new texture to
+    // three, uploaded to the GPU again on every run; a tiled one is cloned once
+    // per tiling and kept, since its repeat belongs to it.
+    material[slot] = tiled ? tiledCopy(tex, [repeat, offset, uvRotation], configure) : tex;
     slotDefaults(slot);
     // a slot appearing after first compile changes the shader's defines
     material.needsUpdate = true;

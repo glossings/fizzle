@@ -90,6 +90,7 @@ function apply(s, data) {
 }
 
 let learnHook = null;   // set while main.js has a learn armed
+const listeners = new Set(); // (port, data) for the controls bound in the code
 
 // The port is passed in rather than read off the event: a MIDIMessageEvent
 // carries the data and nothing else, and the port it arrived on is only known
@@ -100,6 +101,15 @@ function onMessage(port, data) {
   apply(store, data);
   apply(omni, data);
   learnHook?.(port, data);
+  for (const fn of listeners) fn(port, data);
+}
+
+// Every message from every port, raw, for the code's controls to follow (and
+// to learn from). Returns the unsubscribe.
+export function onMidiMessage(fn) {
+  ensureMidi();
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
 // The device list, so you know what to put in midi('name'). Plainly logged, not
@@ -263,6 +273,14 @@ function pads(t) {
   return padFrame.pads;
 }
 
+// The first pad there, for the code's controls: they're polled once a frame,
+// outside any sketch time.
+export const firstPad = () => [...poll()].find(Boolean) ?? null;
+export const padButtonIndex = (name) => BUTTONS[String(name).toLowerCase()];
+export const padButtonName = (i) => Object.keys(BUTTONS).find((k) => BUTTONS[k] === i) ?? null;
+export const PAD_DEADZONE = 0.08;
+export { dead as padDeadzone };
+
 let warnedNoPad = false;
 // The slots are sparse and one empties when a pad sleeps, so a bare gamepad()
 // takes the first pad actually there rather than slot 0.
@@ -277,7 +295,7 @@ function padAt(t, index) {
 }
 
 export function gamepadHandle(index, o = {}, onLearn) {
-  const dz = o.deadzone ?? 0.08;
+  const dz = o.deadzone ?? PAD_DEADZONE;
   const axis = (i, flip) => sig((t) => {
     const p = padAt(t, index);
     return p ? dead(p.axes[i] ?? 0, dz) * (flip ? -1 : 1) : 0;

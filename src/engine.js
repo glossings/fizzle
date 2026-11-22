@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { renderTextures, resetTextureBuffers } from './textures.js';
+import { renderTextures, resetTextureBuffers, poolTargets, freePooledTargets } from './textures.js';
 import { AudioEngine } from './audio.js';
 import { bandStore, declareBandSet, dropBandSet, resetBandSets, updateBands } from './bands.js';
 import { updateTempo } from './tempo.js';
@@ -150,6 +150,7 @@ export class Engine {
     this.urlRes = null;      // ?w=&h=, which outranks both (setUrlResolution)
     this._resKey = '';      // what resize() last applied, so a re-run is a no-op
     this.patch = [];      // objects added by the current sketch
+    this.retired = [];    // the last patch's disposal, run after the next frame (clearPatch)
     this.patchGen = 0;    // bumped per run, so a slow load can tell it's stale
     // Called at the end of every frame, while the drawing buffer still holds
     // it — a WebGL canvas can't be read back from a later task. The recorder
@@ -412,6 +413,8 @@ export class Engine {
       end();
     }
     this.onFrame?.();
+    // the last patch, now that this one has drawn (clearPatch)
+    if (this.retired.length) for (const free of this.retired.splice(0)) free();
     frameEnd();
   }
 
@@ -1296,20 +1299,35 @@ export class Engine {
   }
 
   clearPatch() {
-    for (const obj of this.patch) {
-      this.scene.remove(obj);
-      obj.traverse?.((child) => {
-        child.geometry?.dispose?.();
-        // a .noise() chain that casts shadows carries its own depth materials,
-        // which nothing else would reach
-        child.customDepthMaterial?.dispose();
-        child.customDistanceMaterial?.dispose();
-        if (child.material) {
-          const mats = Array.isArray(child.material) ? child.material : [child.material];
-          mats.forEach((m) => m.dispose());
-        }
-      });
-    }
+    // Freed after the next frame rather than now: disposing a material lets go
+    // of its compiled shader, and three deletes a program nothing holds. The
+    // new patch's identical materials then compile from scratch, which on a
+    // re-run per drag step stalls every frame. Drawn first, they find the
+    // program still cached.
+    const old = this.patch;
+    const nodes = this.textureNodes, fields = this.textureFields, tiles = this.textureTiles;
+    this.retired.push(() => {
+      for (const obj of old) {
+        obj.traverse?.((child) => {
+          child.geometry?.dispose?.();
+          // a .noise() chain that casts shadows carries its own depth materials,
+          // which nothing else would reach
+          child.customDepthMaterial?.dispose();
+          child.customDistanceMaterial?.dispose();
+          if (child.material) {
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach((m) => m.dispose());
+          }
+        });
+      }
+      for (const node of nodes) node.dispose();
+      for (const f of fields) f.rt?.dispose();
+      for (const t of tiles) t.rt?.dispose();
+      freePooledTargets();
+    });
+    // the next run's nodes reuse these rather than allocate their own
+    for (const node of nodes) poolTargets(node);
+    for (const obj of old) this.scene.remove(obj);
     this.patch = [];
     this.root = this.scope = makeScope('', null);
     this.scopes = [this.root];
@@ -1332,14 +1350,11 @@ export class Engine {
     this.scene.backgroundBlurriness = 0;
     this.scene.backgroundIntensity = 1;
 
-    for (const node of this.textureNodes) node.dispose();
     this.textureNodes = [];
     this.layerBits = 0;
     this._anon = 0;
     this.textureMaps = [];
-    for (const f of this.textureFields) f.rt?.dispose();
     this.textureFields = [];
-    for (const s of this.textureTiles) s.rt?.dispose();
     this.textureTiles = [];
 
     this.cameraProgrammed = false;

@@ -14,12 +14,16 @@
 // .record(bars) loops a movement: hold the control and what the hand does is
 // written into a loop of that many bars, the stretch from grab to release over
 // whatever was there; let go and it plays. The take is written into the call.
+//
+// { cc }, { note } and { pad } bind a control to hardware: the knob on the desk
+// moves the one in the code, the same way a drag does (widgets-hardware.js).
 
 import { sig, barPhase } from './audio.js';
 import { vec } from './vecsig.js';
 import { warn } from './warn.js';
 import { stackOffset } from './eval-errors.js';
 import { carried } from './carry.js';
+import { padButtonIndex } from './control.js';
 import {
   widgetSites, snapValue, takeLength, decodeTake, encodeTake, rowTokens, isRest, TAKE_RATE,
 } from './widget-calls.js';
@@ -27,6 +31,11 @@ import {
 const entries = new Map(); // key -> control, for this run
 let run = null; // { id, src, sites }
 let serial = 0;
+
+// Sketch time for what isn't read by the sketch: a number dragged in the code.
+let clock = () => 0;
+export const setWidgetClock = (fn) => { clock = fn; };
+export const sketchNow = () => clock();
 
 // Called by the engine before each evaluation of the sketch's own source.
 export function beginWidgets(id, src) {
@@ -69,9 +78,48 @@ const num = (v, fallback, what) => {
   return fallback;
 };
 
+// What a control's hardware options say, checked: { cc: [n] | [x, y], note,
+// channel, pad, pickup, spring }, or null for none.
+const PAD_SOURCES = {
+  xy: ['left', 'right'],
+  slider: ['lt', 'rt', 'lx', 'ly', 'rx', 'ry'],
+  knob: ['lt', 'rt', 'lx', 'ly', 'rx', 'ry'],
+};
+const midiNum = (v) => Number.isInteger(v) && v >= 0 && v <= 127;
+
+function bindingOf(kind, o, what) {
+  if (o.cc == null && o.note == null && o.pad == null) return null;
+  const b = { cc: null, note: null, channel: null, pad: null, pickup: !!o.pickup, spring: !!o.spring };
+  if (o.cc != null) {
+    const list = Array.isArray(o.cc) ? o.cc : [o.cc];
+    const want = kind === 'xy' ? 2 : 1;
+    if (list.length === want && list.every(midiNum)) b.cc = list;
+    else warn(kind === 'xy'
+      ? `${what}: cc takes two numbers 0..127, x then y — { cc: [12, 13] }`
+      : `${what}: cc takes a number 0..127 — { cc: 74 }`);
+  }
+  if (o.note != null) {
+    if (kind !== 'button' && kind !== 'toggle') warn(`${what}: note is for a button or a toggle — a ${kind} takes { cc }`);
+    else if (midiNum(o.note)) b.note = o.note;
+    else warn(`${what}: note takes a number 0..127 — { note: 38 }`);
+  }
+  if (o.channel != null) {
+    if (Number.isInteger(o.channel) && o.channel >= 1 && o.channel <= 16) b.channel = o.channel;
+    else warn(`${what}: channel is 1..16`);
+  }
+  if (o.pad != null) {
+    const name = String(o.pad).toLowerCase();
+    const ok = PAD_SOURCES[kind] ? PAD_SOURCES[kind].includes(name) : padButtonIndex(name) != null;
+    if (ok) b.pad = name;
+    else warn(`${what}: no pad source '${o.pad}' — try ${PAD_SOURCES[kind]?.join(', ') ?? 'a, b, x, y, lb, rb, up, down, left, right'}`);
+  }
+  return b;
+}
+
 class Control {
-  constructor(kind, key, { value, min = 0, max = 1, step = null }) {
+  constructor(kind, key, { value, min = 0, max = 1, step = null }, bind = null) {
     this.kind = kind;
+    this.bind = bind; // the hardware it follows (bindingOf)
     this.key = key;
     this.dims = kind === 'xy' ? 2 : 1;
     this.min = min;
@@ -194,8 +242,14 @@ function control(kind, args) {
   const site = siteFor(kind);
   const key = site ? site.from : `unbound:${serial}:${entries.size}`;
   let c = entries.get(key);
-  if (!c) entries.set(key, (c = new Control(kind, key, cfg)));
+  if (!c) entries.set(key, (c = new Control(kind, key, cfg, bindingOf(kind, o, what))));
   return c;
+}
+
+// A learned binding, live at once; the next run reads it from the call.
+export function rebind(key, o) {
+  const c = entries.get(key);
+  if (c instanceof Control) c.bind = bindingOf(c.kind, o, `${c.kind}()`);
 }
 
 function record(c, kind, bars, take) {
@@ -316,8 +370,10 @@ export function plotSignal(self, o, frame) {
 const PHRASE_GAP = 4;
 const CAPTURE_MAX_BARS = 16;
 
-export function captureTakes() {
-  const controls = [...entries.values()].filter((c) => c instanceof Control && c.kind !== 'toggle');
+// `extra` are stand-ins shaped like a control ({ key, kind, dims, pos, hist }),
+// for movements made outside one: the numbers dragged in the code.
+export function captureTakes(extra = []) {
+  const controls = [...entries.values()].filter((c) => c instanceof Control && c.kind !== 'toggle').concat(extra);
   const moves = controls.flatMap((c) => c.hist.moves.map((m) => m[0])).sort((a, b) => a - b);
   if (!moves.length) return null;
   const bar = (t) => barPhase(t, 1);

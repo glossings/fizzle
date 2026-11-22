@@ -6,7 +6,7 @@ import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/comm
 import { foldEffect } from '@codemirror/language';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
-import { widgetsEditor, isControlArg } from './widgets-editor.js';
+import { widgetsEditor, isControlArg, toggleLearn, noteScrub } from './widgets-editor.js';
 import { numberScrub } from './scrub.js';
 import { hotkeyFor } from './hotkeys.js';
 import { sketchLanguage, apiHover } from './complete.js';
@@ -56,7 +56,7 @@ export function fillCall(view, fn, args, suffix = '') {
 // The app's shortcuts live in hotkeys.js, where they can be rebound; this
 // file only says what each one does. The editor checks them before its own
 // keymap, and the window checks them for when the canvas has focus.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onWidgetChange, onCapture, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onFontSize, onChange, onScroll }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onWidgetChange, onCapture, onLearnStatus, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onFontSize, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
@@ -82,6 +82,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     record: () => onRecord?.(),
     snippets: () => onSnippets?.(),
     capture: () => onCapture?.(),
+    learn: () => toggleLearn(view, onLearnStatus),
     prev: () => onStep?.(-1),
     next: () => onStep?.(1),
     projector: () => onToggleProjector?.(),
@@ -140,8 +141,8 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       sketchFolding(), // the projected copy folds with the same hands (fold.js)
       errorMarks,
       colorPicker(onLiveChange),
-      widgetsEditor({ onRun, onChange: onWidgetChange, onCapture }),
-      numberScrub({ onChange: onLiveChange, isControl: isControlArg }),
+      widgetsEditor({ onRun, onChange: onWidgetChange, onCapture, onLearnStatus }),
+      numberScrub({ onChange: onLiveChange, isControl: isControlArg, onScrub: noteScrub }),
       // the projector window replays these to stay in step with what's typed
       EditorView.updateListener.of((u) => {
         if (u.docChanged || u.selectionSet || foldsChanged(u)) onChange?.(u);

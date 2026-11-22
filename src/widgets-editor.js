@@ -11,12 +11,13 @@
 // dropped.
 
 import { StateField, StateEffect, MapMode } from '@codemirror/state';
-import { EditorView, Decoration, WidgetType } from '@codemirror/view';
+import { EditorView, Decoration, WidgetType, ViewPlugin } from '@codemirror/view';
 import { foldEffect, foldedRanges } from '@codemirror/language';
-import { widgetRun, widgetEntry, captureTakes } from './widgets.js';
+import { widgetRun, widgetEntry, captureTakes, rebind, sketchNow } from './widgets.js';
+import { driveHardware, learnHardware } from './widgets-hardware.js';
 import {
   readCall, literalNumber, literalTake, literalString, snapValue, decimalsFor, formatValue, encodeTake,
-  VALUE_ARGS, GRID_KINDS, matrixRows, rowTokens, isRest,
+  VALUE_ARGS, GRID_KINDS, CONTROL_KINDS, matrixRows, rowTokens, isRest,
 } from './widget-calls.js';
 import { showMenu } from './context-menu.js';
 
@@ -96,8 +97,12 @@ function sizeOf(call, kind) {
   return [clampSize(optionNumber(call, 'width') ?? w0), clampSize(optionNumber(call, 'height') ?? h0)];
 }
 
-// set keys in the call's options object, adding one if it has none
-function writeOptions(view, key, kind, values) {
+// an option's value as written: a list, a string, or anything up to , } or space
+const OPTION_VALUE = String.raw`(?:\[[^\]]*\]|'[^']*'|"[^"]*"|[^,}\s]+)`;
+
+// set keys in the call's options object, adding one if it has none; `remove`
+// takes keys out
+function writeOptions(view, key, kind, values, remove = []) {
   const pos = posOf(view, key);
   const call = pos != null && callAt(view.state.doc, pos, kind);
   if (!call) return;
@@ -105,8 +110,12 @@ function writeOptions(view, key, kind, values) {
   let change;
   if (obj) {
     let text = obj.text;
+    for (const k of remove) {
+      text = text.replace(new RegExp(String.raw`\s*\b${k}\s*:\s*${OPTION_VALUE}\s*,?`), '');
+    }
+    text = text.replace(/,\s*\}$/, ' }').replace(/^\{\s*/, '{ ');
     for (const [k, v] of Object.entries(values)) {
-      const re = new RegExp(`(\\b${k}\\s*:\\s*)[^,}\\s]+`);
+      const re = new RegExp(String.raw`(\b${k}\s*:\s*)${OPTION_VALUE}`);
       if (re.test(text)) text = text.replace(re, `$1${v}`);
       else {
         const inner = text.slice(1, -1).trim();
@@ -197,6 +206,7 @@ function stateClass(dom, c) {
   dom.classList.toggle('armed', !!(c && c.bars));
   dom.classList.toggle('held', !!(c && c.held));
   dom.classList.toggle('dead', !c);
+  dom.classList.toggle('learning', !!c && learning?.key === c.key);
 }
 
 const TITLES = {
@@ -280,7 +290,7 @@ class Control extends WidgetType {
     dom.addEventListener('mousedown', (e) => e.preventDefault());
     bindPointer(view, face, key, kind);
     bindGrip(view, dom, face, key, kind, this.size);
-    const wv = { key, el: dom, draw };
+    const wv = { key, kind, el: dom, draw };
     dom._w = wv;
     draw();
     watch(wv);
@@ -424,19 +434,44 @@ function writeTake(view, key, kind) {
 }
 
 // --- the hand ----------------------------------------------------------------
+//
+// What a drag does, shared with the hardware (widgets-hardware.js).
+
+// the control's new values, snapped; true when they changed
+function moveTo(key, kind, values) {
+  const c = widgetEntry(key);
+  if (!c) return false;
+  const snapped = values.map((v) => (kind === 'xy' ? Math.min(1, Math.max(0, v)) : snapValue(v, c.min, c.max, c.step)));
+  const same = snapped.every((v, i) => v === c.value[i]);
+  c.value = snapped;
+  c.shown = snapped.slice();
+  if (!same) c.noteHand();
+  return !same;
+}
+
+function press(key) {
+  const c = widgetEntry(key);
+  if (!c) return;
+  c.grab();
+  c.value[0] = 1;
+  c.shown[0] = 1;
+  c.noteHand();
+}
+
+function letGo(view, key, kind) {
+  const c = widgetEntry(key);
+  if (!c) return;
+  const recorded = c.held && c.bars && c.take;
+  c.release();
+  if (kind === 'button') c.noteHand();
+  if (recorded) writeTake(view, key, kind);
+}
 
 function bindPointer(view, dom, key, kind) {
   let drag = null;
 
   const set = (values) => {
-    const c = widgetEntry(key);
-    if (!c) return;
-    const snapped = values.map((v) => (kind === 'xy' ? Math.min(1, Math.max(0, v)) : snapValue(v, c.min, c.max, c.step)));
-    const same = snapped.every((v, i) => v === c.value[i]);
-    c.value = snapped;
-    c.shown = snapped.slice();
-    if (!same) c.noteHand();
-    if (!same && kind !== 'button') writeValues(view, key, kind, snapped);
+    if (moveTo(key, kind, values) && kind !== 'button') writeValues(view, key, kind, widgetEntry(key).value);
   };
 
   const padAt = (e) => {
@@ -448,11 +483,12 @@ function bindPointer(view, dom, key, kind) {
     const c = widgetEntry(key);
     if (!c || e.button !== 0) return;
     e.preventDefault();
+    if (learning) { learnControl(view, key, kind); return; }
     dom.setPointerCapture(e.pointerId);
     holding(true);
     if (kind === 'toggle') { set([c.value[0] > 0.5 ? 0 : 1]); return; }
     c.grab();
-    if (kind === 'button') { c.value[0] = 1; c.shown[0] = 1; c.noteHand(); drag = {}; return; }
+    if (kind === 'button') { press(key); drag = {}; return; }
     if (kind === 'xy') { drag = {}; set(padAt(e)); return; }
     drag = { x: e.clientX, y: e.clientY, p: c.pos(c.value[0]), shift: e.shiftKey };
   });
@@ -474,12 +510,7 @@ function bindPointer(view, dom, key, kind) {
     holding(false);
     if (!drag) return;
     drag = null;
-    const c = widgetEntry(key);
-    if (!c) return;
-    const recorded = c.held && c.bars && c.take;
-    c.release();
-    if (kind === 'button') c.noteHand();
-    if (recorded) writeTake(view, key, kind);
+    letGo(view, key, kind);
   };
   dom.addEventListener('pointerup', end);
   dom.addEventListener('pointercancel', end);
@@ -890,12 +921,91 @@ function drawPlot(canvas, face, label, p) {
 
 // --- capture -----------------------------------------------------------------
 
+// Numbers alt-dragged in the code (scrub.js), with what the drag did in sketch
+// time, so capture can make each one a knob that plays it back. `from` is the
+// number's start, kept in place through edits.
+let scrubs = []; // { view, from, base, moves: [[t, v]] }
+
+export function noteScrub(view, from, value, start) {
+  let r = scrubs.find((x) => x.view === view && x.from === from);
+  if (!r) {
+    scrubs.push((r = { view, from, base: start, moves: [] }));
+    if (scrubs.length > 32) scrubs.shift();
+  }
+  const t = sketchNow();
+  r.moves.push([t, value]);
+  // the same minute of history a control keeps
+  while (r.moves.length > 1 && t - r.moves[0][0] > 60) r.base = r.moves.shift()[1];
+}
+
+const followScrubs = EditorView.updateListener.of((u) => {
+  if (!u.docChanged) return;
+  scrubs = scrubs.filter((r) => {
+    if (r.view !== u.view) return true;
+    r.from = u.changes.mapPos(r.from, -1, MapMode.TrackDel);
+    return r.from != null;
+  });
+});
+
+// A captured number's knob spans what the drag covered, a tenth more on each
+// side, rounded out to a 1, 2 or 5 step; it only goes below 0 or past 1 when
+// the drag did.
+function fitRange(values) {
+  const low = Math.min(...values), high = Math.max(...values);
+  let lo = low, hi = high;
+  // at least a fifth of the number's size, so a small nudge isn't a knob too
+  // fine to turn
+  const least = Math.max(Math.abs(lo), Math.abs(hi)) * 0.2 || 1;
+  if (hi - lo < least) {
+    const mid = (lo + hi) / 2;
+    lo = mid - least / 2;
+    hi = mid + least / 2;
+  }
+  const span = hi - lo;
+  const p = 10 ** Math.floor(Math.log10(span / 10));
+  const step = [1, 2, 5, 10].map((k) => k * p).find((k) => k >= span / 10);
+  const dec = Math.max(0, -Math.floor(Math.log10(step)));
+  const round = (v) => Number(v.toFixed(dec));
+  let min = round(Math.floor((lo - span * 0.1) / step) * step);
+  let max = round(Math.ceil((hi + span * 0.1) / step) * step);
+  if (low >= 0) min = Math.max(0, min);
+  if (low >= 0 && high <= 1) max = Math.min(1, max);
+  return [min, max];
+}
+
+const NUMBER_AT = /^-?(?:\d+\.?\d*|\.\d+)/;
+const scrubText = (view, r) => NUMBER_AT.exec(view.state.doc.sliceString(r.from, r.from + 40))?.[0] ?? null;
+
 // Every control moved in the last phrase gains .record(bars, take) and plays
-// it from now on. Returns what was captured, or null.
+// it from now on; every number dragged in it becomes a knob with that take.
+// Returns what was captured, with `converted` numbers needing a run.
 export function captureWidgets(view) {
-  const got = captureTakes();
+  const mine = scrubs.filter((r) => r.view === view && r.moves.length && scrubText(view, r) != null
+    && !isControlArg(view, r.from));
+  const stand = mine.map((r) => {
+    const [min, max] = fitRange([r.base, ...r.moves.map((m) => m[1])]);
+    return {
+      key: r, kind: 'knob', dims: 1, min, max,
+      pos: (v) => (v - min) / (max - min),
+      hist: { base: [r.base], moves: r.moves.map(([t, v]) => [t, v]) },
+    };
+  });
+  const got = captureTakes(stand);
+  for (const r of scrubs) if (r.view === view) r.moves = [];
   if (!got) return null;
+  got.converted = 0;
   for (const c of got.controls) {
+    if (typeof c.key === 'object') {
+      const r = c.key;
+      const text = scrubText(view, r);
+      const { min, max } = stand.find((x) => x.key === r);
+      const range = min === 0 && max === 1 ? '' : `, ${min}, ${max}`;
+      const insert = `knob(${text}${range}).record(${c.bars}, '${c.text}')`;
+      view.dispatch({ changes: { from: r.from, to: r.from + text.length, insert }, userEvent: WIDGET_EVENT });
+      scrubs = scrubs.filter((x) => x !== r);
+      got.converted++;
+      continue;
+    }
     const pos = posOf(view, c.key);
     const call = pos != null && callAt(view.state.doc, pos, c.kind);
     if (!call) continue;
@@ -909,6 +1019,98 @@ export function captureWidgets(view) {
     if (t) foldTake(view, t.from, t.to);
   }
   return got;
+}
+
+// --- hardware ----------------------------------------------------------------
+
+const hardwarePlugin = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.driver = driveHardware({
+      controls: () => boundControls(view),
+      move: (key, kind, values) => moveTo(key, kind, values),
+      write: (key, kind) => {
+        const c = widgetEntry(key);
+        if (c && kind !== 'button') writeValues(view, key, kind, c.value);
+      },
+      grab: (key) => widgetEntry(key)?.grab(),
+      press: (key) => press(key),
+      release: (key, kind) => letGo(view, key, kind),
+    });
+  }
+  update(u) {
+    if (u.transactions.some((tr) => tr.effects.some((e) => e.is(setSites)))) this.driver.sync();
+  }
+  destroy() {
+    this.driver.destroy();
+    if (learning?.view && !learning.view.dom.isConnected) stopLearn();
+  }
+});
+
+function* boundControls(view) {
+  for (const s of view.state.field(sitesField)) {
+    const c = CONTROL_KINDS.includes(s.kind) && widgetEntry(s.key);
+    if (c?.bind) yield { key: s.key, kind: s.kind, c };
+  }
+}
+
+// Learn: click a control, move the hardware, and the binding is written into
+// the call. It stays on for the next control until it's turned off.
+let learning = null; // { view, say, key, kind, disarm }
+const BIND_KEYS = ['cc', 'note', 'pad', 'channel'];
+
+function learnSay(text) {
+  learning?.say?.(text, false);
+}
+
+export function toggleLearn(view, say) {
+  if (learning) { stopLearn(true); return; }
+  learning = { view, say, key: null, kind: null, disarm: null };
+  document.body.classList.add('cm-w-learn');
+  window.addEventListener('keydown', escLearn, true);
+  learnSay('learn — click a control in the code, then move a knob, fader, stick or button (esc to finish)');
+}
+
+function stopLearn(said = false) {
+  if (!learning) return;
+  const { say } = learning;
+  learning.disarm?.();
+  learning = null;
+  document.body.classList.remove('cm-w-learn');
+  window.removeEventListener('keydown', escLearn, true);
+  if (said) say?.('learn off', true);
+}
+
+function escLearn(e) {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();
+  stopLearn(true);
+}
+
+const MOVE_WHAT = {
+  slider: 'a knob, fader, trigger or stick',
+  knob: 'a knob, fader, trigger or stick',
+  xy: 'an xy pad, two knobs or a stick',
+  toggle: 'a key, pad or button',
+  button: 'a key, pad or button',
+};
+
+function learnControl(view, key, kind) {
+  if (!learning) return;
+  learning.disarm?.();
+  Object.assign(learning, { view, key, kind });
+  learnSay(`learn ${kind}() — move ${MOVE_WHAT[kind]}`);
+  learning.disarm = learnHardware(kind, learnSay, (opts, label) => {
+    learning.disarm = null;
+    learning.key = null;
+    writeOptions(view, key, kind, opts, BIND_KEYS.filter((k) => !(k in opts)));
+    // what the code now says, as the running control reads it
+    const o = {};
+    for (const [k, v] of Object.entries(opts)) o[k] = v.startsWith('[') ? JSON.parse(v) : v.startsWith("'") ? v.slice(1, -1) : Number(v);
+    rebind(key, o);
+    view.plugin(hardwarePlugin)?.driver.sync();
+    learnSay(`${kind}() follows ${label} — click another control, or esc to finish`);
+  });
 }
 
 // --- the menu ----------------------------------------------------------------
@@ -926,16 +1128,23 @@ function numberAt(state, pos) {
   return null;
 }
 
-// a range for a number that isn't 0..1: up to the next 1, 2 or 5 past twice it
-function rangeFor(v) {
-  if (v >= 0 && v <= 1) return '';
-  const r = Math.abs(v) * 2;
+// A range for numbers that aren't all in 0..1: from 0 (or the negative of the
+// top, for any below 0) up to the next 1, 2 or 5 past twice the largest.
+function niceRange(values) {
+  const lo = Math.min(...values), hi = Math.max(...values);
+  if (lo >= 0 && hi <= 1) return [0, 1];
+  const r = Math.max(Math.abs(lo), Math.abs(hi)) * 2;
   const p = 10 ** Math.floor(Math.log10(r));
   const nice = [1, 2, 5, 10].map((k) => k * p).find((k) => k >= r);
-  return v < 0 ? `, ${-nice}, ${nice}` : `, 0, ${nice}`;
+  return lo < 0 ? [-nice, nice] : [0, nice];
 }
 
-function codeMenu(view, e, { onRun, onCapture }) {
+function rangeFor(v) {
+  const [min, max] = niceRange([v]);
+  return min === 0 && max === 1 ? '' : `, ${min}, ${max}`;
+}
+
+function codeMenu(view, e, { onRun, onCapture, say }) {
   const items = [];
   const cellsDom = e.target.closest?.('.cm-w-cells');
   const sites = view.state.field(sitesField);
@@ -963,7 +1172,18 @@ function codeMenu(view, e, { onRun, onCapture }) {
     }
   }
   // on a control, capture is the menu: it's what a right-click there is for
-  const onControl = !cellsDom && !!e.target.closest?.('.cm-w');
+  const controlDom = !cellsDom && e.target.closest?.('.cm-w');
+  const onControl = !!controlDom;
+  const w = controlDom?._w;
+  if (w && CONTROL_KINDS.includes(w.kind)) {
+    items.push({
+      label: 'learn from a controller',
+      run: () => {
+        if (!learning) toggleLearn(view, say);
+        learnControl(view, w.key, w.kind);
+      },
+    });
+  }
   if (!items.length && !onControl) return false;
   items.push({ label: 'capture movements', run: () => onCapture?.() });
   e.preventDefault();
@@ -971,13 +1191,13 @@ function codeMenu(view, e, { onRun, onCapture }) {
   return true;
 }
 
-export function widgetsEditor({ onRun, onChange, onCapture } = {}) {
+export function widgetsEditor({ onRun, onChange, onCapture, onLearnStatus } = {}) {
   // the address bar follows a widget's writes once they stop (main.js)
   const settle = EditorView.updateListener.of((u) => {
     if (u.docChanged && u.transactions.some((tr) => tr.isUserEvent(WIDGET_EVENT) || tr.isUserEvent('input.scrub'))) {
       onChange?.(u.state.doc.toString());
     }
   });
-  const menu = EditorView.domEventHandlers({ contextmenu: (e, view) => codeMenu(view, e, { onRun, onCapture }) });
-  return [textModeField, sitesField, decoField, followText, settle, menu];
+  const menu = EditorView.domEventHandlers({ contextmenu: (e, view) => codeMenu(view, e, { onRun, onCapture, say: onLearnStatus }) });
+  return [textModeField, sitesField, decoField, followText, followScrubs, settle, menu, hardwarePlugin];
 }

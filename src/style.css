@@ -652,6 +652,20 @@ html.clean #touchbar { display: none !important; }
 .cm-editor .cm-w.armed.held { --w-fill: var(--w-rec); }
 .cm-editor .cm-w.armed.held .cm-w-face { border-color: var(--w-rec); }
 .cm-editor .cm-w.dead { opacity: 0.35; pointer-events: none; }
+/* learn mode (ctrl+l): every control is a target; the one waiting for hardware pulses */
+body.cm-w-learn .cm-editor .cm-w .cm-w-face { cursor: crosshair; border-style: dashed; border-color: #c678dd; }
+body.cm-w-learn .cm-editor .cm-w.learning .cm-w-face {
+  border-style: solid;
+  box-shadow: 0 0 0 2px #c678dd;
+  animation: cm-w-learn 0.9s ease-in-out infinite alternate;
+}
+/* a knob's face is masked to its ring, so the highlight goes on the knob around it */
+body.cm-w-learn .cm-editor .cm-w-knob { border-radius: 50%; outline: 1px dashed #c678dd; outline-offset: 1px; }
+body.cm-w-learn .cm-editor .cm-w-knob.learning {
+  outline-style: solid;
+  animation: cm-w-learn 0.9s ease-in-out infinite alternate;
+}
+@keyframes cm-w-learn { from { box-shadow: 0 0 0 1px #c678dd; } to { box-shadow: 0 0 0 3px #c678dd; } }
 .cm-editor .cm-w-slider .cm-w-face {
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.06);

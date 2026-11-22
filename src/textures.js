@@ -2077,6 +2077,32 @@ function makeRT(w, h) {
   });
 }
 
+// A re-run makes new nodes, but they needn't make new targets: a retired
+// node's (Engine.clearPatch) wait here for the next run's slots of the same
+// size and settings, and whatever's left once that run has drawn is freed.
+// Allocating thirty full-frame targets per run is what stalls a drag.
+const rtPool = [];
+
+export function poolTargets(node) {
+  for (const key in node) {
+    if (key.startsWith('_tgt_') && node[key]?._pooled) {
+      rtPool.push(node[key]);
+      node[key] = null;
+    }
+  }
+}
+
+export function freePooledTargets() {
+  for (const rt of rtPool.splice(0)) rt.dispose();
+}
+
+// three sets a target's sampling up once, so only one set up the same way fits
+function pooledRT(w, h, [wrapS, wrapT, mips]) {
+  const i = rtPool.findIndex((rt) => rt.width === w && rt.height === h && rt.texture.wrapS === wrapS
+    && rt.texture.wrapT === wrapT && rt.texture.generateMipmaps === mips);
+  return i < 0 ? null : rtPool.splice(i, 1)[0];
+}
+
 // .delay() is the one op that allocates *per frame of delay*, and a half-float
 // frame is 8 bytes a pixel — at a retina 1080p drawing buffer that's ~47 MB
 // each, so a second of history at full size would be three gigabytes and take
@@ -3909,13 +3935,20 @@ export class TextureOp {
   // three reads a render target's wrap mode once, when it first sets the target
   // up — so a node feeding a tiled material map has to be marked before that
   // happens, and re-marked whenever a resize forces a realloc
-  _wrap(rt) {
-    if (this._tiled) rt.texture.wrapS = rt.texture.wrapT = THREE.RepeatWrapping;
+  // [wrapS, wrapT, mips] this node's targets want
+  _sampling() {
+    const C = THREE.ClampToEdgeWrapping, R = THREE.RepeatWrapping;
+    const mips = !!this._needsMips;
+    if (this._tiled) return [R, R, mips];
     // inside .radial(): x is an angle, y a radius (see markPolar)
-    else if (this._polar) {
-      rt.texture.wrapS = THREE.RepeatWrapping;
-      rt.texture.wrapT = this._polarLog ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-    }
+    if (this._polar) return [R, this._polarLog ? R : C, mips];
+    return [C, C, mips];
+  }
+
+  _wrap(rt) {
+    const [wrapS, wrapT] = this._sampling();
+    rt.texture.wrapS = wrapS;
+    rt.texture.wrapT = wrapT;
     // A node feeding .displace() or a material map slot carries a mip pyramid.
     // For displacement the vertex shader reads it through textureLod at the
     // level matching the mesh's vertex spacing, which is what turns a busy map
@@ -3940,7 +3973,8 @@ export class TextureOp {
     if (!rt || rt.width !== w || rt.height !== h
         || (this._needsMips && !rt.texture.generateMipmaps)) {
       rt?.dispose();
-      rt = this[slot] = this._wrap(makeRT(w, h));
+      rt = this[slot] = pooledRT(w, h, this._sampling()) ?? this._wrap(makeRT(w, h));
+      rt._pooled = true;
     }
     return rt;
   }

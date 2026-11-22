@@ -2108,7 +2108,50 @@ in one press at a time.
 **Capture** (`ctrl + k`, or the right-click menu) is the same without asking
 first. Every control you moved in the last phrase, back to the last four bars
 of stillness, gains `.record(bars, take)` with what you just did, and plays it
-from then on.
+from then on. A number you [alt-dragged](#dragging-numbers) in that phrase
+becomes a knob playing the drag back, its range what the drag covered:
+dragging `5` up to `6` gives `knob(6, 4.9, 6.1).record(2, 'take')`.
+
+### from a controller
+
+A control can follow a MIDI controller or a gamepad. Press `ctrl + l`, click a
+control, then move a knob, fader, key, stick or button: the binding is written
+into the call, and from then on the hardware moves the control the same way a
+drag does. Learn stays on for the next control you click; `esc` or `ctrl + l`
+turns it off. A control's right-click menu has **learn from a controller** too.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+sphere({ radius: 0.6, res: 64 })
+  .position(xy(0.5, 0.5, { pad: 'left' }).range(-3, 3), 0)
+  .scale(knob(1, 0.5, 2, { cc: 74 }))
+  .color(toggle(0, { note: 36 }).select(['#4fd1c5', '#ff5f9e']))
+  .out()
+```
+
+| option | follows |
+|---|---|
+| `{ cc: 74 }` | a MIDI knob or fader; on a toggle or button, a CC button |
+| `{ cc: [12, 13] }` | on `xy()`: an xy pad, or two knobs, x then y |
+| `{ note: 36 }` | on a toggle or button: a key or pad |
+| `{ pad: 'rt' }` | a trigger's travel, or a stick axis: `'lx'` `'ly'` `'rx'` `'ry'` |
+| `{ pad: 'left' }` | on `xy()`: the left or right stick |
+| `{ pad: 'a' }` | on a toggle or button: a gamepad button |
+
+The value is still written into the call as it moves, so the sketch opens
+where you left the knob. `.record()` works from hardware too: a MIDI knob counts
+as held while it's turning and let go after a moment of stillness, a stick while
+it's off center.
+
+A stick pushes its control along and leaves it there. `{ spring: true }` makes
+the stick's position the control's instead, back to the center when let go.
+
+A MIDI knob that sits somewhere other than the control jumps it on the first
+touch. With `{ pickup: true }` it does nothing until it reaches the control's
+value, then takes over. `{ channel: 2 }` listens on one channel only; learn
+writes it in when the controller isn't on channel 1.
 
 ### steps, sliders, matrix
 
@@ -2161,7 +2204,8 @@ values without them). It passes the signal through unchanged.
 
 Hold alt (option on a Mac) and drag up or down on any number in the code to
 change it. How fast it moves follows its size, so `0.4` and `400` both take
-about the same drag; a whole number stays whole. Add shift for ten times finer.
+about the same drag, and a whole number gains decimals as it moves. Add shift
+for ten times finer.
 The sketch re-runs as it changes, like a color drag. The live color and number
 updates setting in the sidebar turns that off.
 
@@ -2590,6 +2634,9 @@ someone else.
 Empty `.key()` learns the same way from the next key or pad you play. One
 empty call is learned per run; with several, run again after each one and work
 down the sketch. Deleting the empty call and running is how you cancel.
+
+A [control drawn in the code](#from-a-controller) can be bound to a knob the
+same way, so the knob on the desk and the one on screen move together.
 
 ### keys
 
@@ -4587,6 +4634,7 @@ it into Zoom, Meet and the rest. The size comes from the sketch's
 | `ctrl + e` | start / stop recording |
 | `ctrl + j` | snippets |
 | `ctrl + k` | capture the controls' movements |
+| `ctrl + l` | learn a control from MIDI or a gamepad |
 | `ctrl + r` | restart media and state |
 | `F1` | the projector window |
 | `ctrl + hover` | docs for the name under the cursor |
