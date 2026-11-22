@@ -13,6 +13,7 @@ import { claimDuring, claimUnder, sweepCarried, resetCarried } from './carry.js'
 import { closeFeed } from './feed.js';
 import { bandsCall, rewriteBlocks } from './sketch-blocks.js';
 import { sketchTag, locateError } from './eval-errors.js';
+import { beginWidgets } from './widgets.js';
 import { resetRunSeeds, resetFrameSeeds, seedScope, strKey } from './seeds.js';
 import { site, tag, tagOf, begin, end, frameStart, frameEnd, PASS_3D } from './profile.js';
 
@@ -139,6 +140,7 @@ export class Engine {
       doc.addEventListener(ev, () => doc.documentElement.classList.remove('cam-drag'));
 
     this.time = 0;        // sketch time; frozen while paused so resume doesn't jump
+    this._bars = 0;       // bars elapsed, added up at the tempo of each frame (barsAt)
     this.paused = false;
     this.frames = 0;      // total frames rendered, for the fps readout
     this.quality = 1;
@@ -373,6 +375,7 @@ export class Engine {
     this.dt = this.paused ? 0 : dt * (Number.isFinite(rate) ? rate : 1);
     if (!this.paused) {
       this.time += this.dt;
+      this._bars += (this.dt * this.bpm) / 240;
       this.audio?.update();
       updateBands(this.audio); // named bands: smoothing + auto anchors
       updateTempo(this.audio); // the manager's auto tempo
@@ -1199,6 +1202,13 @@ export class Engine {
   // would move the beat grid under a set that's running to music. Nor is where
   // orbiting left the camera, or the caller's decision about paused — a
   // restart while paused holds the freeze-frame.
+  // Bars elapsed at sketch time t: the running count, plus the stretch since
+  // this frame at the tempo now, so t a little either side of the frame reads
+  // sensibly. A tempo change moves the count on from where it is.
+  barsAt(t) {
+    return this._bars + ((t - this.time) * this.bpm) / 240;
+  }
+
   restartSketch() {
     resetCarried();
     resetTextureBuffers(this);
@@ -1399,6 +1409,7 @@ export class Engine {
       this.scope = this.root;
       this.declareChip(src);
       const { id, comment } = sketchTag();
+      beginWidgets(id, src);
       resetRunSeeds();
       try {
         claimDuring(() => new Function(...names, `"use strict";\n{${js}\n}${comment}`)(...values));

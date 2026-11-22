@@ -11,6 +11,8 @@
 // Auto seeds sit at 100000 and up, apart from the small seeds people write
 // (fieldSeed below is the GPU's version).
 
+import { claimInCopy } from './carry.js';
+
 const BASE = 100000;
 const RUN = 1;
 const FRAME = 2;
@@ -50,8 +52,9 @@ export function seedScope(k, fn) {
 }
 
 // an .instance() fn whose copies each count from zero, so copy i's rand()s
-// are its own and the same every frame
+// are its own and the same every frame, and so are its stateful signals
+// (carry.js: a .smooth() written in the fn keeps its level from frame to frame)
 export function seededInstance(fn) {
   const base = autoSeed();
-  return (x, i, count, t) => seedScope(mix(base, i), () => fn(x, i, count, t));
+  return (x, i, count, t) => seedScope(mix(base, i), () => claimInCopy(base, i, () => fn(x, i, count, t)));
 }

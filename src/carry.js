@@ -16,7 +16,10 @@
 //
 // Claiming only happens while a sketch is evaluating. A signal built inside a
 // per-frame callback would otherwise mint a new entry every frame and never
-// stop.
+// stop. The one per-frame place that claims is an .instance() copy's fn
+// (claimInCopy): it runs every frame, so a .smooth() written inside it is
+// rebuilt every frame, and it keeps its level only by finding the same state
+// under that copy each time.
 
 const store = new Map();
 const ordinals = new Map();
@@ -30,19 +33,38 @@ export function claimUnder(path, fn) {
 }
 let claiming = false;
 let gen = 0;
+// the .instance() copy whose fn is running between runs: { base, i, ords }
+let copy = null;
 
 // make() is handed the key so a claim can *be* its identity rather than merely
 // have one — that's what bufferId() names itself after.
 export function carried(kind, make, free) {
-  if (!claiming) return make();
-  const slot = prefix + kind;
-  const n = ordinals.get(slot) ?? 0;
-  ordinals.set(slot, n + 1);
+  if (!claiming && !copy) return make();
+  let slot, ords;
+  if (claiming) {
+    slot = prefix + kind;
+    ords = ordinals;
+  } else {
+    slot = `copy:${copy.base}:${copy.i}/${kind}`;
+    ords = copy.ords ??= new Map();
+  }
+  const n = ords.get(slot) ?? 0;
+  ords.set(slot, n + 1);
   const key = `${slot}#${n}`;
   let e = store.get(key);
   if (!e) store.set(key, (e = { value: make(key), free }));
   e.gen = gen;
   return e.value;
+}
+
+// Copy i of an .instance() whose fn is `base`, counting its claims from zero
+// each frame, so the nth stateful signal in it is the same one every frame.
+// During the run itself the fn's claims are ordinary ones.
+export function claimInCopy(base, i, fn) {
+  if (claiming) return fn();
+  const was = copy;
+  copy = { base, i, ords: null };
+  try { return fn(); } finally { copy = was; }
 }
 
 // Whether a sketch is evaluating — i.e. whether a claim made now will be the

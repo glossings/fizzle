@@ -21,7 +21,7 @@ ring({ inner: 0.3, outer: 0.31, color: '#ffe066', bg: null })
 const orbit = curve.circle(2.4)
 
 sphere({ radius: 0.22, res: 32 })
-  .instance(3, (x, i, n, t) => x.position(orbit(t * 0.13 + i / n)))
+  .instance(3, (x, i, n) => x.position(orbit(T.mul(0.13).add(i / n))))
   .material({ color: '#ff9f5f', roughness: 0.4 })
   .out()
 

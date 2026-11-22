@@ -6,6 +6,8 @@ import { insertNewlineAndIndent, indentMore, indentLess } from '@codemirror/comm
 import { foldEffect } from '@codemirror/language';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { colorPicker } from './colorpicker.js';
+import { widgetsEditor, isControlArg } from './widgets-editor.js';
+import { numberScrub } from './scrub.js';
 import { sketchLanguage, apiHover } from './complete.js';
 import { sketchFolding, foldsChanged } from './fold.js';
 import { errorMarks } from './error-mark.js';
@@ -53,12 +55,13 @@ export function fillCall(view, fn, args, suffix = '') {
 // Ctrl (not Cmd) on every platform, so the bindings match livecoding habit:
 //   ctrl+enter run · ctrl+. pause/play · ctrl+h hide/show code · ctrl+m hide
 //   this window's code · ctrl+p sidebar · ctrl+a audio manager · ctrl+r
-//   restart · ctrl+e record · ctrl+j snippets · ctrl+[ / ctrl+] previous /
+//   restart · ctrl+e record · ctrl+j snippets · ctrl+k capture the controls'
+//   last movements · ctrl+[ / ctrl+] previous /
 //   next in the playlist · F1 projector window
 // The exception is +/-/0, which take Cmd too, because they're taking those
 // keys *back* from the browser's zoom — see the handler below.
 // Returns the view plus toggleCode, which the touch controls press too.
-export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onFontSize, onChange, onScroll }) {
+export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveChange, onWidgetChange, onCapture, onToggleSidebar, onToggleAudio, onRestartMedia, onToggleProjector, onToggleProjectorCode, onRecord, onSnippets, onStep, onFontSize, onChange, onScroll }) {
   const toggleLocalCode = () => {
     parent.classList.toggle('hidden');
     if (!parent.classList.contains('hidden') && !isTouch) view.focus();
@@ -85,6 +88,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       { key: 'Ctrl-r', run: () => { onRestartMedia?.(); return true; } },
       { key: 'Ctrl-e', run: () => { onRecord?.(); return true; } },
       { key: 'Ctrl-j', run: () => { onSnippets?.(); return true; } },
+      { key: 'Ctrl-k', run: () => { onCapture?.(); return true; } },
       // brackets rather than the arrows: ctrl+up/down belong to Mission
       // Control on a Mac and never reach the page
       { key: 'Ctrl-[', run: () => { onStep?.(-1); return true; } },
@@ -132,6 +136,8 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
       sketchFolding(), // the projected copy folds with the same hands (fold.js)
       errorMarks,
       colorPicker(onLiveChange),
+      widgetsEditor({ onRun, onChange: onWidgetChange, onCapture }),
+      numberScrub({ onChange: onLiveChange, isControl: isControlArg }),
       // the projector window replays these to stay in step with what's typed
       EditorView.updateListener.of((u) => {
         if (u.docChanged || u.selectionSet || foldsChanged(u)) onChange?.(u);
@@ -166,6 +172,7 @@ export function makeEditor(parent, initialCode, { onRun, onTogglePause, onLiveCh
     else if (e.key === 'r') { e.preventDefault(); onRestartMedia?.(); }
     else if (e.key === 'e') { e.preventDefault(); onRecord?.(); }
     else if (e.key === 'j') { e.preventDefault(); onSnippets?.(); }
+    else if (e.key === 'k') { e.preventDefault(); onCapture?.(); }
     else if (e.key === '[') { e.preventDefault(); onStep?.(-1); }
     else if (e.key === ']') { e.preventDefault(); onStep?.(1); }
   });

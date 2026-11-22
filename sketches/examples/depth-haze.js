@@ -17,7 +17,7 @@ for (let i = 0; i < 3; i++) {
 }
 
 box({ width: 1.8, height: 0.12, depth: 0.5 })
-  .instance(3, (x, i, n, t) => x.position(0, 3.25, lampZ(i)(t)))
+  .instance(3, (x, i) => x.position(0, 3.25, lampZ(i)))
   .material({ color: '#fff4de', emissive: '#ffdca0', emissiveIntensity: 4 })
   .out()
 
@@ -34,9 +34,9 @@ for (const side of [-1, 1]) {
 
 // Doorframes receding into the haze — recessed, so the lamps rake across them
 box({ width: 0.25, height: 2.6, depth: 1.1 })
-  .instance(28, (x, i, n, t) => {
+  .instance(28, (x, i) => {
     const side = i % 2 ? 1 : -1
-    x.position(side * 3.3, -0.9, (((Math.floor(i / 2) * 5 + t * 3.5) % 70) - 66))
+    x.position(side * 3.3, -0.9, (t) => ((Math.floor(i / 2) * 5 + t * 3.5) % 70) - 66)
   })
   .material({ color: '#151319', roughness: 1 })
   .out()

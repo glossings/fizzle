@@ -54,6 +54,8 @@ a chain ends in `.out()`.
 | `F1` | open / close the projector window |
 | `ctrl + e` | start / stop recording |
 | `ctrl + j` | snippets: keep the selected code, or browse and insert what you've kept |
+| `ctrl + k` | capture: the controls you just moved loop what you did |
+| `alt + drag` | drag a number in the code up or down |
 | `ctrl + r` | restart media and accumulated state |
 | drag / scroll | orbit / zoom the camera |
 
@@ -363,8 +365,8 @@ ambient({ intensity: 0.4 })
 directional({ intensity: 1.6 }).position(4, 6, 3).out()
 
 model('polyhaven:BarberShopChair_01.fbx')
-  .instance(12, (x, i, n, t) => {
-    x.position(curve.circle(4)(i / n)).rotation(0, t * 0.5 + i, 0).scale(0.6)
+  .instance(12, (x, i, n) => {
+    x.position(curve.circle(4)(i / n)).rotation(0, T.mul(0.5).add(i), 0).scale(0.6)
   })
   .material({ pbr: 'polyhaven:BarberShopChair_01_2k' })
   .out()
@@ -555,9 +557,9 @@ ambient({ intensity: 0.2 })
 directional({ intensity: 1.4 }).position(4, 6, 3).out()
 
 box({ res: 4 })
-  .instance(80, (x, i, n, t) => {
+  .instance(80, (x, i, n) => {
     const a = (i / n) * Math.PI * 2
-    x.position(Math.cos(a) * 3, Math.sin(t + i * 0.4) * 0.8, Math.sin(a) * 3)
+    x.position(Math.cos(a) * 3, T.mul(0.16).add(i * 0.06).sin().range(-0.8, 0.8), Math.sin(a) * 3)
       .rotation(0, a, 0)
       .scale(0.35)
   })
@@ -587,9 +589,9 @@ directional({ intensity: 1.4 }).position(3, 5, 4).out()
 const cards = 'FIZZLE'.split('').map((c) => text(c, { size: 0.7, bg: '#1b1b22' }))
 
 plane({ width: 0.9, height: 0.9, res: 1 })
-  .instance(24, (x, i, n, t) => {
+  .instance(24, (x, i) => {
     x.position((i % 6) * 1.1 - 2.75, ((i / 6) | 0) * 1.1 - 1.65, 0)
-      .rotation(0, Math.sin(t + i * 0.3) * 0.5, 0)
+      .rotation(0, T.mul(0.16).add(i * 0.05).sin().range(-0.5, 0.5), 0)
       .tile(i)
   })
   .material({ map: cards, roughness: 0.6 })
@@ -967,7 +969,7 @@ grows it on the music.
 `.scale()` replaces that rather than compounding with it, so multiply it back in:
 
 ```js static
-.instance(tree, (x, i, n, t) => x.scale(tree.size(i) * (1 + 0.2 * Math.sin(t * 3 + i))))
+.instance(tree, (x, i) => x.scale(T.mul(0.5).add(i * 0.16).sin().range(0.8, 1.2).mul(tree.size(i))))
 ```
 
 ### without branching
@@ -992,7 +994,7 @@ const shell = layout((e) => {
 box({ width: 0.8, height: 0.1, depth: 0.45 })
   .instance(shell, (x, i, n) => x.color(hsl(0.55 + (i / n) * 0.35, 0.7, 0.55)))
   .position(0.9, -1.1, -2.2)
-  .rotation(0, (t) => t * 0.2, 0)
+  .rotation(0, T.mul(0.2), 0)
   .material({ roughness: 0.3, metalness: 0.5 })
   .out()
 
@@ -1058,14 +1060,14 @@ ambient({ intensity: 0.4 })
 directional({ intensity: 2.5 }).position(3, 5, 4).out()
 
 torusKnot({ radius: 1, tube: 0.3 })
-  .rotation((t) => t * 0.4, (t) => t * 0.3, 0)
+  .rotation(T.mul(0.4), T.mul(0.3), 0)
   .material({ color: '#4fd1c5', roughness: 0.3, metalness: 0.6 })
   .out()
 
 scene()
-  .instance(12, (x, i, n, t) => {
-    const a = (i / n) * 6.283 + t * 0.2
-    return x.position(Math.cos(a) * 0.33, Math.sin(a) * 0.33).scale(0.22).rotation(a)
+  .instance(12, (x, i, n) => {
+    const turn = T.mul(0.03).add(i / n)   // around the ring, in turns
+    return x.position(turn.cos().range(-0.33, 0.33), turn.sin().range(-0.33, 0.33)).scale(0.22).rotation(turn.mul(6.283))
   })
   .bloom({ threshold: 0.5, strength: 0.7 })
   .out()
@@ -2432,9 +2434,9 @@ directional({ intensity: 1.5 }).position(4, 6, 3).out()
 camera(0, 0, 7)
 
 box({ res: 2 })
-  .instance(24, (x, i, n, t) => x
-    .position(((i / n) * 12 - 6 + t * 0.6) % 12 - 6, Math.sin(i) * 1.5, 0)
-    .rotation(0, t * 0.4 + i, 0)
+  .instance(24, (x, i, n) => x
+    .position((t) => (((i / n) * 12 - 6 + t * 0.6) % 12) - 6, Math.sin(i) * 1.5, 0)
+    .rotation(0, T.mul(0.4).add(i), 0)
     .scale(0.5))
   .material({ color: '#ffd166', roughness: 0.4 })
   .out()
@@ -3864,7 +3866,7 @@ the signal puts it and stays there:
 ```js static
 videofile('clip.mp4', { phase: rand().beat(4) })          // a new spot each beat
 videofile('clip.mp4', { phase: audio().smooth(0.2) })     // loudness scrubs it
-videofile('clip.mp4', { phase: (t) => t * 0.05 })         // a 20-second crawl
+videofile('clip.mp4', { phase: T.mul(0.05) })             // a 20-second crawl
 ```
 
 Values outside 0..1 wrap while the clip loops and clamp when `loop: false`.
@@ -4246,6 +4248,172 @@ sig().mul(0.25).sin().range(0, 10)    // the same, every four seconds
 the second line without the empty parentheses. `B` is its twin on the tempo
 grid — same methods, bars instead of seconds.
 
+## controls
+
+`slider()`, `knob()`, `toggle()`, `button()` and `xy()` draw a control in the
+code, where the call is. Run the sketch, then drag:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+torusKnot({ radius: 0.9, tube: slider(0.3, 0.05, 0.6), res: 128 })
+  .rotation(0, T.mul(knob(0.4)), 0)
+  .color(toggle(0).select(['#ff5f9e', '#4fd1c5']))
+  .out()
+```
+
+Dragging rewrites the number in the call and the sketch reads it straight
+away, without a re-run. Typing a new number into the call moves the control to
+match.
+
+A control on a speed changes the speed, not the position: `T.mul(knob())` spins
+faster as the knob turns, from wherever it has got to. The same goes for every
+`speed` key and for editing a speed in the code and running again.
+
+| call | is |
+|---|---|
+| `slider(value, min, max, step)` | dragged sideways; min and max are 0 and 1 unless given |
+| `knob(value, min, max, step)` | dragged up and down |
+| `toggle(value)` | 1 or 0, switched by a click |
+| `button()` | 1 while held down, 0 otherwise |
+| `xy(x, y)` | a pad under the line; `.x` and `.y` are 0..1, y up |
+
+Shift-drag a slider or a knob for fine steps, or turn the mouse wheel over it.
+Drag a control's lower right corner to resize it; the size is written into the
+call as `{ size }`, or `{ width, height }` for a slider or a button.
+
+A number already in the code becomes a control from its right-click menu:
+**slider from 0.5** or **knob from 0.5**.
+
+### xy
+
+`.position(xy())` moves a thing on the pad. The pad fills x and y, and any
+number before or after it fills the slot next to it:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+sphere({ radius: 0.5, res: 48 })
+  .position(xy().range(-3, 3), 0)
+  .color('#4fd1c5')
+  .out()
+```
+
+`.position(2, xy())` puts the pad on y and z instead. The pad is a
+[vector](#vectors), so every signal method works on both axes: `xy().mul(4)`,
+`.smooth(0.1)`, `.range(-3, 3)`, and `.range(-4, 4, -2, 2)` gives each axis its
+own span. In a color slot it's red and green: `.tint([p.x, p.y, 0.6])` adds the
+blue.
+
+### recording a movement
+
+`.record(bars)` loops what you do with a control. Hold it and move: from the
+grab to the release is written over the loop and the rest is kept. Let go and
+it plays, `bars` long, in time with `tempo()`:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+box({ width: 1, height: 1, depth: 1 })
+  .scale(slider(1, 0.5, 2).record(2))
+  .rotation(0, T.mul(0.4), 0)
+  .color('#ffd166')
+  .out()
+```
+
+The take is written into the call, folded to a chip: `.record(2, 'take')`.
+Grab the control again to punch in over part of it; delete the take to start
+over. A `button()` records its presses the same way, so a rhythm can be tapped
+in one press at a time.
+
+**Capture** (`ctrl + k`, or the right-click menu) is the same without asking
+first. Every control you moved in the last phrase, back to the last four bars
+of stillness, gains `.record(bars, take)` with what you just did, and plays it
+from then on.
+
+### steps, sliders, matrix
+
+A row of cells drawn in place of its text, one row across a bar. Click a cell
+to switch it, or drag across a row to paint; drag a bar up or down.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+const m = matrix({ kick: "x . . . x . . .", hat: "x x x x x x x x" })
+
+sphere({ radius: 1, res: 64 })
+  .scale(m.kick.smooth(0.15).range(1, 1.4))
+  .color(m.hat.smooth(0.05).range(0, 1).select(['#4fd1c5', '#ff5f9e']))
+  .out()
+```
+
+| call | is |
+|---|---|
+| `steps("x . x .")` | 1 for the first half of a step with a hit, 0 on a rest (`.`) |
+| `sliders("0.2 0.8", min, max)` | each step's value, held for the step |
+| `matrix({ name: "x . x ." })` | a `steps()` per row, read as `m.name` |
+| `steps(8)` | eight empty steps to click into |
+
+A hit is a gate, so it drives anything that takes a trigger: `.when()`,
+`.hold()`, a video's `restart`. `{ bars: 2 }` spreads a row over two bars. Drag
+a row's lower right corner to resize its cells; the size of one cell is written
+into the call as `{ width, height }`. The right-click menu's **edit as text**
+opens the row to type into.
+
+### plot
+
+`.plot()` on a signal draws its last four seconds under the line:
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+sphere({ radius: 1, res: 64 })
+  .scale(T.mul(2).sin().range(0.8, 1.2).plot())
+  .color('#ffd166')
+  .out()
+```
+
+`{ seconds }` sets the window, `{ min, max }` the range (it fits itself to the
+values without them). It passes the signal through unchanged.
+
+### dragging numbers
+
+Hold alt (option on a Mac) and drag up or down on any number in the code to
+change it. How fast it moves follows its size, so `0.4` and `400` both take
+about the same drag; a whole number stays whole. Add shift for ten times finer.
+The sketch re-runs as it changes, like a color drag. The live color and number
+updates setting in the sidebar turns that off.
+
+## vectors
+
+A vector is a list of two or three parts, `[x, y]` or `[x, y, z]`. Each part is
+a number while it holds still and a signal while it moves. A curve at a phase,
+`.walk()`, `.sample(i)`, `.normal(i)`, `xy()` and `mouse()` all hand one back;
+`vec(x, y, z)` makes your own.
+
+```js
+ambient({ intensity: 0.3 })
+directional({ intensity: 1.4 }).position(3, 5, 2).out()
+
+const orbit = curve.circle(3)
+const p = orbit(T.mul(0.1))
+
+sphere({ radius: 0.4, res: 48 }).position(p).color('#4fd1c5').out()
+sphere({ radius: 0.2, res: 32 }).position(p.add(vec(0, 1, 0)).mul(0.5)).color('#ff5f9e').out()
+sphere({ radius: 0.15, res: 32 }).position(p.mix(vec(0, 2, 0), 0.5)).color('#ffd166').out()
+```
+
+Every signal method works on a vector one axis at a time: `.mul(2)`,
+`.smooth(0.1)`, `.range(-3, 3)`. A vector argument pairs up axis by axis, so
+`a.mul(b)` is x by x. It's also an ordinary list: `const [x, y, z] = p`, `p[0]`
+and `camera(...p)` all work, and `.x`, `.y`, `.z` are one part each.
+`.mag()` is how far it is from the origin and `.dist(b)` how far from another.
+
 ## mouse
 
 `mouse()` is the pointer as a signal: **-1..1 with 0 at the center**, y up.
@@ -4261,7 +4429,7 @@ sphere({ radius: 0.6, res: 48 })
   .out()
 ```
 
-- `mouse('x')` / `mouse('y')` — one axis; bare `mouse()` is x.
+- `mouse('x')` / `mouse('y')` — one axis; bare `mouse()` is both, as a vector.
 - `mouse('down')` — a 1/0 gate while a button is held. `.smooth(0.2)` turns it
   into a ramp, `.counter()` steps a value per click, and it drives `.when()`
   like any other gate.

@@ -11,6 +11,9 @@ function preparePlaceholder(state, range) {
   // instead of counting lines, because the count is the one thing nobody wants
   // to know about a call they didn't write.
   if (/^bands\s*\(/.test(state.doc.sliceString(range.from, range.from + 8))) return 'bands';
+  // a control's recorded movement (widgets-editor.js)
+  if (/^'[A-Za-z0-9_-]*'$/.test(state.doc.sliceString(range.from, range.to))
+      && /\.record\s*\([^()]*$/.test(state.doc.sliceString(Math.max(0, range.from - 40), range.from))) return 'take';
   let n = 0;
   for (let l = state.doc.lineAt(range.from).number; l <= state.doc.lineAt(range.to).number; l++) {
     const line = state.doc.line(l);
@@ -26,7 +29,8 @@ function placeholderDOM(view, onclick, prepared) {
   const named = typeof prepared === 'string';
   el.textContent = named ? ` ⋯ ${prepared} ` : prepared > 0 ? ` … ${prepared} lines ` : ' … ';
   el.className = 'cm-foldPlaceholder';
-  el.title = named ? 'kept by the audio manager — click to open' : 'click to expand';
+  const titles = { bands: 'kept by the audio manager — click to open', take: 'a recorded movement — click to open' };
+  el.title = named ? titles[prepared] : 'click to expand';
   el.onclick = onclick;
   return el;
 }

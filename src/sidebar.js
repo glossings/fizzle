@@ -198,7 +198,7 @@ export async function initSidebar({ engine, getCode, setCode, run, bandChip }) {
           <option value="0.25">quarter</option>
         </select>
       </label>
-      <label><input id="sb-live" type="checkbox"> live color updates</label>
+      <label title="re-run the sketch while a color or a number is being dragged"><input id="sb-live" type="checkbox"> live color and number updates</label>
       <div class="sb-row-static">fps <span id="sb-fps">–</span> <span id="sb-store"></span></div>
       ${import.meta.env?.DEV ? '<label><input id="sb-profile" type="checkbox"> profile</label><div id="sb-prof" hidden></div>' : ''}
       <a id="sb-docs" href="docs.html" target="_blank">docs &amp; reference ↗</a>

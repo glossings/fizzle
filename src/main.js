@@ -3,6 +3,7 @@ import { Transaction } from '@codemirror/state';
 import { Engine } from './engine.js';
 import { makeApi } from './api.js';
 import { makeEditor, foldLists, fillCall } from './editor.js';
+import { syncWidgets, captureWidgets } from './widgets-editor.js';
 import { showErrorMark } from './error-mark.js';
 import { initSidebar } from './sidebar.js';
 import { syncHash, adoptHash, codeFromHash, viewFromUrl } from './share.js';
@@ -77,13 +78,27 @@ engine.onNeedSketch = async (name) => {
 
 const snippets = initSnippets({ getView: () => view, flash });
 
+// The address bar while something is being dragged (a control, a number, a
+// color): written once the changes stop, not on every step of the drag.
+let quietTimer = null;
+function syncWhenQuiet(code) {
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => syncHash(code), 500);
+}
+
 // `push` leaves a history entry behind: true for the runs a person asked for,
 // false for the ones the app did on their behalf (page load, live color drag).
-function run(code, push = false) {
-  syncHash(code, push);
+// `live` is a drag's re-run, which leaves the address bar to syncWhenQuiet.
+function run(code, push = false, live = false) {
+  if (live) syncWhenQuiet(code);
+  else {
+    clearTimeout(quietTimer);
+    syncHash(code, push);
+  }
   warned = false;
   const err = engine.run(code, api);
   if (view) showErrorMark(view, err?.where);
+  if (view) syncWidgets(view);
   if (err) {
     const msg = err.where
       ? `line ${err.where.line}:${err.where.col} — ${err.where.text}`
@@ -278,8 +293,18 @@ const recorder = initRecorder({
 // composites it, the projector snapshots it for the audience's window.
 engine.onFrame = () => { recorder.frame(); projector.frame(); };
 
+// ctrl+k: what the controls just did becomes their recorded takes
+function capture() {
+  if (!view) return;
+  const got = captureWidgets(view);
+  if (!got) return flash('nothing to capture — move a control first');
+  const n = got.controls.length;
+  flash(`captured ${n} control${n === 1 ? '' : 's'}, ${got.bars} bar${got.bars === 1 ? '' : 's'}`);
+}
+
 initContextMenu(glCanvas, [
   { label: 'save screenshot', run: () => recorder.still() },
+  { label: 'capture movements', run: capture },
 ]);
 
 function togglePause() {
@@ -297,12 +322,25 @@ function runResume(code) {
   run(code, true);
 }
 
-// dragging the color wheel fires rapidly; rebuild the patch at most ~8x/sec
-// (and doesn't resume — tweaking a color while paused keeps the freeze-frame)
-let liveTimer;
+// A color or number drag fires faster than the sketch can rebuild. Run the
+// latest code as often as the runs keep up: at most every other run's length,
+// and never more than 30 times a second. The last change always runs.
+// (Doesn't resume: tweaking while paused keeps the freeze-frame.)
+let liveTimer = null;
+let liveCode = null;
+let liveLast = 0;
+let liveCost = 0;
 function liveRun(code) {
-  clearTimeout(liveTimer);
-  liveTimer = setTimeout(() => run(code), 120);
+  liveCode = code;
+  if (liveTimer) return;
+  const wait = Math.max(0, liveLast + Math.max(33, liveCost * 2) - performance.now());
+  liveTimer = setTimeout(() => {
+    liveTimer = null;
+    const t0 = performance.now();
+    run(liveCode, false, true);
+    liveLast = performance.now();
+    liveCost = liveLast - t0;
+  }, wait);
 }
 
 let view;
@@ -460,7 +498,9 @@ initDrop();
   editor = makeEditor(editorEl, initial, {
     onRun: runResume,
     onTogglePause: togglePause,
-    onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); },
+    onLiveChange: (code) => { if (sidebar.settings.liveColor) liveRun(code); else syncWhenQuiet(code); },
+    onWidgetChange: syncWhenQuiet,
+    onCapture: capture,
     onToggleSidebar: sidebar.toggle,
     onToggleAudio: sidebar.audioModal.toggle,
     // Allowed to restart the show only because a person asked, rather than an

@@ -7,6 +7,8 @@ import { ParticleBundle, SegmentsOp, asBundle } from './link.js';
 import { warn } from './warn.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 import { site } from './profile.js';
+import { TIME } from './audio.js';
+import { fillSlots, scaleSlots } from './vec.js';
 
 // GPU particles as a chainable op. A geometry is the emitter —
 // sphere().particles({ rate: 20000 }) births particles scattered over the
@@ -277,7 +279,7 @@ uniform vec4 uWobble;
 uniform float uWobbleT;
 vec3 wobble(vec3 p) {
   vec3 q = p * uWobble.y + vec3(uWobble.w);
-  float ts = uWobbleT * uWobble.z;
+  float ts = uWobble.z; // the drift so far: time at speed, added up
   return uWobble.x * vec3(
     snoise(q + vec3(ts, 0.0, 0.0)),
     snoise(q + vec3(31.7, 12.3 + ts, 74.2)),
@@ -647,6 +649,7 @@ export class ParticleOp {
       amp: o.amp ?? 1,
       freq: o.period !== undefined ? reciprocal(o.period) : o.freq ?? 0.5,
       speed: o.speed ?? 0.5,
+      phase: TIME.mul(o.speed ?? 0.5),
       seed: o.seed ?? fieldSeed(),
     });
     return this;
@@ -697,6 +700,7 @@ export class ParticleOp {
       amp: o.amp ?? 0.3,
       freq: o.period !== undefined ? reciprocal(o.period) : o.freq ?? 1,
       speed: o.speed ?? 0.5,
+      phase: TIME.mul(o.speed ?? 0.5),
       seed: o.seed ?? fieldSeed(),
     };
     return this;
@@ -774,19 +778,16 @@ export class ParticleOp {
     return this;
   }
 
-  position(x = 0, y = 0, z = 0) {
-    const v = asVec(x);
-    this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+  position(...a) {
+    this._pos = fillSlots(a, [0, 0, 0]);
     return this;
   }
-  rotation(x = 0, y = 0, z = 0) {
-    const v = asVec(x);
-    this._rot = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+  rotation(...a) {
+    this._rot = fillSlots(a, [0, 0, 0]);
     return this;
   }
-  scale(x = 1, y, z) {
-    const v = asVec(x);
-    this._scale = v ? [v[0] ?? 1, v[1] ?? 1, v[2] ?? 1] : [x, y ?? x, z ?? x];
+  scale(...a) {
+    this._scale = scaleSlots(a);
     return this;
   }
 
@@ -949,13 +950,13 @@ export class ParticleOp {
         setters.push((u, t) => u[`uForce${i}`].value.set(...resolve3(op.vec, t)));
       } else if (op.kind === 'turb') {
         hasTurb = true;
-        forceDecls.push(`uniform vec4 uTurb${i};`); // amp, freq, speed, seed
+        forceDecls.push(`uniform vec4 uTurb${i};`); // amp, freq, drift so far, seed
         forceLines.push(
-          `f += curlNoise((pos + vec3(uTurb${i}.w * 19.19)) * uTurb${i}.y + uTime * uTurb${i}.z * vec3(1.0, 0.83, 0.61)) * uTurb${i}.x;`
+          `f += curlNoise((pos + vec3(uTurb${i}.w * 19.19)) * uTurb${i}.y + uTurb${i}.z * vec3(1.0, 0.83, 0.61)) * uTurb${i}.x;`
         );
         uniforms[`uTurb${i}`] = { value: new THREE.Vector4() };
         setters.push((u, t) =>
-          u[`uTurb${i}`].value.set(resolve(op.amp, t), resolve(op.freq, t), resolve(op.speed, t), resolve(op.seed, t))
+          u[`uTurb${i}`].value.set(resolve(op.amp, t), resolve(op.freq, t), resolve(op.phase, t), resolve(op.seed, t))
         );
       } else if (op.kind === 'attractTex') {
         // the field is read on the same world plane the image emitter uses, so
@@ -1104,7 +1105,7 @@ export class ParticleOp {
           u.uEmitOctaves.value = Math.min(8, Math.max(1, resolve(emitNoise.octaves, t)));
           u.uEmitLacunarity.value = resolve(emitNoise.lacunarity, t);
           u.uEmitGain.value = resolve(emitNoise.gain, t);
-          u.uEmitSpeed.value = resolve(emitNoise.speed, t);
+          u.uEmitSpeed.value = resolve(emitNoise.phase, t);
           u.uEmitSeed.value = resolve(emitNoise.seed, t);
         });
       }
@@ -1361,7 +1362,7 @@ export class ParticleOp {
       drawUniforms.uOpacity.value.set(resolve(opA, t), resolve(opB, t));
       drawUniforms.uSoft.value = resolve(soft, t);
       if (wob) {
-        drawUniforms.uWobble.value.set(resolve(wob.amp, t), resolve(wob.freq, t), resolve(wob.speed, t), resolve(wob.seed, t));
+        drawUniforms.uWobble.value.set(resolve(wob.amp, t), resolve(wob.freq, t), resolve(wob.phase, t), resolve(wob.seed, t));
         drawUniforms.uWobbleT.value = t;
       }
       if (litV != null) drawUniforms.uLit.value = resolve(litV, t);

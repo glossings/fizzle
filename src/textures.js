@@ -7,7 +7,8 @@ import { carried, isClaiming } from './carry.js';
 import { Bundle, EMPTY_BUNDLE } from './link.js';
 import { Blobs, MAX_SLOTS } from './blobs.js';
 import { renderFluid, renderFluidView, claimFluidState } from './fluid.js';
-import { sig } from './audio.js';
+import { sig, TIME } from './audio.js';
+import { fillSlots, scaleSlots } from './vec.js';
 import { normRanges } from './feed.js';
 import { site, begin, end, PASS_3D } from './profile.js';
 
@@ -465,7 +466,7 @@ const SPECS = {
         float s = 0.0, a = 1.0, f = 1.0, n = 0.0;
         for (int i = 0; i < 8; i++) {
           if (float(i) >= uOct) break;
-          s += a * snoise(vec3(p * f, uTime * uSpeed + uSeed * 19.19 + zoff + float(i) * 7.31));
+          s += a * snoise(vec3(p * f, uSpeed + uSeed * 19.19 + zoff + float(i) * 7.31));
           n += a; f *= uLac; a *= uGain;
         }
         return clamp((n > 0.0 ? s / n : 0.0) * 0.5 + 0.5, 0.0, 1.0);
@@ -490,7 +491,8 @@ const SPECS = {
       u.uOct.value = Math.min(8, Math.max(1, resolve(p.octaves ?? 3, t)));
       u.uLac.value = resolve(p.lacunarity ?? 2, t);
       u.uGain.value = resolve(p.gain ?? 0.5, t);
-      u.uSpeed.value = resolve(p.speed ?? 0.3, t);
+      // the drift so far: time at speed, added up (audio.js), so a moving speed eases
+      u.uSpeed.value = resolve(p._phase, t);
       u.uSeed.value = resolve(p.seed ?? 0, t);
       u.uChannels.value = Math.min(4, Math.max(1, Math.round(resolve(p.channels ?? 1, t))));
       setColor4(u.uColA.value, orDflt(p.a, '#000000'), t);
@@ -511,7 +513,7 @@ const SPECS = {
       vec2 cellPoint(vec2 c) {
         vec2 h = fract(sin(vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3))) + uSeed * 17.13) * 43758.5453);
         // the drift never leaves the cell, so the 3x3 search still finds the nearest
-        return c + 0.5 + 0.5 * sin(uTime * uSpeed + 6.2831853 * h);
+        return c + 0.5 + 0.5 * sin(uSpeed + 6.2831853 * h);
       }
       float cellValue(vec2 c) {
         return fract(sin(dot(c, vec2(419.2, 371.9)) + uSeed * 29.7) * 43758.5453);
@@ -544,7 +546,8 @@ const SPECS = {
       }`,
     update(u, p, t) {
       u.uScale.value = periodic(p.period, p.freq ?? p.scale, 6, t);
-      u.uSpeed.value = resolve(p.speed ?? 0.3, t);
+      // the drift so far: time at speed, added up (audio.js), so a moving speed eases
+      u.uSpeed.value = resolve(p._phase, t);
       u.uBlend.value = resolve(par(p.blend, 0), t);
       u.uSeed.value = resolve(p.seed ?? 0, t);
       const modes = { cells: 0, distance: 1, edges: 2 };
@@ -1506,9 +1509,8 @@ class CopyHandle {
 
   // a third number is a layout placing in 3D; this is the flat view of it, so
   // depth is dropped rather than refused
-  position(x = 0, y = 0) {
-    if (Array.isArray(x)) [x, y] = [x[0] ?? 0, x[1] ?? 0];
-    this.px = x; this.py = y;
+  position(...a) {
+    [this.px, this.py] = fillSlots(a, [0, 0]);
     return this;
   }
   // one angle turns the copy. Three is a layout's Euler arriving, whose z is
@@ -1518,9 +1520,8 @@ class CopyHandle {
     this.rz = z === undefined ? x : z;
     return this;
   }
-  scale(x = 1, y) {
-    if (Array.isArray(x)) [x, y] = [x[0] ?? 1, x[1] ?? 1];
-    this.sx = x; this.sy = y ?? x;
+  scale(...a) {
+    [this.sx, this.sy] = scaleSlots(a);
     return this;
   }
   // tints this copy: multiplied with the picture's own colors
@@ -2915,9 +2916,9 @@ const scrollLive = (v) => typeof v === 'function' || (typeof v === 'number' && v
 // wide, so it covers k0 and k0 + 1, and the sampler takes whichever has its
 // parity. Returns the cell, the offset, and the travel direction, since the
 // index and the phase are both read off those three.
-function repeatCell(v, parity, t) {
+function repeatCell(v, ph, parity, t) {
   const speed = resolve(v, t) || 0;
-  const off = speed * t;
+  const off = ph(t);
   const k0 = Math.floor(-off);
   const k = ((k0 % 2) + 2) % 2 === parity ? k0 : k0 + 1;
   return { k, off, dir: Math.sign(speed) || 1 };
@@ -2934,15 +2935,15 @@ function repeatCell(v, parity, t) {
 // frame-widths of travel, and a sampler holds one for exactly that long — the
 // handoff to the next lands on the frame it covers no pixels — so the sawtooth
 // is continuous everywhere it can be seen.
-function repeatIndex(v, parity, live) {
+function repeatIndex(v, ph, parity, live) {
   if (!live) return { index: sig(() => 0), phase: sig(() => 0) };
   const index = sig((t) => {
-    const { k, dir } = repeatCell(v, parity, t);
+    const { k, dir } = repeatCell(v, ph, parity, t);
     // cells run against the travel, so the sign puts arrival back the right way
     return -dir * k;
   });
   const phase = sig((t) => {
-    const { k, off, dir } = repeatCell(v, parity, t);
+    const { k, off, dir } = repeatCell(v, ph, parity, t);
     return Math.min(1, Math.max(0, (dir * (off + k) + 1) / 2));
   });
   return { index, phase };
@@ -3736,6 +3737,9 @@ export class TextureOp {
     // callback if nothing was passed after it
     else if (typeof vy === 'function' && fn === undefined) { fn = vy; vy = 0; }
     const live = [scrollLive(vx), scrollLive(vy)];
+    // how far each axis has gone: time at its speed, added up, so a moving
+    // speed changes the pace instead of throwing the frame across
+    const phx = TIME.mul(vx), phy = TIME.mul(vy);
     const axes = (live[0] ? 1 : 0) + (live[1] ? 1 : 0) || 1;
     const variants = [];
     const bySig = new Map();
@@ -3745,8 +3749,8 @@ export class TextureOp {
     // runs the callback twice, not four times
     for (let py = 0; py < (live[1] ? 2 : 1); py++) {
       for (let px = 0; px < (live[0] ? 2 : 1); px++) {
-        const rx = repeatIndex(vx, px, live[0]);
-        const ry = repeatIndex(vy, py, live[1]);
+        const rx = repeatIndex(vx, phx, px, live[0]);
+        const ry = repeatIndex(vy, phy, py, live[1]);
         // a still axis contributes nothing to either, so a straight scroll's
         // index and phase are just the moving axis's own
         const i = sig((t) => rx.index(t) + ry.index(t));
@@ -3769,7 +3773,7 @@ export class TextureOp {
         }
       }
     }
-    return new TextureOp(this.engine, 'scroll', { vx, vy, live, slots }, variants);
+    return new TextureOp(this.engine, 'scroll', { vx, vy, phx, phy, live, slots }, variants);
   }
 
   // .tile(nx, ny, (src, i, x, y) => variant) — tile the image nx×ny, with a
@@ -4704,7 +4708,7 @@ export class TextureOp {
     }
 
     if (this.kind === 'scroll') {
-      const { vx, vy, live, slots } = this.params;
+      const { phx, phy, live, slots } = this.params;
       if (!this.mat) {
         const uniforms = {
           uOff: { value: new THREE.Vector2() },
@@ -4721,11 +4725,7 @@ export class TextureOp {
         });
       }
       const u = this.mat.uniforms;
-      // speed × t, the way every animated generator reads its own speed — so a
-      // fn of t in the slot warps the scroll rather than integrating into it
-      u.uOff.value.set(
-        live[0] ? (resolve(vx, ctx.t) || 0) * ctx.t : 0,
-        live[1] ? (resolve(vy, ctx.t) || 0) * ctx.t : 0);
+      u.uOff.value.set(live[0] ? phx(ctx.t) : 0, live[1] ? phy(ctx.t) : 0);
       for (let s = 0; s < 4; s++) u[`s${s}`].value = ins[slots[s]] ?? null;
       const out = this._rt(ctx);
       ctx.quad.render(ctx.renderer, this.mat, out);

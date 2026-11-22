@@ -231,11 +231,17 @@ export function valueNoise(x) {
 let bpm = () => 120;
 export const setBpmSource = (fn) => { bpm = fn; };
 
+// Bars elapsed at sketch time t. The engine adds up bars frame by frame at
+// whatever the tempo is then (setBarsSource), so a tempo change eases the beat
+// on from where it is rather than rescaling everything that came before.
+const BEATS_PER_BAR = 4;
+let barsAt = (t) => (t * bpm()) / (60 * BEATS_PER_BAR);
+export const setBarsSource = (fn) => { barsAt = fn; };
+
 // Tempo position counted in note values: perBar cycles per bar of four beats,
 // so 4 is quarter notes and 16 sixteenths. Whole part = which cycle, fraction
 // = where in it. Shared by beat(), B and .beat().
-const BEATS_PER_BAR = 4;
-export const barPhase = (t, perBar) => (t * bpm() * perBar) / (60 * BEATS_PER_BAR);
+export const barPhase = (t, perBar) => barsAt(t) * perBar;
 
 // A signal is a callable fn of t with chainable processing. Stateful ops
 // (smooth/counter/beat) advance on new t values and cache per t, so one node
@@ -281,30 +287,100 @@ function mk(self, g) {
   return sig(g, self[AE]);
 }
 
+// --- clocks ------------------------------------------------------------------
+//
+// T, B and bare sig() are clocks: time, counting up. .mul(rate) on a clock is
+// that time running at rate, and it's added up frame by frame (rate × the time
+// since the last frame) rather than computed as t × rate. The two agree while
+// the rate holds still; when it moves (a knob, a signal, an edit to the number
+// and a re-run) t × rate would rescale all the time already elapsed and jump,
+// where the running total carries on from where it is. .add/.sub/.div keep a
+// clock a clock, so T.add(2).mul(knob) still runs smoothly.
+//
+// The total is carried (carry.js), so it survives a re-run; a new sketch
+// starts it from t × rate, which is where a fresh t × rate would be.
+
+const CLOCK = Symbol('clock');
+export const isClock = (s) => typeof s === 'function' && s[CLOCK] === true;
+export function clockSig(fn) {
+  const s = sig(fn);
+  s[CLOCK] = true;
+  return s;
+}
+// time itself, the clock every rate in the engine runs on
+export const TIME = clockSig((t) => t);
+// bars elapsed, the clock beat() and B run on
+export const BARS = clockSig((t) => barPhase(t, 1));
+
+function clockAtRate(src, rate) {
+  const s = carried('clock', () => ({ phase: 0, last: null, lastT: null }));
+  return clockSig((t) => {
+    const x = src(t);
+    const r = Number(resolve(rate, t)) || 0;
+    if (s.lastT == null) { s.phase = x * r; s.last = x; s.lastT = t; return s.phase; }
+    // read at an earlier moment (a delay, a look back): answer without moving on
+    if (t < s.lastT) return s.phase + (x - s.last) * r;
+    s.phase += (x - s.last) * r;
+    s.last = x;
+    s.lastT = t;
+    return s.phase;
+  });
+}
+
+// what a shaper's rate argument does to its input: on a clock, run it at that
+// rate; on anything else, scale it, as it always has
+function rated(self, rate) {
+  if (rate === 1 || rate == null) return self;
+  if (isClock(self)) return clockAtRate(self, rate);
+  return (t) => self(t) * resolve(rate, t);
+}
+
 Signal.prototype.add = function (v = 0) {
   const self = this;
-  return mk(self, (t) => self(t) + resolve(v, t));
+  const f = (t) => self(t) + resolve(v, t);
+  return isClock(self) ? clockSig(f) : mk(self, f);
 };
 Signal.prototype.sub = function (v = 0) {
   const self = this;
-  return mk(self, (t) => self(t) - resolve(v, t));
+  const f = (t) => self(t) - resolve(v, t);
+  return isClock(self) ? clockSig(f) : mk(self, f);
 };
 Signal.prototype.mul = function (v = 1) {
   const self = this;
+  if (isClock(self)) return clockAtRate(self, v);
   return mk(self, (t) => self(t) * resolve(v, t));
 };
 // a moving divisor is why this can't be .mul(1 / v); the floor keeps a zero
 // one from handing Infinity to a uniform, the same guard ramp's period uses
+const safeDiv = (d) => (Math.abs(d) > 1e-6 ? d : (Math.sign(d) || 1) * 1e-6);
 Signal.prototype.div = function (v = 1) {
   const self = this;
+  if (isClock(self)) return clockAtRate(self, (t) => 1 / safeDiv(Number(resolve(v, t)) || 0));
+  return mk(self, (t) => self(t) / safeDiv(resolve(v, t)));
+};
+// Halfway between this and b at amount 0.5: this at 0, b at 1. Both ends and
+// the amount take signals.
+Signal.prototype.mix = function (b = 0, amount = 0.5) {
+  const self = this;
   return mk(self, (t) => {
-    const d = resolve(v, t);
-    return self(t) / (Math.abs(d) > 1e-6 ? d : (Math.sign(d) || 1) * 1e-6);
+    const a = self(t);
+    return a + (resolve(b, t) - a) * resolve(amount, t);
   });
 };
 Signal.prototype.pow = function (v = 1) {
   const self = this;
   return mk(self, (t) => Math.pow(Math.max(self(t), 0), resolve(v, t)));
+};
+// An exponential curve that keeps 0..1 as 0..1, so .range() after it sweeps the
+// way a frequency or a zoom wants: .exp(Math.log(hi / lo)).range(lo, hi) is
+// lo * (hi / lo) ** x exactly. Negative k bends the other way; 0 is a line.
+Signal.prototype.exp = function (k = 4) {
+  const self = this;
+  return mk(self, (t) => {
+    const x = self(t);
+    const kk = resolve(k, t);
+    return Math.abs(kk) < 1e-6 ? x : Math.expm1(kk * x) / Math.expm1(kk);
+  });
 };
 // Rescale to a useful span. The input is assumed 0..1 — what every shaper,
 // rand() and audio() already produce — so `from` is only there for the
@@ -414,35 +490,35 @@ Signal.prototype.select = function (arr) {
 // the ramp() sense: the incoming value is whatever it is, and this multiplies
 // it. Takes a fn of t like every other knob.
 Signal.prototype.sin = function (rate = 1) {
-  const self = this;
-  return mk(self, (t) => 0.5 + 0.5 * Math.sin(self(t) * resolve(rate, t) * Math.PI * 2));
+  const x = rated(this, rate);
+  return mk(this, (t) => 0.5 + 0.5 * Math.sin(x(t) * Math.PI * 2));
 };
 Signal.prototype.cos = function (rate = 1) {
-  const self = this;
-  return mk(self, (t) => 0.5 + 0.5 * Math.cos(self(t) * resolve(rate, t) * Math.PI * 2));
+  const x = rated(this, rate);
+  return mk(this, (t) => 0.5 + 0.5 * Math.cos(x(t) * Math.PI * 2));
 };
 Signal.prototype.tri = function (rate = 1) {
-  const self = this;
-  return mk(self, (t) => 1 - Math.abs(2 * frac(self(t) * resolve(rate, t)) - 1));
+  const x = rated(this, rate);
+  return mk(this, (t) => 1 - Math.abs(2 * frac(x(t)) - 1));
 };
 Signal.prototype.saw = function (rate = 1) {
-  const self = this;
-  return mk(self, (t) => frac(self(t) * resolve(rate, t)));
+  const x = rated(this, rate);
+  return mk(this, (t) => frac(x(t)));
 };
 // rate first like the rest of them, pulse width in the config beside it —
 // .sqr({ width: 0.2 }) is the width on its own, which is what a gate wants
 Signal.prototype.sqr = function (rate = 1, o = {}) {
   if (rate !== null && typeof rate === 'object') { o = rate; rate = o.rate ?? 1; }
   const width = o.width ?? 0.5;
-  const self = this;
-  return mk(self, (t) => (frac(self(t) * resolve(rate, t)) < resolve(width, t) ? 1 : 0));
+  const x = rated(this, rate);
+  return mk(this, (t) => (frac(x(t)) < resolve(width, t) ? 1 : 0));
 };
 // tempo-synced sample-and-hold: freeze a new value of this signal perBar
 // times a bar — rand().beat(4) resamples on every beat, .beat(1) once a bar.
 // Shorthand for .hold(beat(perBar)), and the same code path, so the two
 // can't drift; .hold() is there for a trigger that isn't the tempo.
 Signal.prototype.beat = function (perBar = 4) {
-  return this.hold(sig((t) => barPhase(t, resolve(perBar, t))).sqr());
+  return this.hold(BARS.mul(perBar).sqr());
 };
 // sample-and-hold driven by another signal: freeze the current value each
 // time the trigger crosses up through threshold (a kicks() hit, a gate)

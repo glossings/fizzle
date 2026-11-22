@@ -50,7 +50,7 @@ export function lineCol(src, at) {
 }
 
 // The innermost frame inside the run tagged `id`, as an offset into src.
-function stackOffset(stack, id, src) {
+export function stackOffset(stack, id, src) {
   const s = wrapperShift();
   if (!s || typeof stack !== 'string') return null;
   const m = new RegExp(`${id}:(\\d+):(\\d+)`).exec(stack);

@@ -23,10 +23,13 @@ import { warn } from './warn.js';
 import { rewriteBlocks } from './sketch-blocks.js';
 import { SAVED_BLOCK } from './engine.js';
 import { site, tag } from './profile.js';
-import { sig, Signal, valueNoise, barPhase, setBpmSource, listIndex } from './audio.js';
+import { sig, Signal, valueNoise, barPhase, setBpmSource, setBarsSource, listIndex, TIME, BARS, clockSig } from './audio.js';
 import { bandValue } from './bands.js';
 import { makeFeed } from './feed.js';
 import { midiHandle, gamepadHandle } from './control.js';
+import { fillSlots, scaleSlots } from './vec.js';
+import { vec } from './vecsig.js';
+import { widgetApi, plotSignal } from './widgets.js';
 import helvetikerRegular from './fonts/helvetiker_regular.typeface.json';
 import helvetikerBold from './fonts/helvetiker_bold.typeface.json';
 
@@ -210,7 +213,9 @@ const randSignal = (freq, seed, type) => {
     warn(`rand: no type '${type}' — ${RAND_TYPES.join(' ')}; using value`);
     type = 'value';
   }
-  return sig((t) => randAt(type, t * resolve(freq, t), resolve(seed, t)));
+  // time at freq, added up, so a moving freq wanders faster rather than jumping
+  const at = TIME.mul(freq);
+  return sig((t) => randAt(type, at(t), resolve(seed, t)));
 };
 
 // { fit } on a camera or file source; a name that isn't one falls back to the
@@ -429,22 +434,16 @@ class InstanceHandle {
   // ones it isn't using: .instance(blobs) hides the slots with no blob in them.
   hide(v = true) { this.hidden = v !== false; return this; }
 
-  position(x = 0, y = 0, z = 0) {
-    const v = asVec(x);
-    if (v) [x, y, z] = [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0];
-    this.px = x; this.py = y; this.pz = z;
+  position(...a) {
+    [this.px, this.py, this.pz] = fillSlots(a, [0, 0, 0]);
     return this;
   }
-  rotation(x = 0, y = 0, z = 0) {
-    const v = asVec(x);
-    if (v) [x, y, z] = [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0];
-    this.rx = x; this.ry = y; this.rz = z;
+  rotation(...a) {
+    [this.rx, this.ry, this.rz] = fillSlots(a, [0, 0, 0]);
     return this;
   }
-  scale(x = 1, y, z) {
-    const v = asVec(x);
-    if (v) [x, y, z] = [v[0] ?? 1, v[1] ?? 1, v[2] ?? 1];
-    this.sx = x; this.sy = y ?? x; this.sz = z ?? x;
+  scale(...a) {
+    [this.sx, this.sy, this.sz] = scaleSlots(a);
     return this;
   }
   align(v) { this.dir = v; return this; }
@@ -559,20 +558,17 @@ class GeoOp {
     this._sentOut = null;     // transform as of the last .out(), to catch a reused op
   }
 
-  position(x = 0, y = 0, z = 0) {
+  position(x, ...rest) {
     if (x instanceof Curve) x = unphased(x);
-    const v = asVec(x);
-    this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+    this._pos = fillSlots([x, ...rest], [0, 0, 0]);
     return this;
   }
-  rotation(x = 0, y = 0, z = 0) {
-    const v = asVec(x);
-    this._rot = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+  rotation(...a) {
+    this._rot = fillSlots(a, [0, 0, 0]);
     return this;
   }
-  scale(x = 1, y, z) {
-    const v = asVec(x);
-    this._scale = v ? [v[0] ?? 1, v[1] ?? 1, v[2] ?? 1] : [x, y ?? x, z ?? x];
+  scale(...a) {
+    this._scale = scaleSlots(a);
     return this;
   }
   align(v) { this._align = v; return this; }
@@ -601,7 +597,8 @@ class GeoOp {
     if (c) displacedPoint(p, set.normal(i), c, p);
     if (this._displaces.length) this._warnDisplacedSource();
     const m = this._xform();
-    return m ? p.applyMatrix4(m) : p;
+    if (m) p.applyMatrix4(m);
+    return vec(p.x, p.y, p.z);
   }
   normal(i) {
     const set = this._points();
@@ -609,7 +606,8 @@ class GeoOp {
     const c = set && this._noiseCfg();
     if (c) displacedNormal(set.point(i), n, c, n);
     if (this._displaces.length) this._warnDisplacedSource();
-    return this._xform() ? n.applyMatrix3(this._nmat).normalize() : n;
+    if (this._xform()) n.applyMatrix3(this._nmat).normalize();
+    return vec(n.x, n.y, n.z);
   }
 
   // scatter(n) — the first n scatter points as a bundle: .pos is .sample(i)
@@ -663,7 +661,7 @@ class GeoOp {
       this._ncAt = t;
       const n = this._noise;
       this._nc = {
-        time: t,
+        phase: resolve(n.phase, t),
         amp: resolve(n.amp, t),
         freq: resolve(n.freq, t),
         octaves: Math.min(8, Math.max(1, resolve(n.octaves, t))),
@@ -761,6 +759,8 @@ class GeoOp {
       lacunarity: o.lacunarity ?? 2,
       gain: o.gain ?? 0.5,
       speed: o.speed ?? 0.3,
+      // the drift so far: time at speed, added up, so a moving speed eases
+      phase: TIME.mul(o.speed ?? 0.3),
       seed: o.seed ?? fieldSeed(),
     };
     return this;
@@ -1113,13 +1113,12 @@ class GeoOp {
 
       if (dispFlags.noise) {
         const n = this._noise;
-        dispUniforms.uTime.value = t;
         dispUniforms.uAmp.value = resolve(n.amp, t);
         dispUniforms.uFreq.value = resolve(n.freq, t);
         dispUniforms.uOctaves.value = Math.min(8, Math.max(1, resolve(n.octaves, t)));
         dispUniforms.uLacunarity.value = resolve(n.lacunarity, t);
         dispUniforms.uGain.value = resolve(n.gain, t);
-        dispUniforms.uSpeed.value = resolve(n.speed, t);
+        dispUniforms.uSpeed.value = resolve(n.phase, t);
         dispUniforms.uSeed.value = resolve(n.seed, t);
       }
       for (let i = 0; i < dispFlags.displace; i++) {
@@ -1313,7 +1312,7 @@ function ambientLight(engine, o) {
 }
 function hemiLight(engine, o) {
   return new LightOp(engine, new THREE.HemisphereLight(
-    makeColor(o.sky ?? 0x8899ff), makeColor(o.ground ?? 0x332211), resolve(o.intensity ?? 0.6, 0)), o);
+    makeColor(o.sky ?? o.color ?? 0x8899ff), makeColor(o.ground ?? 0x332211), resolve(o.intensity ?? 0.6, 0)), o);
 }
 function directionalLight(engine, o) {
   return new LightOp(engine, new THREE.DirectionalLight(
@@ -1347,19 +1346,17 @@ class LightOp {
       return this;
     }
     if (x instanceof Curve) x = unphased(x);
-    const v = asVec(x);
-    this._pos = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+    this._pos = fillSlots([x, y, z], [undefined, undefined, undefined]);
     return this;
   }
   // Where a directional or spot light points; both aim at the origin without
   // it. Components take fns of t like .position, so the beam can sweep.
-  target(x = 0, y = 0, z = 0) {
+  target(...a) {
     if (!this.light.target) {
       warn(`${this.light.type}: shines every way at once — .target() is for directional() and spot()`);
       return this;
     }
-    const v = asVec(x);
-    this._target = v ? [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0] : [x, y, z];
+    this._target = fillSlots(a, [0, 0, 0]);
     return this;
   }
   out(name) {
@@ -1449,6 +1446,10 @@ export function makeApi(engine) {
     return block;
   };
   setBpmSource(() => engine.bpm);
+  setBarsSource((t) => engine.barsAt(t));
+  // drawn under its line by the editor; read every frame whether or not
+  // anything else reads it, so a plot on its own still moves
+  Signal.prototype.plot = function (o) { return plotSignal(this, o, (fn) => engine.updaters.push(fn)); };
   const geo = (type) => (opts) => new GeoOp(engine, type, opts);
 
   const api = {
@@ -1868,12 +1869,12 @@ export function makeApi(engine) {
       node.sim = claimFluidState();
       return node;
     },
-    noise: (o) => new TextureOp(engine, 'noiseGen', { ...o, seed: o?.seed ?? fieldSeed() }),
+    noise: (o) => new TextureOp(engine, 'noiseGen', { ...o, seed: o?.seed ?? fieldSeed(), _phase: TIME.mul(o?.speed ?? 0.3) }),
     // A fragment pass written by hand, as a source: vUv is the pixel, tex0 is
     // black (nothing came before it), and the second argument names uniforms.
     // chain.glsl() is the same call with the picture so far in tex0.
     glsl: (source, uniforms) => glslNode(engine, source, uniforms),
-    voronoi: (o) => new TextureOp(engine, 'voronoi', { ...o, seed: o?.seed ?? fieldSeed() }),
+    voronoi: (o) => new TextureOp(engine, 'voronoi', { ...o, seed: o?.seed ?? fieldSeed(), _phase: TIME.mul(o?.speed ?? 0.3) }),
     // Canvas-rendered text. Options may ride the first argument, which is how
     // a text with no string of its own is written: text({ url }).
     text(text, o = {}) {
@@ -2032,7 +2033,7 @@ export function makeApi(engine) {
     // .when(), where it's how long the branch stays up. For a value that moves
     // on the tempo grid rather than a pulse, reach for B.
     beat(perBar = 4, width = 0.5) {
-      return sig((t) => barPhase(t, resolve(perBar, t))).sqr({ width });
+      return BARS.mul(perBar).sqr({ width });
     },
     // pick from a list by index — .select() standing on its own, and the only
     // form that works for texture chains: hand it values and it gives back a
@@ -2084,11 +2085,17 @@ export function makeApi(engine) {
       if (typeof freq === 'object' && freq !== null) ({ freq = 1, seed, type = 'value' } = freq);
       return randSignal(freq, seed ?? autoSeed(), type);
     },
+    // controls drawn in the code (widgets.js)
+    ...widgetApi,
+    // a vector: two or three parts, each a number or a signal (vecsig.js)
+    vec,
     // Pointer position as a signal, -1..1 with 0 at the center — the range a
     // .position() wants, so mouse() drops straight into one. 'down' is a 1/0 gate
     // (feed it .smooth() for a ramp, .counter() to step on clicks). The
     // projector window reports its own pointer, so this follows the visuals.
-    mouse(axis = 'x') {
+    mouse(axis) {
+      // no axis: both, as a vector, so .position(mouse().mul(4)) follows it
+      if (axis === undefined) return vec(sig(() => engine.pointer.x), sig(() => engine.pointer.y));
       const key = String(axis).toLowerCase();
       if (!['x', 'y', 'down'].includes(key)) {
         warn(`mouse: no axis '${axis}' — x, y or down; using x`);
@@ -2119,17 +2126,19 @@ export function makeApi(engine) {
     // lift any fn of t into a chainable signal: sig(t => Math.sin(t)).smooth().
     // Bare sig() is t itself — the seconds-based phase source, so
     // sig().sin().range(0, 10) is a 1 Hz oscillation over 0..10.
-    sig: (fn = (t) => t) => sig((t) => resolve(fn, t)),
+    // bare sig() is time itself, a clock like T; sig(x, y) and sig(x, y, z)
+    // are vectors (vecsig.js)
+    sig: (fn, ...more) => (more.length ? vec(fn, ...more) : fn === undefined ? TIME : sig((t) => resolve(fn, t))),
     // sig() already spelled out — T.mul(0.3).sin() rather than sig().mul(0.3).sin().
     // Stateless (it only reads t), so one shared instance is safe: everything
     // chained off it is built fresh by the sketch that chains it.
-    T: sig((t) => t),
+    T: TIME,
     // The same idea on the tempo grid: bars elapsed, counting up, at the
     // manager's tempo. Rate is set the way T's is — B.mul(2).sin() is a
     // half-bar LFO the way T.mul(2).sin() is a half-second one — and the whole
     // part is which bar, so B.select([...]) steps a list on the downbeat.
     // Stateless like T, so one shared instance is safe.
-    B: sig((t) => barPhase(t, 1)),
+    B: BARS,
     // escape hatches
     THREE,
     onFrame(fn) {

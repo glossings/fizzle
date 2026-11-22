@@ -79,7 +79,7 @@ const methodOptions = Object.entries(METHODS).map((e) => methodOption(e, soleKin
 // one filtered method list per chain kind, built once — and inside one, the
 // kind is known, so every entry can say so
 const methodsByKind = {};
-for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'blobs', 'bundle', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens']) {
+for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', 'inst', 'cursor', 'layout', 'blobs', 'bundle', 'pairs', 'segments', 'midi', 'midikey', 'gamepad', 'curve', 'curvens', 'control', 'vec', 'fluid']) {
   methodsByKind[kind] = Object.entries(METHODS)
     .filter(([label]) => METHOD_KINDS[label]?.has(kind))
     .map((e) => methodOption(e, kind));
@@ -87,10 +87,10 @@ for (const kind of ['geo', 'particle', 'evolve', 'light', 'texture', 'signal', '
 
 // globals grouped by what they produce, for boosting at a value position
 const kindGlobals = (kind) => globalOptions.filter((o) => GLOBAL_KIND[o.label] === kind);
-const TEXTURE_GLOBALS = kindGlobals('texture');
+const TEXTURE_GLOBALS = [...kindGlobals('texture'), ...kindGlobals('fluid')];
 // midi() and gamepad() aren't signals themselves, but what a parameter wants
 // from them is — so they belong in the same nudge
-const SIGNAL_GLOBALS = [...kindGlobals('signal'), ...kindGlobals('midi'), ...kindGlobals('gamepad')];
+const SIGNAL_GLOBALS = [...kindGlobals('signal'), ...kindGlobals('control'), ...kindGlobals('vec'), ...kindGlobals('midi'), ...kindGlobals('gamepad')];
 
 // A member whose kind doesn't depend on what it was called on: the signals a
 // controller handle carries, and .particles(). .key(38) keeps a handle, but a
@@ -99,6 +99,10 @@ const MEMBER_KIND = {
   particles: 'particle',
   // an image drawn as dots or scanlines is a geometry chain from there on
   points: 'geo', lines: 'geo', wire: 'geo',
+  // and a geometry, particles or segments rendered to a layer is a texture
+  render: 'texture',
+  // .fluid() on a texture starts a sim fed by it; its fields are plain textures
+  fluid: 'fluid', velocity: 'texture', curl: 'texture', pressure: 'texture',
   // bundles and back out of them: .link() draws segments wherever it's called
   scatter: 'bundle', read: 'bundle', pairs: 'pairs', link: 'segments',
   // .apply(x, i) hands the copy handle back, so the chain past it is the
@@ -163,7 +167,7 @@ function kindOfName(state, node) {
   if (name === 'select') {
     const args = node.nextSibling ? textOf(state, node.nextSibling) : '';
     const names = args.match(/[A-Za-z_$][\w$]*/g) ?? [];
-    return names.some((w) => GLOBAL_KIND[w] === 'texture') ? 'texture' : 'signal';
+    return names.some((w) => GLOBAL_KIND[w] === 'texture' || GLOBAL_KIND[w] === 'fluid') ? 'texture' : 'signal';
   }
 
   // curve is a namespace until it's called: `curve.` offers the constructors,

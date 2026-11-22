@@ -89,11 +89,20 @@ export const GLOBALS = {
   restartMedia: ['restartMedia(name?)', "Rewind imported media files to 0 — all of them, or by name (substring). In a sketch it runs on every execute. ctrl+r rewinds media too, and starts a sketch's particles, delays, trails and counters over with it."],
   rand: ["rand({ freq: 1, seed: 0, type: 'value'|'simplex' })", 'Smooth random signal: deterministic noise of t, 0..1. Positional rand(freq, seed) also works.'],
   select: ['select([a, b, c], index? | { phase })', "Pick from a list — .select() as a call of its own, and the only form that takes texture chains: values give a signal, chains give a texture showing one of them (switched like .when(), so only the chosen one renders).\nA bare index is in list units, floored and wrapped, so it carries the timing: B steps per bar, rand().mul(3).beat() lands somewhere new each beat. Default: one item per second.\n{ phase: s } reads 0..1 across the whole list instead, which is the range a knob, fader or band already has: select([a, b, c], { phase: midi().cc(74) }) sweeps the three with one knob."],
-  sig: ['sig(fn?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself."],
-  T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses."],
+  sig: ['sig(fn?) | sig(x, y, z?)', "Lift any fn of t into a chainable signal: sig(t => Math.sin(t)). Bare sig() is t itself. With two or three parts it's a vector, the same as vec()."],
+  vec: ['vec(x, y, z?)', 'A vector: a list of two or three parts, each a number or a signal. Every signal method works on it one axis at a time (.mul(2), .smooth(0.1)); it takes apart like any list, const [x, y, z] = v. Curves, .walk(), .sample(i), .normal(i), xy() and mouse() all hand one back.'],
+  T: ['T', "Bare sig() under a shorter name: t in seconds, with the signal methods on it. A value, not a call — no parentheses.\nT.mul(rate) is time running at rate, and the rate can move: T.mul(knob()) changes speed smoothly as the knob turns."],
   B: ['B', 'T on the tempo grid: bars elapsed, counting up, at the audio manager\'s tempo. A value, not a call — no parentheses.\nRate is set the way T\'s is, so B.mul(2).sin() is a half-bar LFO the way T.mul(2).sin() is a half-second one. The whole part is which bar, so B.select([...]) steps a list on the downbeat and B.mul(4) counts quarter notes.'],
-  mouse: ["mouse('x'|'y'|'down')", "Pointer position as a signal, -1..1 with 0 at the center and y up. Default axis is x; mouse('down') is a 1/0 gate while a button is held."],
+  mouse: ["mouse('x'|'y'|'down')?", "Pointer position, -1..1 with 0 at the center and y up. Bare mouse() is both axes as a vector; mouse('x') or mouse('y') is one; mouse('down') is a 1/0 gate while a button is held."],
   midi: ['midi(name?)', "A MIDI controller as signals: .cc(74) a knob or fader 0..1, .note .vel .gate .touch the keys, .key(38) narrowing those to one pad, .bend -1..1. No name reads every connected device at once; a name matches an input by substring.\nAn empty .cc() or .key() learns: move the control and its numbers are written into the call. Safari has no Web MIDI, so the signals read 0 there."],
+  slider: ['slider(value, min = 0, max = 1, step?)', 'A slider drawn in the code, as a signal between min and max. Dragging it rewrites value in the call; the sketch reads it without a re-run.'],
+  knob: ['knob(value, min = 0, max = 1, step?)', 'A knob drawn in the code, as a signal between min and max. Drag up or down; dragging rewrites value in the call.'],
+  toggle: ['toggle(value = 0)', 'A switch drawn in the code: 1 or 0, flipped by a click, which rewrites value in the call.'],
+  button: ['button()', 'A button drawn in the code: 1 while held down, 0 otherwise.'],
+  xy: ['xy(x = 0.5, y = 0.5)', 'A pad drawn under the line, as a vector, 0..1 with y up. Every signal method works on both axes (.mul(4), .smooth(0.1)); .x and .y are one axis each. Dragging rewrites x and y in the call. .position(xy()) fills x and y.'],
+  steps: ['steps(row | count, { bars, width, height })', 'A row of cells drawn in place of its text, played across a bar: 1 for the first half of a step with a hit, 0 on a rest (.). Click a cell to switch it.'],
+  sliders: ['sliders(row | count, min = 0, max = 1, { bars, width, height })', "A row of bars drawn in place of its text, played across a bar: each step's value, held for the step. Drag a bar up or down."],
+  matrix: ["matrix({ name: row }, { bars, width, height })", 'Rows of cells by name, drawn in place of their text: m.name is that row as a steps() signal.'],
   gamepad: ['gamepad(index?, { deadzone })', "A game controller as signals: .lx .ly .rx .ry sticks (-1..1, y up), .lt .rt analog triggers, .btn('a') a 1/0 gate. Standard mapping, so the face buttons answer to either brand's names — 'a' or 'cross'.\nAn empty .btn() learns the next button pressed. Browsers hide a pad until it sends something, so press a button if nothing is reading."],
 
   onFrame: ['onFrame((t, dt) => ...)', 'Register a raw per-frame callback.'],
@@ -130,10 +139,10 @@ export const METHODS = {
     texture: 'The image as scanlines — a plane mapped with it and lifted by its brightness. Hands back the geometry chain.',
   }],
   wire: ['.wire()  ·  texture: .wire({ res, depth, size })', "Draw every triangle edge as a 1px line, on any shape. .lines() is the version that follows the vertex grid. On a texture, the image as a mesh of edges."],
-  instance: ['.instance(count | bundle, (x, i, n, t) => x.position(...), { blend })', {
+  instance: ['.instance(count | bundle, (x, i, n) => x.position(...), { blend })', {
     geo: 'Render as one InstancedMesh.',
     texture: 'Stamp the picture so far once per copy, in one draw.',
-    note: "The fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count.\nA bundle stands in for the count and places each copy on its record: a layout() its pose and scale, a track() a slot per blob with the empty ones hidden, a data() or .scatter() or particles().read() the point alone. A fn alongside it runs after that, for what goes on top.",
+    note: "The fn places each copy as x, through .position/.rotation/.scale/.color, plus .alpha on a texture copy. i = copy index, n = count. Anything a copy is given can move, as anywhere else: T, a signal, or t => ….\nA bundle stands in for the count and places each copy on its record: a layout() its pose and scale, a track() a slot per blob with the empty ones hidden, a data() or .scatter() or particles().read() the point alone. A fn alongside it runs after that, for what goes on top.",
   }],
   place: ['.place(label?, data?)', "Layout cursor: record a copy centered where the cursor stands, at its heading and scale, for a tip or a scatter rather than a segment (.span() is the one that runs between joints). The label names what goes there, picked out later by .filter(); data rides along per copy, for .data(i) to read."],
   branch: ['.branch(x => x.turn(0.5), rule?)', "Layout cursor: grow a child. The step shapes it, then the rule runs again from there, one generation deeper. The parent's cursor stays put. A second argument hands the child a different rule."],
@@ -264,9 +273,19 @@ export const METHODS = {
   pow: ['.pow(v)', 'Texture: raise every pixel to the power v (scalar or [r, g, b]) · audio signal: <1 expands quiet detail, >1 emphasizes peaks. A texture in place of v sets it per pixel.'],
   sub: ['.sub(v)', 'Texture: subtract v from every pixel (scalar or [r, g, b]) · signal: subtraction, where v may be a number, a fn of t or another signal. A texture in place of v is read as RGB — per pixel, per channel.'],
   div: ['.div(v)', 'Texture: divide every pixel by v (scalar or [r, g, b]) · signal: division. A texture in place of v divides per pixel; a divisor at 0 blows out to white rather than going black.'],
+  record: ['.record(bars = 1, take?)', "control: loops a movement bars long. Hold the control to record over the loop from where you grab it to where you let go; the take is written into the call as take."],
+  x: ['.x', 'Vector: the first part, a number while it holds still and a signal while it moves.'],
+  y: ['.y', 'Vector: the second part, a number while it holds still and a signal while it moves.'],
+  z: ['.z', 'Vector: the third part, a number while it holds still and a signal while it moves.'],
+  mag: ['.mag()', 'Vector: how far it is from the origin. A number for a still vector, a signal for a moving one.'],
+  dist: ['.dist(b)', 'Vector: how far it is from b, another vector or an [x, y, z].'],
+  get: ['.get(t)', 'Vector: the parts at sketch time t, as plain numbers.'],
+  mix: ['.mix(b, amount = 0.5)', 'Signal: this at amount 0, b at 1, in between for the rest. On a vector it mixes each axis; amount can be a signal.'],
+  plot: ['.plot({ seconds, min, max })', "Signal: draws the last seconds (4) of its value under the line. Passes the signal through unchanged; the range fits the values unless min and max are given."],
+  exp: ['.exp(k = 4)', 'Signal: bends 0..1 into an exponential curve that still runs 0..1, slow at the start and fast at the end. Negative k bends the other way; 0 leaves it straight. .exp(Math.log(hi / lo)).range(lo, hi) sweeps lo to hi by ratio.'],
   range: ['.range(min, max, { from, to })', "Signal: rescale to min..max, taking the input as 0..1; from names a different input span, e.g. [-1, 1]. It doesn't clamp."],
   clamp: ['.clamp(lo = 0, hi = 1)', 'Signal: limit to lo..hi without rescaling. Both bounds take fns of t.'],
-  smooth: ['.smooth(up, down?)', 'Audio signal: exponential lag (one-pole lowpass on the value), time constants in seconds. Two args = separate attack/release.'],
+  smooth: ['.smooth(up, down?)', 'Signal: lags behind its input, covering about 63% of a jump in up seconds. A second number is the time for falling, so .smooth(0.02, 0.5) jumps up and eases down.'],
   kicks: ['.kicks({ threshold: 1.5, decay: 6, floor: 0.05 })', 'Audio signal: onset detector — 1 when the value jumps past threshold × its own moving average, exponential decay after.'],
   lowpass: ['.lowpass(hz)', "Audio signal: energy below hz (0..1) from the input's spectrum — bass level."],
   highpass: ['.highpass(hz)', "Audio signal: energy above hz (0..1) from the input's spectrum — treble level."],
@@ -662,7 +681,7 @@ const GLOBAL_KEY_DOCS = {
     decay: "'point' and 'spot': falloff exponent. Default 2, the physical inverse-square. Around 1.3 pushes light further.",
     angle: "'spot': half-width of the cone, in radians. Default ~0.52 (a desk lamp); 0.1 is a searchlight.",
     penumbra: "'spot': 0 is a hard-edged circle of light, 1 fades from the rim all the way to the center. Default 0.4.",
-    sky: "'hemi': the color from the .position() side. Default #8899ff.",
+    sky: "'hemi': the color from the .position() side. Default #8899ff; color sets it too.",
     ground: "'hemi': the color from the opposite side. Default #332211.",
     shadow: "true to cast shadows, or an object to tune them: { map, soft, strength, area, near, far, bias, normalBias }. On a point light this costs six renders; ambient and hemi cast none.",
   },
@@ -879,9 +898,30 @@ const GLOBAL_KEY_DOCS = {
   gamepad: {
     deadzone: 'How far a stick must leave center before it reads at all, 0..1. Default 0.08, which covers the drift on a worn stick; the travel past it is rescaled so the full reach is still there.',
   },
+  steps: {
+    bars: 'How many bars the row spans. Default 1.',
+    width: 'One cell\'s width in pixels. Default 14.',
+    height: 'One cell\'s height in pixels. Default 14.',
+  },
+  sliders: {
+    bars: 'How many bars the row spans. Default 1.',
+    width: 'One bar\'s width in pixels. Default 12.',
+    height: 'One bar\'s height in pixels. Default 32.',
+  },
+  matrix: {
+    name: 'A row, as a string of cells: x plays, . rests. Read back as m.name.',
+    bars: 'How many bars each row spans. Default 1.',
+    width: 'One cell\'s width in pixels. Default 14.',
+    height: 'One cell\'s height in pixels. Default 14.',
+  },
 };
 
 const METHOD_KEY_DOCS = {
+  plot: {
+    seconds: 'How much of the past the plot shows. Default 4.',
+    min: 'The value at the bottom. Default: the lowest value shown.',
+    max: 'The value at the top. Default: the highest value shown.',
+  },
   circle: {
     center: 'Where the circle sits, [x, y, z]. Components take fns of t. Default the origin.',
     axis: "The axis the circle rings: 'y' (default — flat on the ground), 'x' or 'z'.",
@@ -1263,11 +1303,15 @@ const globalKinds = {
   curvens: 'curve',
   bundle: 'data',
   segments: 'segments link',
-  texture: 'scene depth input sketch constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text fluid glsl',
-  signal: 'beat audio audiofile band rand select sig T B mouse',
+  texture: 'scene depth input sketch constant ramp circle ring rect polygon checker video person videofile videoseq imagefile imageseq noise voronoi text glsl',
+  fluid: 'fluid',
+  signal: 'beat audio audiofile band rand select sig T B mouse steps sliders',
   feed: 'feed',
   midi: 'midi',
   gamepad: 'gamepad',
+  control: 'slider knob toggle button',
+  matrix: 'matrix',
+  vec: 'xy vec',
 };
 
 const methodKinds = {
@@ -1296,9 +1340,14 @@ const methodKinds = {
   texture: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue each
         posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
         remap lookup lut grain tint alpha displace comp blend mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
-        fluid ink push obstacle velocity curl pressure field marked`,
-  signal: `add sub mul div pow range clamp round floor ceil abs gte lte counter select
-           sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass`,
+        fluid field marked`,
+  // a fluid() chain: every texture op, plus the sim's own
+  fluid: `mirror kaleido radial through polar edge slope normalMap levels add sub mul div pow contrast saturation gamma hue each
+        posterize dither pixelsort jpeg pixellate ascii transform warp chroma translate rotate scale crop threshold chromaKey lumaKey invert
+        remap lookup lut grain tint alpha displace comp blend mask glsl blur bloom delay feedback flow when scroll tile instance particles points lines wire out
+        fluid field marked ink push obstacle velocity curl pressure`,
+  signal: `add sub mul div pow exp range clamp round floor ceil abs gte lte counter select
+           sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass plot mix`,
   // what a midi()/gamepad() handle carries — signals, plus the two calls that
   // take a number. midikey is what .key(38) narrows to: the same key signals,
   // minus the device-wide ones.
@@ -1306,6 +1355,13 @@ const methodKinds = {
   // is marked, and the two transforms that move the offsets with the text
   feed: 'text ranges marked slice invert',
   midi: 'cc key note vel gate touch bend',
+  // a control is a signal with one more method
+  control: `add sub mul div pow exp range clamp round floor ceil abs gte lte counter select
+           sin cos tri saw sqr beat hold kicks smooth lowpass highpass bandpass plot mix record`,
+  // a vector: every signal method, plus the parts and the ones that read all
+  // of them at once
+  vec: `add sub mul div pow exp mix range clamp round floor ceil abs gte lte select
+        sin cos tri saw sqr beat hold smooth x y z mag dist get record`,
   midikey: 'note vel gate touch',
   gamepad: 'lx ly rx ry lt rt btn',
 };
@@ -1327,6 +1383,7 @@ export const KIND_LABEL = {
   texture: 'texture', signal: 'signal', repeat: 'signal', midi: 'midi', midikey: 'midi',
   gamepad: 'gamepad', hand: 'hand', layout: 'layout', blobs: 'tracker', cursor: 'cursor', inst: 'copy',
   curve: 'curve', curvens: 'curve', bundle: 'bundle', pairs: 'pairs', segments: 'segments', feed: 'feed',
+  control: 'control', vec: 'vector', fluid: 'texture', matrix: 'matrix',
 };
 
 // The globals as a catalog, for a completion popup opened with nothing typed:
@@ -1338,6 +1395,8 @@ export const GLOBAL_SECTIONS = [
   ['geometry', 'box capsule cylinder icosa model particles plane sphere text3d torus torusKnot'],
   ['textures', 'checker circle constant depth fluid imagefile imageseq input noise person polygon ramp rect ring scene sketch sky stack text video videofile videoseq voronoi'],
   ['signals', 'audio audiofile B band bands beat feed gamepad midi mouse rand restartMedia select sig speed T tempo'],
+  ['controls', 'button knob matrix slider sliders steps toggle xy'],
+  ['vectors', 'vec'],
   ['structure', 'curve data layout link segments spread track'],
   ['lights', 'ambient directional hdri hemi light point spot'],
   ['scene', 'bg camera fog hsl hsv param resolution'],

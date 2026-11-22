@@ -1,6 +1,7 @@
 import { autoSeed } from './seeds.js';
 import { warn } from './warn.js';
 import { sig } from './audio.js';
+import { vec } from './vecsig.js';
 import { Layout } from './layout.js';
 import { Bundle } from './link.js';
 
@@ -44,13 +45,13 @@ function mk(f, { closed = false, dynamic = false } = {}) {
 // and friends resolve per frame. The three share one memoized eval, so a
 // frame costs one call, not three.
 function evaluate(f, wrap, dynamic, u) {
-  if (!isFn(u) && !dynamic) return f(wrap(Number(u) || 0), 0);
+  if (!isFn(u) && !dynamic) return vec(...f(wrap(Number(u) || 0), 0));
   let at = null, v = [0, 0, 0];
   const ev = (t) => {
     if (at !== t) { at = t; v = f(wrap(Number(resolve(u, t)) || 0), t); }
     return v;
   };
-  return [sig((t) => ev(t)[0]), sig((t) => ev(t)[1]), sig((t) => ev(t)[2])];
+  return vec(sig((t) => ev(t)[0]), sig((t) => ev(t)[1]), sig((t) => ev(t)[2]));
 }
 
 // direction of travel at u, unit length — what .align() wants. Follows the

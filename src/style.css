@@ -623,3 +623,145 @@ html.clean #touchbar { display: none !important; }
   #sidebar ul li { padding: 9px 6px; }
   #sidebar ul li button { padding: 4px 10px; font-size: 13px; }
 }
+
+/* controls drawn in the code (widgets-editor.js). The face is the control;
+   the grip in its lower right corner resizes it. */
+.cm-editor .cm-w {
+  --w-line: rgba(255, 255, 255, 0.28);
+  --w-fill: #61afef;
+  --w-play: #e5c07b;
+  --w-rec: #e06c75;
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 6px 0 1px;
+  line-height: 0;
+  touch-action: none;
+  user-select: none;
+}
+.cm-editor .cm-w-face {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  border: 1px solid var(--w-line);
+  overflow: hidden;
+  cursor: grab;
+}
+.cm-editor .cm-w-face:active { cursor: grabbing; }
+.cm-editor .cm-w.playing { --w-fill: var(--w-play); }
+.cm-editor .cm-w.armed.held { --w-fill: var(--w-rec); }
+.cm-editor .cm-w.armed.held .cm-w-face { border-color: var(--w-rec); }
+.cm-editor .cm-w.dead { opacity: 0.35; pointer-events: none; }
+.cm-editor .cm-w-slider .cm-w-face {
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.cm-editor .cm-w-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--w-fill);
+  opacity: 0.75;
+}
+.cm-editor .cm-w-knob .cm-w-face {
+  --p: 0deg;
+  border: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 225deg, var(--w-fill) 0 var(--p), var(--w-line) var(--p) 270deg, transparent 270deg);
+  -webkit-mask: radial-gradient(circle closest-side, transparent 52%, #000 56%);
+  mask: radial-gradient(circle closest-side, transparent 52%, #000 56%);
+}
+.cm-editor .cm-w-toggle .cm-w-face { border-radius: 2px; cursor: pointer; }
+.cm-editor .cm-w-button .cm-w-face { border-radius: 6px; cursor: pointer; }
+.cm-editor .cm-w-toggle.on .cm-w-face,
+.cm-editor .cm-w-button.on .cm-w-face { background: var(--w-fill); border-color: var(--w-fill); }
+.cm-editor .cm-w-xy { display: block; width: max-content; margin: 4px 0 6px; }
+.cm-editor .cm-w-xy .cm-w-face {
+  border-radius: 4px;
+  background: rgba(10, 10, 15, 0.55);
+  cursor: crosshair;
+}
+.cm-editor .cm-w-cross-x,
+.cm-editor .cm-w-cross-y { position: absolute; background: rgba(255, 255, 255, 0.07); }
+.cm-editor .cm-w-cross-x { left: 0; right: 0; top: 50%; height: 1px; }
+.cm-editor .cm-w-cross-y { top: 0; bottom: 0; left: 50%; width: 1px; }
+.cm-editor .cm-w-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--w-fill);
+  pointer-events: none;
+}
+/* just outside the face, so it never covers what's being dragged */
+.cm-editor .cm-w-grip {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+/* a knob's square has an empty corner outside its circle: the grip goes there */
+.cm-editor .cm-w-knob .cm-w-grip { right: -2px; bottom: -2px; }
+.cm-editor .cm-w:hover .cm-w-grip::after,
+.cm-editor .cm-w-cells:hover .cm-w-grip::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--w-fill);
+  border-bottom: 1.5px solid var(--w-fill);
+  opacity: 0.45;
+}
+.cm-editor .cm-w .cm-w-grip:hover::after,
+.cm-editor .cm-w-cells .cm-w-grip:hover::after { opacity: 1; }
+body.cm-w-resizing,
+body.cm-w-resizing * { cursor: nwse-resize !important; }
+body.scrubbing,
+body.scrubbing * { cursor: grabbing !important; }
+/* steps(), sliders(), matrix(): cells in place of their text */
+.cm-editor .cm-w-cells {
+  --w-line: rgba(255, 255, 255, 0.28);
+  --w-fill: #61afef;
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  vertical-align: middle;
+  margin: 0 1px;
+  line-height: 0;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+.cm-editor .cm-w-cell {
+  position: relative;
+  box-sizing: border-box;
+  border: 1px solid var(--w-line);
+  border-radius: 2px;
+}
+.cm-editor .cm-w-cell.beat { margin-left: 4px; }
+.cm-editor .cm-w-cells-hits .cm-w-cell.on { background: var(--w-fill); border-color: var(--w-fill); opacity: 0.8; }
+.cm-editor .cm-w-cell.now { border-color: #fff; opacity: 1; }
+.cm-editor .cm-w-cells-bars .cm-w-cell { overflow: hidden; }
+.cm-editor .cm-w-bar { position: absolute; left: 0; right: 0; bottom: 0; background: var(--w-fill); opacity: 0.75; }
+/* .plot(): a signal over time, under its line */
+.cm-editor .cm-w-plot { display: block; width: max-content; margin: 4px 0 6px; }
+.cm-editor .cm-w-plot .cm-w-face { border-radius: 4px; background: rgba(10, 10, 15, 0.55); cursor: default; }
+.cm-editor .cm-w-plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cm-editor .cm-w-plot-range {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  font-size: 10px;
+  line-height: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+/* one widget in the hand: the rest stay quiet under the pointer */
+body.cm-w-holding .cm-w-grip { pointer-events: none; }
+body.cm-w-holding .cm-w-grip::after { content: none !important; }

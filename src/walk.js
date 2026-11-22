@@ -8,6 +8,7 @@
 // replays from the start.
 
 import { sig } from './audio.js';
+import { vec } from './vecsig.js';
 import { warn } from './warn.js';
 import { autoSeed } from './seeds.js';
 import * as THREE from 'three';
@@ -94,5 +95,5 @@ export function walkOn(geo, o = {}) {
     out = [p.x, p.y, p.z];
     return out;
   };
-  return [sig((t) => ev(t)[0]), sig((t) => ev(t)[1]), sig((t) => ev(t)[2])];
+  return vec(sig((t) => ev(t)[0]), sig((t) => ev(t)[1]), sig((t) => ev(t)[2]));
 }

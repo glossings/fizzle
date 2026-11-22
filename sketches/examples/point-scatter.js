@@ -18,10 +18,10 @@ const tint = Array.from({ length: 900 }, (_, i) => {
 
 // Spikes standing off the surface — .align() aims each cone along the normal
 cylinder({ radiusTop: 0, radiusBottom: 0.09, height: 0.5, res: 8 })
-  .instance(900, (x, i, n, t) => x
+  .instance(900, (x, i) => x
     .position(shell.sample(i))
     .align(shell.normal(i))
-    .scale(1, 1 + 0.6 * Math.sin(t * 2 + i), 1)
+    .scale(1, (t) => 1 + 0.6 * Math.sin(t * 2 + i), 1)
     .color(tint[i]))
   .material({ roughness: 0.3, metalness: 0.4 })
   .out()

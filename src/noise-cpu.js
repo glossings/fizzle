@@ -160,7 +160,7 @@ const TDIR = [1.0, 0.83, 0.61];
 
 // how far along the normal the surface moves at p — the scalar the GPU adds
 const offset = (px, py, pz, c) => {
-  const k = c.time * c.speed;
+  const k = c.phase;
   const s = c.seed * 19.19;
   return fbm(px * c.freq + k * TDIR[0] + OFF[0] + s,
     py * c.freq + k * TDIR[1] + OFF[1] + s,

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { warn } from './warn.js';
+import { fillSlots, scaleSlots } from './vec.js';
 import { setColor, makeColor, isDynamicColor } from './color.js';
 
 // Bundle: indexed records, refreshed once per frame — the family every producer
@@ -550,9 +551,9 @@ export class SegmentsOp {
     this._blend = mode;
     return this;
   }
-  position(x = 0, y = 0, z = 0) { this._pos = [x, y, z]; return this; }
-  rotation(x = 0, y = 0, z = 0) { this._rot = [x, y, z]; return this; }
-  scale(x = 1, y, z) { this._scale = [x, y ?? x, z ?? x]; return this; }
+  position(...a) { this._pos = fillSlots(a, [0, 0, 0]); return this; }
+  rotation(...a) { this._rot = fillSlots(a, [0, 0, 0]); return this; }
+  scale(...a) { this._scale = scaleSlots(a); return this; }
 
   out(name) {
     if (this._built) {

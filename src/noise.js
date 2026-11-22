@@ -121,7 +121,8 @@ const vec3 DOMAIN_OFFSET = vec3(0.0, 3.7, 8.3);
 const vec3 TIME_DIR = vec3(1.0, 0.83, 0.61);
 
 vec3 displacePoint(vec3 p, vec3 n, vec3 seed) {
-  float d = fbm((p + seed) * ${u}Freq + uTime * ${u}Speed * TIME_DIR + DOMAIN_OFFSET + ${u}Seed * 19.19);
+  // ${u}Speed holds the drift so far (time at speed, added up), not a rate
+  float d = fbm((p + seed) * ${u}Freq + ${u}Speed * TIME_DIR + DOMAIN_OFFSET + ${u}Seed * 19.19);
   return p + n * d * ${u}Amp;
 }
 `;
